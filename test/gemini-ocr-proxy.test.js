@@ -198,7 +198,7 @@ describe('AIVisionProcessor.recognizeAndMerge', () => {
     vi.unstubAllGlobals();
   });
 
-  it('with two files, sends the primary file alone, then the second file as its own registration request', async () => {
+  it('with two files, sends the primary file alone and the second file as its own registration request', async () => {
     const processor = new AIVisionProcessor();
     const calls = [];
     const fetchMock = vi.fn(async (url, options) => {
@@ -228,6 +228,59 @@ describe('AIVisionProcessor.recognizeAndMerge', () => {
     const [p6, p7] = [candidate.weeklySchedule[1][5], candidate.weeklySchedule[1][6]];
     expect(p6).toBe(p7);
     expect(candidate.teacherDB[p6]).toEqual(['西班牙語', '李忍堅', '303教室']);
+    vi.unstubAllGlobals();
+  });
+
+  // The whole point of the concurrency change: with 3 files, real wall-clock
+  // time used to be roughly 3 sequential round trips; it should now be
+  // roughly 1, because every request is in flight before any of them
+  // resolve. Proven directly, not inferred from call order, since call
+  // order alone can't tell a concurrent fan-out apart from a fast
+  // sequential one.
+  it('has every request in flight before any of them resolves, regardless of file count', async () => {
+    const processor = new AIVisionProcessor();
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fetchMock = vi.fn(async (url, options) => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      inFlight--;
+      const body = JSON.parse(options.body);
+      return body.promptType === 'registration'
+        ? fakeRegistrationResponse([])
+        : fakeGeminiResponse({ classes: [], weeklySchedule: {} });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await processor.recognizeAndMerge(fakeFiles(3), () => {});
+    expect(maxInFlight).toBe(3); // primary + 2 registration requests, all at once
+    vi.unstubAllGlobals();
+  });
+
+  it('merges in file order even when a later file resolves before the primary', async () => {
+    const processor = new AIVisionProcessor();
+    const fetchMock = vi.fn(async (url, options) => {
+      const body = JSON.parse(options.body);
+      if (body.promptType === 'registration') {
+        // Resolves immediately - deliberately faster than the primary below.
+        return fakeRegistrationResponse([
+          { subject: '西班牙語', teacher: '李忍堅', day: 1, periods: [1] }
+        ]);
+      }
+      // The primary file is the slow one this time.
+      await new Promise(resolve => setTimeout(resolve, 20));
+      return fakeGeminiResponse({
+        classes: [{ key: 'c1', subject: '多元選修', teacher: '' }],
+        weeklySchedule: { 1: ['c1'] },
+        bellTimes: [{ start: '08:00', end: '08:50' }]
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { candidate } = await processor.recognizeAndMerge(fakeFiles(2), () => {});
+    // The registration file's course still lands in the final candidate,
+    // correctly merged onto the primary's schedule, even though its own
+    // network request finished first.
+    expect(candidate.teacherDB[candidate.weeklySchedule[1][0]][0]).toBe('西班牙語');
     vi.unstubAllGlobals();
   });
 

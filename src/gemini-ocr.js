@@ -173,6 +173,10 @@ function isGeminiProxyConfigured() {
   return !!GEMINI_PROXY_URL;
 }
 
+// Gives each AIVisionProcessor.callGemini invocation its own console.time
+// label suffix - see that method for why concurrent calls need it.
+let nextGeminiCallId = 0;
+
 // Fired the moment the user reaches for the file picker, long before there
 // is anything to send: it pays the DNS lookup, TLS handshake and the
 // Worker's own first-request initialization while the user is still
@@ -272,6 +276,13 @@ class AIVisionProcessor {
   // whether a parsed response is good enough to stop at or worth escalating
   // to the next model for.
   async callGemini(promptType, files, onProgress, { validate } = {}) {
+    // recognizeAndMerge now runs several callGemini calls concurrently (see
+    // its own comment) - which can easily mean two calls sharing the same
+    // promptType+model at once (e.g. two registration files both trying the
+    // cheap model). console.time/timeEnd key on the label alone, so without
+    // a per-invocation id here, concurrent calls would stomp on each other's
+    // timers instead of each reporting its own duration.
+    const callId = nextGeminiCallId++;
     const report = message => {
       try {
         onProgress?.(message);
@@ -301,7 +312,7 @@ class AIVisionProcessor {
       // attributed instead of guessed at: if GeminiCall is quick and
       // GeminiParse is slow, the page is stalling on this file's own
       // parsing, not on the network.
-      const callLabel = `GeminiCall:${promptType}:${model}`;
+      const callLabel = `GeminiCall:${promptType}:${callId}:${model}`;
       console.time(callLabel);
       try {
         response = await fetch(GEMINI_PROXY_URL, {
@@ -318,7 +329,7 @@ class AIVisionProcessor {
       }
       if (response.ok) {
         report(`AI 已回應（使用模型：${model}），正在解析辨識結果…`);
-        const parseLabel = `GeminiParse:${promptType}:${model}`;
+        const parseLabel = `GeminiParse:${promptType}:${callId}:${model}`;
         console.time(parseLabel);
         let candidate;
         try {
@@ -658,17 +669,31 @@ class AIVisionProcessor {
   async recognizeAndMerge(files, onProgress, opts = {}) {
     const parts = Array.isArray(files) ? files : [files];
     if (!parts.length) throw new Error('請先選擇檔案。');
-    const primary = await this.recognizeSchedule([parts[0]], onProgress, opts);
+    // The primary file and every registration file are independent requests
+    // - a registration call never depends on the primary's result - so they
+    // run concurrently rather than one after another. This used to be a
+    // sequential for-loop, which stacked each extra file's full round trip
+    // on top of the last; besides being slower than it needed to be, that
+    // made real import time increasingly outrun the ETA timer's estimate
+    // (calibrated for roughly one round trip) the more files were attached,
+    // which is what made the timer look "inconsistent" - accurate for a
+    // single file, increasingly wrong for two or more.
+    const scoped = label =>
+      onProgress && (message => onProgress(parts.length > 1 ? `${label}：${message}` : message));
+    const [primary, ...registrations] = await Promise.all([
+      this.recognizeSchedule([parts[0]], scoped('課表'), opts),
+      ...parts.slice(1).map((file, index) => this.recognizeRegistration(file, scoped(`附加檔案 ${index + 2}`)))
+    ]);
     let candidate = primary.candidate;
     const modelsUsed = [primary.modelUsed];
-    for (let i = 1; i < parts.length; i++) {
-      const { candidate: registration, modelUsed } = await this.recognizeRegistration(
-        parts[i],
-        onProgress
-      );
+    // Promise.all preserves input order in its results regardless of which
+    // request actually resolved first, so this stays in file order - "a
+    // later file wins over an earlier one at the same slot" needs that to
+    // be deterministic, not a race between however fast each request ran.
+    registrations.forEach(({ candidate: registration, modelUsed }) => {
       candidate = this.mergeRegistrationIntoCandidate(candidate, registration);
       modelsUsed.push(modelUsed);
-    }
+    });
     return { candidate, modelUsed: modelsUsed.join(' + ') };
   }
 }
@@ -943,16 +968,24 @@ class ImportPreview {
 // same "watched pot" problem the countdown had, just moved into a screen
 // reader.
 //
-// The estimate itself is derived rather than fixed: the number of files
-// genuinely changes how long this takes - each one is separately uploaded
-// and separately read - so quoting the same figure for a single screenshot
-// and for four is just being wrong on purpose. Still hand-picked rather
-// than measured, since this app has no telemetry; it is deliberately a
-// little pessimistic, because an import that beats its estimate costs
-// nothing and one that overruns it is the case this whole element exists to
-// avoid.
+// The estimate itself is derived rather than fixed: more files still
+// genuinely changes how long this takes, so quoting the same figure for a
+// single screenshot and for four would be wrong on purpose. The per-file
+// add-on is small, though - see recognizeAndMerge: every additional file's
+// request runs concurrently with the primary one now, not after it, so the
+// total wall-clock time is close to whichever single request is slowest,
+// not the sum of all of them. A bigger per-file constant here is left over
+// from when that fan-out was still sequential and each extra file really
+// did stack its own full round trip on top of the last; keeping that old
+// value after the fan-out was parallelized would make this estimate run
+// increasingly far under the (now much larger) real time for more files,
+// not over it - the opposite of the pessimism this is supposed to have.
+// Still hand-picked rather than measured, since this app has no telemetry;
+// deliberately a little pessimistic, because an import that beats its
+// estimate costs nothing and one that overruns it is the case this whole
+// element exists to avoid.
 const ETA_BASE_SECONDS = 5;
-const ETA_PER_EXTRA_FILE_SECONDS = 3;
+const ETA_PER_EXTRA_FILE_SECONDS = 1;
 // How far past the estimate to run before admitting it - generous enough
 // that an ordinary bit of variance never trips it, tight enough that a
 // genuinely stuck request doesn't sit under a confident-looking estimate
