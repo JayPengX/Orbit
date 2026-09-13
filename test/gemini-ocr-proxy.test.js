@@ -59,12 +59,13 @@ describe('AIVisionProcessor.recognizeSchedule with a configured proxy', () => {
     vi.unstubAllGlobals();
   });
 
-  it("sends only {model, files} - the prompt and generation config are the proxy's job, not the client's", async () => {
+  it("sends only {model, promptType, files} - the prompt and generation config are the proxy's job, not the client's", async () => {
     const processor = new AIVisionProcessor();
     const fetchMock = vi.fn(async (url, options) => {
       expect(url).toBe(PROXY_URL);
       const body = JSON.parse(options.body);
       expect(body.model).toBe('gemini-3.5-flash-lite');
+      expect(body.promptType).toBe('timetable');
       expect(body.files).toHaveLength(1);
       expect(body.files[0]).toMatchObject({ mime_type: 'image/jpeg' });
       expect(typeof body.files[0].data).toBe('string');
@@ -78,10 +79,11 @@ describe('AIVisionProcessor.recognizeSchedule with a configured proxy', () => {
     vi.unstubAllGlobals();
   });
 
-  // The whole point of accepting more than one file: they have to reach the
-  // model as one request, or a screenshot cannot fill in the names a
-  // timetable photo left as placeholders.
-  it('sends every chosen file in a single request, in the order they were picked', async () => {
+  // recognizeSchedule() itself still sends whatever files it's given in one
+  // request (useful e.g. for stitching two photos of one physical page) -
+  // it's recognizeAndMerge() that no longer calls it this way for the
+  // timetable-plus-registration-document case; see the describe block below.
+  it('sends every given file in a single request, in the order they were picked', async () => {
     const processor = new AIVisionProcessor();
     const fetchMock = vi.fn(async (url, options) => {
       const body = JSON.parse(options.body);
@@ -165,6 +167,129 @@ describe('AIVisionProcessor.recognizeSchedule with a configured proxy', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
     Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+  });
+});
+
+// mountOCRImporter's actual entry point for a real import. A single file
+// stays exactly recognizeSchedule(); more than one splits into a primary
+// 'timetable' request plus one 'registration' request per remaining file,
+// merged deterministically rather than asked of the model in one shot - see
+// GEMINI_PROMPT's and mergeRegistrationIntoCandidate's own comments in
+// src/gemini-ocr.js and cloudflare-worker/orbit-worker.js for why.
+describe('AIVisionProcessor.recognizeAndMerge', () => {
+  function fakeRegistrationResponse(courses, countdownEvents = []) {
+    return fakeGeminiResponse({ courses, countdownEvents });
+  }
+
+  it('with one file, behaves exactly like recognizeSchedule - a single timetable request', async () => {
+    const processor = new AIVisionProcessor();
+    const fetchMock = vi.fn(async (url, options) => {
+      expect(JSON.parse(options.body).promptType).toBe('timetable');
+      return fakeGeminiResponse({
+        classes: [{ key: 'c1', subject: '國文', teacher: '陳老師' }],
+        weeklySchedule: { 1: ['c1'] },
+        bellTimes: [{ start: '08:10', end: '09:00' }]
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { candidate } = await processor.recognizeAndMerge(fakeFiles(1), () => {});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(candidate.weeklySchedule[1][0]).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it('with two files, sends the primary file alone, then the second file as its own registration request', async () => {
+    const processor = new AIVisionProcessor();
+    const calls = [];
+    const fetchMock = vi.fn(async (url, options) => {
+      const body = JSON.parse(options.body);
+      calls.push(body);
+      if (body.promptType === 'registration') {
+        return fakeRegistrationResponse([
+          { subject: '西班牙語', teacher: '李忍堅', location: '303教室', day: 1, periods: [6, 7] }
+        ]);
+      }
+      return fakeGeminiResponse({
+        classes: [{ key: 'c1', subject: '多元選修', teacher: '' }],
+        weeklySchedule: { 1: [null, null, null, null, null, 'c1', 'c1'] },
+        bellTimes: Array.from({ length: 7 }, () => ({ start: '08:00', end: '08:50' }))
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { candidate, modelUsed } = await processor.recognizeAndMerge(fakeFiles(2), () => {});
+    expect(calls).toHaveLength(2);
+    expect(calls[0].files).toHaveLength(1); // primary: only the first file
+    expect(calls[0].promptType).toBe('timetable');
+    expect(calls[1].files).toHaveLength(1); // registration: only the second file
+    expect(calls[1].promptType).toBe('registration');
+    expect(modelUsed).toBe('gemini-3.5-flash-lite + gemini-3.5-flash-lite');
+    // Both period-6 and period-7 Monday slots got the registration course,
+    // replacing the "多元選修" placeholder the primary file returned there.
+    const [p6, p7] = [candidate.weeklySchedule[1][5], candidate.weeklySchedule[1][6]];
+    expect(p6).toBe(p7);
+    expect(candidate.teacherDB[p6]).toEqual(['西班牙語', '李忍堅', '303教室']);
+    vi.unstubAllGlobals();
+  });
+
+  it('a registration course overwrites whatever was at its day+period, even a non-generic subject', async () => {
+    const processor = new AIVisionProcessor();
+    const fetchMock = vi.fn(async (url, options) => {
+      const body = JSON.parse(options.body);
+      return body.promptType === 'registration'
+        ? fakeRegistrationResponse([{ subject: '社會經濟補給站 V', teacher: '于子芸', day: 2, periods: [3] }])
+        : fakeGeminiResponse({
+            classes: [{ key: 'c1', subject: '英語文', teacher: '楊嘉凌' }],
+            weeklySchedule: { 2: [null, null, 'c1'] },
+            bellTimes: Array.from({ length: 3 }, () => ({ start: '08:00', end: '08:50' }))
+          });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { candidate } = await processor.recognizeAndMerge(fakeFiles(2), () => {});
+    const key = candidate.weeklySchedule[2][2];
+    expect(candidate.teacherDB[key][0]).toBe('社會經濟補給站 V');
+    vi.unstubAllGlobals();
+  });
+
+  it('merges countdownEvents from both the primary and every registration file', async () => {
+    const processor = new AIVisionProcessor();
+    const fetchMock = vi.fn(async (url, options) => {
+      const body = JSON.parse(options.body);
+      return body.promptType === 'registration'
+        ? fakeRegistrationResponse(
+            [],
+            [{ name: '模擬考', startDate: '2027-03-01', endDate: '2027-03-02' }]
+          )
+        : fakeGeminiResponse({
+            classes: [],
+            weeklySchedule: {},
+            countdownEvents: [{ name: '116 學測', startDate: '2027-01-22', endDate: '2027-01-24' }]
+          });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { candidate } = await processor.recognizeAndMerge(fakeFiles(2), () => {});
+    expect(candidate.countdownEvents.map(event => event.name)).toEqual(
+      expect.arrayContaining(['116 學測', '模擬考'])
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it('drops a registration row with an unusable day or empty periods instead of throwing', async () => {
+    const processor = new AIVisionProcessor();
+    const fetchMock = vi.fn(async (url, options) => {
+      const body = JSON.parse(options.body);
+      return body.promptType === 'registration'
+        ? fakeRegistrationResponse([
+            { subject: '好課程', teacher: '', day: 9, periods: [1] }, // day out of range
+            { subject: '壞課程', teacher: '', day: 1, periods: [] }, // no periods
+            { subject: '有效課程', teacher: '王老師', day: 3, periods: [2] }
+          ])
+        : fakeGeminiResponse({ classes: [], weeklySchedule: {} });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { candidate } = await processor.recognizeAndMerge(fakeFiles(2), () => {});
+    const subjects = Object.values(candidate.teacherDB).map(entry => entry[0]);
+    expect(subjects).toEqual(['有效課程']);
+    vi.unstubAllGlobals();
   });
 });
 

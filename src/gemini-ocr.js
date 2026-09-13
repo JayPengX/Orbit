@@ -197,6 +197,29 @@ function warmUpGeminiProxy() {
   });
 }
 
+// Shared by normalizeAIOutput and mergeRegistrationIntoCandidate - both end
+// up with a final {weeklySchedule, teacherDB} pair that recognizedBlocks
+// (the shape the preview UI reads) needs rebuilt from scratch afterward.
+function computeRecognizedBlocks(weeklySchedule, teacherDB) {
+  const recognizedBlocks = [];
+  WEEKDAYS_INDEX_ORDER.forEach(day => {
+    const daySchedule = weeklySchedule[day] || [];
+    daySchedule.forEach((code, period) => {
+      if (code && teacherDB[code]) {
+        recognizedBlocks.push({
+          id: `${period}:${day}`,
+          day,
+          period,
+          assignment: { key: code, subject: teacherDB[code][0], teacher: teacherDB[code][1] },
+          assignmentStatus: 'assigned',
+          confidence: 99
+        });
+      }
+    });
+  });
+  return recognizedBlocks;
+}
+
 class AIVisionProcessor {
   constructor() {
     // Fastest first, most capable last - the reverse of how this list used
@@ -233,33 +256,22 @@ class AIVisionProcessor {
     // available yet.
     //
     // Must match GEMINI_ALLOWED_MODELS in cloudflare-worker/orbit-worker.js
-    // exactly.
+    // exactly. Fastest-first is safe for every call this class makes now:
+    // each one is single-file and single-purpose (see callGemini) after the
+    // combined "read both documents and cross-reference them" request was
+    // dropped - the cheap model tested fine on that narrower kind of task
+    // even when it badly scrambled the old combined one (see
+    // recognizeAndMerge/mergeRegistrationIntoCandidate for what replaced it).
     this.geminiModels = ['gemini-3.5-flash-lite', 'gemini-3.7-flash'];
   }
 
-  // Fastest-first is right for a single file, but confirmed wrong for
-  // several: ran this app's real prompt+schema against gemini-3.5-flash-lite
-  // with two real files (a timetable photo plus a course-registration form)
-  // and it scrambled the cross-reference badly - courses landed on the wrong
-  // day, some placeholders were never resolved at all, and it invented
-  // duplicate entries for cells that were genuinely blank. The exact same
-  // two files handed to gemini-3.7-flash came back correct on every slot.
-  // The structural `validate` check below can't catch this class of
-  // failure - a scrambled answer is still perfectly well-formed JSON - so
-  // there is no escalation path that would ever recover it. Reordering
-  // per-request instead of escalating after the fact means the harder task
-  // gets the model that's actually shown able to do it, on the first try.
-  modelOrderFor(fileCount) {
-    return fileCount > 1 ? [...this.geminiModels].reverse() : this.geminiModels;
-  }
-
-  // `files` is the encoded {mime_type, data} part list (see
-  // encodeSourceForUpload) - all of them go up in one request so the model
-  // reads them as one timetable, which is the entire point of accepting
-  // more than one. `validate` is optional and, when given, decides whether
-  // a parsed response is good enough to stop at or worth escalating to the
-  // next model for.
-  async recognizeSchedule(files, onProgress, { validate } = {}) {
+  // Low-level call shared by every request this class makes: exactly one
+  // fixed server-side prompt (`promptType`, matching
+  // cloudflare-worker/orbit-worker.js's GEMINI_PROMPT_TYPES) against exactly
+  // the files given. `validate` is optional and, when given, decides
+  // whether a parsed response is good enough to stop at or worth escalating
+  // to the next model for.
+  async callGemini(promptType, files, onProgress, { validate } = {}) {
     const report = message => {
       try {
         onProgress?.(message);
@@ -273,23 +285,23 @@ class AIVisionProcessor {
     if (!parts.length) throw new Error('請先選擇檔案。');
 
     // The prompt text and generation config are NOT sent from here - the
-    // proxy (cloudflare-worker/orbit-worker.js's /gemini path) owns both and builds
-    // the full Gemini request itself from just {model, files}. That's
-    // deliberate: it means the proxy can only ever be used to run this
-    // app's own fixed timetable-extraction prompt against submitted
+    // proxy (cloudflare-worker/orbit-worker.js's /gemini path) owns both and
+    // builds the full Gemini request itself from just {model, promptType,
+    // files}. That's deliberate: it means the proxy can only ever be used to
+    // run one of this app's own fixed, hardcoded prompts against submitted
     // files, never as a generic pass-through for arbitrary prompts - see
     // README's security notes on the AI proxy.
     let lastError = null;
     let lastRejected = null;
-    for (const model of this.modelOrderFor(parts.length)) {
+    for (const model of this.geminiModels) {
       report(`正在請求 AI 模型（${model}）分析課表…`);
-      const requestBody = JSON.stringify({ model, files: parts });
+      const requestBody = JSON.stringify({ model, promptType, files: parts });
       let response;
       // Split into three marks rather than one so a slow import can be
       // attributed instead of guessed at: if GeminiCall is quick and
       // GeminiParse is slow, the page is stalling on this file's own
       // parsing, not on the network.
-      const callLabel = `GeminiCall:${model}`;
+      const callLabel = `GeminiCall:${promptType}:${model}`;
       console.time(callLabel);
       try {
         response = await fetch(GEMINI_PROXY_URL, {
@@ -306,11 +318,11 @@ class AIVisionProcessor {
       }
       if (response.ok) {
         report(`AI 已回應（使用模型：${model}），正在解析辨識結果…`);
-        const parseLabel = `GeminiParse:${model}`;
+        const parseLabel = `GeminiParse:${promptType}:${model}`;
         console.time(parseLabel);
         let candidate;
         try {
-          candidate = this.parseResponse(await response.json());
+          candidate = this.parseResponse(await response.json(), promptType);
         } finally {
           console.timeEnd(parseLabel);
         }
@@ -348,7 +360,22 @@ class AIVisionProcessor {
     throw lastError || new Error('AI 辨識請求失敗：沒有可用的模型。');
   }
 
-  parseResponse(responseData) {
+  // `files` is the encoded {mime_type, data} part list (see
+  // encodeSourceForUpload) for the primary timetable file. Kept as its own
+  // method (rather than inlining callGemini('timetable', ...) at every call
+  // site) since it's still the entire flow for a single-file import.
+  recognizeSchedule(files, onProgress, opts) {
+    return this.callGemini('timetable', files, onProgress, opts);
+  }
+
+  // One course-registration-style file (see GEMINI_REGISTRATION_PROMPT) -
+  // always called with exactly one file, never combined with the primary
+  // timetable file in the same request. See recognizeAndMerge.
+  recognizeRegistration(file, onProgress, opts) {
+    return this.callGemini('registration', [file], onProgress, opts);
+  }
+
+  parseResponse(responseData, promptType = 'timetable') {
     const rawText = responseData.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!rawText) throw new Error('AI 沒有回傳任何課表內容，請換一張更清楚的照片再試。');
     // Ignore any surrounding features unrelated to the JSON itself (markdown fences, stray
@@ -369,7 +396,45 @@ class AIVisionProcessor {
     } catch (error) {
       throw new Error(`AI 回傳的內容不是有效的 JSON：${error.message}`, { cause: error });
     }
-    return this.normalizeAIOutput(parsed);
+    return promptType === 'registration'
+      ? this.normalizeRegistrationOutput(parsed)
+      : this.normalizeAIOutput(parsed);
+  }
+
+  // Normalizes GEMINI_REGISTRATION_PROMPT's output into a small, self
+  // contained shape - never the app's internal teacherDB/weeklySchedule
+  // shape, since these rows don't know anything about the primary
+  // timetable's existing classes or slots. mergeRegistrationIntoCandidate is
+  // what actually folds this into a real candidate.
+  normalizeRegistrationOutput(aiResult) {
+    const courses = Array.isArray(aiResult?.courses)
+      ? aiResult.courses
+          .map(entry => {
+            if (!entry || typeof entry !== 'object') return null;
+            const subject = String(entry.subject || '').trim();
+            const day = Number(entry.day);
+            const periods = Array.isArray(entry.periods)
+              ? [...new Set(entry.periods.map(Number).filter(p => Number.isInteger(p) && p > 0))]
+              : [];
+            if (!subject || !Number.isInteger(day) || day < 0 || day > 6 || !periods.length) {
+              return null;
+            }
+            return {
+              subject,
+              teacher: String(entry.teacher || '').trim(),
+              location: String(entry.location || '').trim(),
+              day,
+              periods
+            };
+          })
+          .filter(Boolean)
+      : [];
+    return {
+      courses,
+      countdownEvents: Array.isArray(aiResult?.countdownEvents)
+        ? normalizeCountdownEvents(aiResult.countdownEvents)
+        : []
+    };
   }
 
   normalizeAIOutput(aiResult) {
@@ -496,23 +561,6 @@ class AIVisionProcessor {
       });
     });
 
-    const recognizedBlocks = [];
-    WEEKDAYS_INDEX_ORDER.forEach(day => {
-      const daySchedule = weeklySchedule[day] || [];
-      daySchedule.forEach((code, period) => {
-        if (code && teacherDB[code]) {
-          recognizedBlocks.push({
-            id: `${period}:${day}`,
-            day,
-            period,
-            assignment: { key: code, subject: teacherDB[code][0], teacher: teacherDB[code][1] },
-            assignmentStatus: 'assigned',
-            confidence: 99
-          });
-        }
-      });
-    });
-
     const candidate = {
       teacherDB,
       teacherOrder: Object.keys(teacherDB),
@@ -521,12 +569,86 @@ class AIVisionProcessor {
       bellTimes,
       breakTimes,
       reverseWeek: aiResult.reverseWeek === true,
-      recognizedBlocks
+      recognizedBlocks: computeRecognizedBlocks(weeklySchedule, teacherDB)
     };
     candidate.countdownEvents = Array.isArray(aiResult.countdownEvents)
       ? normalizeCountdownEvents(aiResult.countdownEvents)
       : [];
     return candidate;
+  }
+
+  // Folds one normalizeRegistrationOutput() result into an already-normalized
+  // timetable candidate: each course row overwrites whatever was at its
+  // exact day+period, whether that was a generic placeholder or nothing at
+  // all - a registration record is authoritative about what a student is
+  // actually enrolled in for that slot, so there's no reason to second-guess
+  // it the way the old combined-request prompt had to (it couldn't tell a
+  // genuinely-decoded row from a misread one, so it hedged by only ever
+  // touching cells that already looked generic). This is pure data
+  // rearrangement - no model call, no room for the cross-file scrambling
+  // that motivated splitting these into two requests in the first place.
+  mergeRegistrationIntoCandidate(candidate, registration) {
+    const teacherDB = { ...candidate.teacherDB };
+    const locationDB = { ...candidate.locationDB };
+    const weeklySchedule = {};
+    WEEKDAYS_INDEX_ORDER.forEach(day => {
+      weeklySchedule[day] = [...(candidate.weeklySchedule[day] || [])];
+    });
+    let counter = 1;
+    // "rc" (registration class), never "oc" - normalizeAIOutput's own
+    // per-parse counter starts back at 1 too, and these two candidates are
+    // merged together, so distinct prefixes are the only thing stopping a
+    // silent key collision that would overwrite an unrelated class.
+    registration.courses.forEach(course => {
+      const key = `rc${counter++}`;
+      teacherDB[key] = [course.subject, course.teacher, course.location];
+      locationDB[key] = course.location;
+      const dayArr = weeklySchedule[course.day] || (weeklySchedule[course.day] = []);
+      course.periods.forEach(period => {
+        const index = period - 1;
+        while (dayArr.length <= index) dayArr.push('');
+        dayArr[index] = key;
+      });
+    });
+    return {
+      ...candidate,
+      teacherDB,
+      teacherOrder: Object.keys(teacherDB),
+      locationDB,
+      weeklySchedule,
+      countdownEvents: normalizeCountdownEvents([
+        ...(candidate.countdownEvents || []),
+        ...(registration.countdownEvents || [])
+      ]),
+      recognizedBlocks: computeRecognizedBlocks(weeklySchedule, teacherDB)
+    };
+  }
+
+  // The entry point mountOCRImporter actually calls. A single file is just
+  // recognizeSchedule - unchanged, one request, cheapest model first. Two or
+  // more is the timetable-plus-registration-document case this whole split
+  // exists for: the primary file alone (never combined with the others - see
+  // GEMINI_PROMPT's comment for what that combined request used to cost, in
+  // both quota and correctness), then every remaining file as its own
+  // registration request, merged in one at a time so a later file's rows can
+  // still override an earlier one's at the same slot, same "later file wins"
+  // rule the old prompt used, just applied deterministically now instead of
+  // by asking a model to arbitrate it.
+  async recognizeAndMerge(files, onProgress, opts = {}) {
+    const parts = Array.isArray(files) ? files : [files];
+    if (!parts.length) throw new Error('請先選擇檔案。');
+    const primary = await this.recognizeSchedule([parts[0]], onProgress, opts);
+    let candidate = primary.candidate;
+    const modelsUsed = [primary.modelUsed];
+    for (let i = 1; i < parts.length; i++) {
+      const { candidate: registration, modelUsed } = await this.recognizeRegistration(
+        parts[i],
+        onProgress
+      );
+      candidate = this.mergeRegistrationIntoCandidate(candidate, registration);
+      modelsUsed.push(modelUsed);
+    }
+    return { candidate, modelUsed: modelsUsed.join(' + ') };
   }
 }
 
@@ -975,12 +1097,14 @@ function mountOCRImporter({
         console.timeEnd('GeminiEncode');
       }
 
-      const { candidate, modelUsed } = await aiProcessor.recognizeSchedule(
+      const { candidate, modelUsed } = await aiProcessor.recognizeAndMerge(
         files,
         message => status(message),
-        // Lets a structurally unusable answer escalate to a stronger model
-        // instead of being shown to the user as a broken preview - the same
-        // check the preview itself is about to run.
+        // Lets a structurally unusable primary-timetable answer escalate to
+        // a stronger model instead of being shown to the user as a broken
+        // preview - the same check the preview itself is about to run. Only
+        // applies to the primary file; a registration file's own request
+        // isn't validated the same way (see recognizeAndMerge).
         { validate: input => validator.validate(input) }
       );
       status('正在驗證課表資料…');
