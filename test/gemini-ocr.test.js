@@ -173,8 +173,19 @@ describe('ImportPreview reveals the countdown-events fold when the AI actually f
     expect(fold).not.toBeNull();
     expect(fold.hidden).toBe(false);
     expect(fold.open).toBe(true);
-    expect(root.querySelectorAll('[data-ocr-countdown-list] .ocr-countdown-name')).toHaveLength(1);
-    expect(root.querySelector('.ocr-countdown-name').value).toBe('期末考');
+    expect(root.querySelectorAll('[data-ocr-countdown-list] .countdown-event-name')).toHaveLength(1);
+    expect(root.querySelector('.countdown-event-name').value).toBe('期末考');
+    // Reuses the main countdown editor's own field layout
+    // (.countdown-event-fields/.countdown-date-range in editor-core.js),
+    // not the generic bell-time row layout - the start/end date pair needs
+    // its own full-width row for both native date inputs to stay legible
+    // on a narrow phone screen. A row still built from the old .bell-inputs
+    // layout was cramping the two inputs onto one line together with the
+    // name field, clipping the end date on an iPhone-width viewport.
+    const dateRange = root.querySelector('.countdown-date-range');
+    expect(dateRange).not.toBeNull();
+    expect(dateRange.querySelector('.countdown-event-start').value).toBe('2026-01-12');
+    expect(dateRange.querySelector('.countdown-event-end').value).toBe('2026-01-16');
   });
 
   it('removes the countdown fold entirely when nothing was recognized', () => {

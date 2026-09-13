@@ -884,9 +884,9 @@ class ImportPreview {
       const countdownList = this.root.querySelector('[data-ocr-countdown-list]');
       countdownEvents.forEach(item => {
         const row = document.getElementById('ocr-countdown-row-template').content.cloneNode(true);
-        row.querySelector('.ocr-countdown-name').value = item.name || '';
-        const startInput = row.querySelector('.ocr-countdown-start');
-        const endInput = row.querySelector('.ocr-countdown-end');
+        row.querySelector('.countdown-event-name').value = item.name || '';
+        const startInput = row.querySelector('.countdown-event-start');
+        const endInput = row.querySelector('.countdown-event-end');
         startInput.value = item.startDate || item.date || '';
         endInput.value = item.endDate || item.date || '';
         startInput.addEventListener('change', () => {
@@ -980,9 +980,9 @@ class ImportPreview {
 
       const countdownEvents = [];
       this.root.querySelectorAll('[data-ocr-countdown-list] .bell-row').forEach(item => {
-        const name = (item.querySelector('.ocr-countdown-name')?.value || '').trim();
-        const startDate = (item.querySelector('.ocr-countdown-start')?.value || '').trim();
-        const endDate = (item.querySelector('.ocr-countdown-end')?.value || '').trim();
+        const name = (item.querySelector('.countdown-event-name')?.value || '').trim();
+        const startDate = (item.querySelector('.countdown-event-start')?.value || '').trim();
+        const endDate = (item.querySelector('.countdown-event-end')?.value || '').trim();
         if (name && startDate)
           countdownEvents.push({ name, startDate, endDate: endDate || startDate });
       });
