@@ -997,28 +997,58 @@ const ETA_OVERRUN_FACTOR = 1.8;
 function estimateRecognitionSeconds(fileCount) {
   return ETA_BASE_SECONDS + Math.max(0, fileCount - 1) * ETA_PER_EXTRA_FILE_SECONDS;
 }
+// A loading indicator that pops in and back out within a fraction of a
+// second reads as flicker, not information - and since recognizeAndMerge's
+// requests now run concurrently (see its own comment), a fast import can
+// finish quickly enough that this element used to flash on and immediately
+// back off. That flash is exactly what made the running "已等待 N 秒" clock
+// look like it "wasn't showing" some of the time: catching it required
+// noticing a specific frame that could be on screen for well under a
+// second. Delaying the reveal fixes it the standard way something like a
+// button spinner would: don't show a loading indicator at all for
+// something that finishes before a person would consciously register it,
+// and show it - with its ticking clock, every time - for anything that
+// actually takes a moment. Both halves of that are "consistent"; an
+// occasional flash is not.
+const ETA_REVEAL_DELAY_MS = 400;
 function startEtaTimer(etaElement, fileCount = 1) {
   if (!etaElement) return () => {};
   const estimateSpan = etaElement.querySelector('#ocr-import-eta-estimate') || etaElement;
   const elapsedSpan = etaElement.querySelector('#ocr-import-eta-elapsed');
   const estimate = estimateRecognitionSeconds(fileCount);
-  etaElement.hidden = false;
-  estimateSpan.textContent = `預估等待時間 約 ${estimate} 秒`;
   const startedAt = Date.now();
+  let revealed = false;
+  // A no-op until revealed, rather than only starting once revealed - kept
+  // running on its own schedule from t=0 so an elapsed reading taken right
+  // at, say, the overrun threshold reads as an exact whole number of
+  // seconds from the true start, not shifted by however long the reveal
+  // delay happened to add before this began writing to the DOM.
   const tickElapsed = () => {
-    if (!elapsedSpan) return;
+    if (!revealed || !elapsedSpan) return;
     const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
     elapsedSpan.textContent = `已等待 ${elapsedSeconds} 秒`;
   };
-  tickElapsed();
+  // Idempotent and called from two places (the reveal delay, and - as a
+  // safety net - the overrun timer) since an overrun this long must never
+  // be hidden regardless of what happened to the reveal timer.
+  const reveal = () => {
+    if (revealed) return;
+    revealed = true;
+    etaElement.hidden = false;
+    estimateSpan.textContent = `預估等待時間 約 ${estimate} 秒`;
+    tickElapsed();
+  };
+  const revealTimer = setTimeout(reveal, ETA_REVEAL_DELAY_MS);
   const elapsedInterval = setInterval(tickElapsed, 1000);
   const overrunTimer = setTimeout(
     () => {
+      reveal();
       estimateSpan.textContent = '比預估久一點，仍在辨識中…';
     },
     Math.round(estimate * ETA_OVERRUN_FACTOR * 1000)
   );
   return () => {
+    clearTimeout(revealTimer);
     clearInterval(elapsedInterval);
     clearTimeout(overrunTimer);
     etaElement.hidden = true;
@@ -1269,6 +1299,7 @@ export {
   AIVisionProcessor,
   DataValidator,
   estimateRecognitionSeconds,
+  ETA_REVEAL_DELAY_MS,
   ImportPreview,
   isGeminiProxyConfigured,
   startEtaTimer,

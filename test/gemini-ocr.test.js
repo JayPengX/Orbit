@@ -7,6 +7,7 @@ let DataValidator;
 let ImportPreview;
 let isGeminiProxyConfigured;
 let estimateRecognitionSeconds;
+let ETA_REVEAL_DELAY_MS;
 let startEtaTimer;
 
 beforeAll(async () => {
@@ -17,6 +18,7 @@ beforeAll(async () => {
     DataValidator,
     ImportPreview,
     estimateRecognitionSeconds,
+    ETA_REVEAL_DELAY_MS,
     isGeminiProxyConfigured,
     startEtaTimer
   } = await import('../src/gemini-ocr.js'));
@@ -205,16 +207,38 @@ describe('startEtaTimer runs a static estimate and a separate ticking elapsed cl
     document.body.innerHTML = '';
   });
 
-  it('shows the estimate immediately and un-hides the element', () => {
+  it('stays hidden and empty until the reveal delay passes - never a flash for a fast import', () => {
     const el = buildEtaElement();
     startEtaTimer(el, 1);
+    expect(el.hidden).toBe(true);
+    expect(el.querySelector('#ocr-import-eta-estimate').textContent).toBe('');
+
+    vi.advanceTimersByTime(ETA_REVEAL_DELAY_MS - 1);
+    expect(el.hidden).toBe(true);
+
+    vi.advanceTimersByTime(1);
     expect(el.hidden).toBe(false);
     expect(el.querySelector('#ocr-import-eta-estimate').textContent).toMatch(/預估等待時間/);
   });
 
-  it('starts the elapsed clock at 0 and ticks it every second, without touching the estimate', () => {
+  it('never reveals at all when stopped before the reveal delay - the actual fix for the flash', () => {
+    const el = buildEtaElement();
+    const stop = startEtaTimer(el, 1);
+    vi.advanceTimersByTime(ETA_REVEAL_DELAY_MS - 1);
+    stop();
+
+    // Still hidden the whole time, then stopped - never visible for even one
+    // frame, rather than flashing on and immediately back off.
+    expect(el.hidden).toBe(true);
+    vi.advanceTimersByTime(10_000);
+    expect(el.hidden).toBe(true);
+    expect(el.querySelector('#ocr-import-eta-estimate').textContent).toBe('');
+  });
+
+  it('starts the elapsed clock at 0 once revealed and ticks it every second, without touching the estimate', () => {
     const el = buildEtaElement();
     startEtaTimer(el, 1);
+    vi.advanceTimersByTime(ETA_REVEAL_DELAY_MS);
     const estimateText = el.querySelector('#ocr-import-eta-estimate').textContent;
     expect(el.querySelector('#ocr-import-eta-elapsed').textContent).toBe('已等待 0 秒');
 
@@ -236,6 +260,13 @@ describe('startEtaTimer runs a static estimate and a separate ticking elapsed cl
     expect(el.querySelector('#ocr-import-eta-elapsed').textContent).toBe('已等待 11 秒');
   });
 
+  it('an overrun this long reveals the element even if it somehow never had before', () => {
+    const el = buildEtaElement();
+    startEtaTimer(el, 1);
+    vi.advanceTimersByTime(9000); // past both the reveal delay and the overrun threshold
+    expect(el.hidden).toBe(false);
+  });
+
   it('stopping clears both spans, re-hides the element, and cancels every pending timer', () => {
     const el = buildEtaElement();
     const stop = startEtaTimer(el, 1);
@@ -255,6 +286,7 @@ describe('startEtaTimer runs a static estimate and a separate ticking elapsed cl
   it('a higher file count raises the estimate, which the elapsed clock has no opinion on either way', () => {
     const el = buildEtaElement();
     startEtaTimer(el, 4);
+    vi.advanceTimersByTime(ETA_REVEAL_DELAY_MS);
     expect(el.querySelector('#ocr-import-eta-estimate').textContent).toMatch(
       new RegExp(String(estimateRecognitionSeconds(4)))
     );
