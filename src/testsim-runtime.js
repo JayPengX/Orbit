@@ -593,9 +593,73 @@ window.exitTestMode = function () {
   if (typeof closeTestPanel === 'function') closeTestPanel();
   window.update();
 };
-window.forceAppRefresh = function () {
+// Compares the module script this page actually has loaded against the one
+// a fresh copy of index.html would load right now, using the same
+// cache-defeating fetch as the reload logic below. Vite fingerprints that
+// filename from the built bundle's content (see vite.config.js), so any
+// real deploy changes it; comparing the raw `src` attribute (not the
+// resolved `.src` property) keeps both sides as plain relative strings from
+// the same base, so no URL-resolution mismatch can produce a false positive.
+function fetchesNewerScript(currentSrc) {
+  return fetch(`index.html?check=${Date.now()}`, { cache: 'no-store' })
+    .then(res => res.text())
+    .then(html => {
+      const match = html.match(/<script[^>]*type="module"[^>]*\ssrc="([^"]+)"/i);
+      const remoteSrc = match ? match[1] : null;
+      return !remoteSrc || remoteSrc !== currentSrc;
+    });
+}
+
+window.checkForAppUpdate = function () {
   const btn = el('test-refresh-btn');
+  const statusEl = el('test-update-status');
   if (btn && btn.disabled) return; // already in progress - ignore repeat clicks
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '檢查中…';
+  }
+  if (statusEl) {
+    statusEl.className = 'test-update-status';
+    statusEl.textContent = '';
+  }
+  const currentScript = document.querySelector('script[type="module"][src]');
+  const currentSrc = currentScript && currentScript.getAttribute('src');
+  // No script tag to compare against (shouldn't happen in a real build) -
+  // treat it the same as a positive "there's an update" so the button
+  // doesn't just sit there stuck on a comparison that can never succeed.
+  (currentSrc ? fetchesNewerScript(currentSrc) : Promise.resolve(true))
+    .then(hasUpdate => {
+      if (hasUpdate) {
+        performForcedRefresh(btn);
+      } else {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '檢查更新';
+        }
+        if (statusEl) {
+          statusEl.classList.add('up-to-date');
+          statusEl.textContent = '已是最新版本';
+        }
+      }
+    })
+    .catch(() => {
+      // A failed check (offline, blocked request) isn't the same as "no
+      // update" - surface it instead of guessing either way. This button is
+      // meant to be clicked repeatedly until a real deploy shows up, and
+      // forcing a reload on every network hiccup would just get in the way
+      // of that.
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '檢查更新';
+      }
+      if (statusEl) {
+        statusEl.classList.add('error');
+        statusEl.textContent = '檢查失敗，請確認網路連線';
+      }
+    });
+};
+
+function performForcedRefresh(btn) {
   if (btn) {
     btn.disabled = true;
     btn.textContent = '更新中…';
@@ -650,7 +714,7 @@ window.forceAppRefresh = function () {
     reloadNow,
     reloadNow
   );
-};
+}
 
 // Binds `handler` to `events` (one name or a list) on the element with id
 // `id`, exactly once - a re-render can call the bind*() functions below
