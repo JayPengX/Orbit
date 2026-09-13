@@ -54,7 +54,7 @@ if (import.meta.env?.PROD && 'serviceWorker' in navigator) {
 
 // iOS Safari (standalone/home-screen mode especially) can carry a stale
 // 100dvh/env(safe-area-inset-top) snapshot across a JS-driven reload
-// (forceAppRefresh()'s location.replace() in testsim-runtime.js reproduces
+// (performForcedRefresh()'s location.replace() in testsim-runtime.js reproduces
 // this every time) or across a tab restored from the background/app
 // switcher (bfcache) - the page is then laid out against whatever viewport
 // metrics WebKit had cached instead of the real ones. Two nudges, since

@@ -593,9 +593,57 @@ window.exitTestMode = function () {
   if (typeof closeTestPanel === 'function') closeTestPanel();
   window.update();
 };
-window.forceAppRefresh = function () {
+// Compares the module script this page actually has loaded against the one
+// a fresh copy of index.html would load right now, using the same
+// cache-defeating fetch as the reload logic below. Vite fingerprints that
+// filename from the built bundle's content (see vite.config.js), so any
+// real deploy changes it; comparing the raw `src` attribute (not the
+// resolved `.src` property) keeps both sides as plain relative strings from
+// the same base, so no URL-resolution mismatch can produce a false positive.
+function fetchesNewerScript(currentSrc) {
+  return fetch(`index.html?check=${Date.now()}`, { cache: 'no-store' })
+    .then(res => res.text())
+    .then(html => {
+      const match = html.match(/<script[^>]*type="module"[^>]*\ssrc="([^"]+)"/i);
+      const remoteSrc = match ? match[1] : null;
+      return !remoteSrc || remoteSrc !== currentSrc;
+    });
+}
+
+window.checkForAppUpdate = function () {
   const btn = el('test-refresh-btn');
   if (btn && btn.disabled) return; // already in progress - ignore repeat clicks
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '檢查中…';
+  }
+  const currentScript = document.querySelector('script[type="module"][src]');
+  const currentSrc = currentScript && currentScript.getAttribute('src');
+  // No script tag to compare against (shouldn't happen in a real build) -
+  // treat it the same as a positive "there's an update", same as a failed
+  // check below: refresh anyway rather than leaving the button stuck on a
+  // comparison that can never succeed.
+  (currentSrc ? fetchesNewerScript(currentSrc) : Promise.resolve(true))
+    .then(hasUpdate => {
+      if (hasUpdate) {
+        performForcedRefresh(btn);
+      } else {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '檢查更新';
+        }
+        const toast = el('save-toast');
+        if (toast) {
+          toast.textContent = '✅ 已是最新版本';
+          toast.classList.add('show');
+          setTimeout(() => toast.classList.remove('show'), 2500);
+        }
+      }
+    })
+    .catch(() => performForcedRefresh(btn));
+};
+
+function performForcedRefresh(btn) {
   if (btn) {
     btn.disabled = true;
     btn.textContent = '更新中…';
@@ -650,7 +698,7 @@ window.forceAppRefresh = function () {
     reloadNow,
     reloadNow
   );
-};
+}
 
 // Binds `handler` to `events` (one name or a list) on the element with id
 // `id`, exactly once - a re-render can call the bind*() functions below

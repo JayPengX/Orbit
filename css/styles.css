@@ -1266,6 +1266,23 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
    group below is deliberately tighter than the editor sheet's spacing. */
 .settings-transfer-box{display:flex;flex-direction:column;gap:7px}
 .settings-transfer-box[hidden]{display:none}
+/* Sync and AI Import are two independent ways to get a schedule into the
+   app, stacked in the same sheet (see onboarding.js's comment on why) - a
+   user arriving from either entry point had no visual cue for which block
+   below was "theirs", since both reused the same button/box styling with no
+   heading of its own above the sync boxes. A named heading plus a short
+   at-a-glance tag - "keeps auto-updating" vs "one-time" - gives that cue
+   without asking anyone to actually read the longer paragraph already in
+   each box's .editor-hint-body, which is the text people skip. */
+.transfer-section-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:7px;font-size:14px;font-weight:800;color:var(--pro-accent);letter-spacing:-.02em}
+.transfer-section-tag{font-size:10.5px;font-weight:700;color:var(--sub);letter-spacing:.1px}
+/* Scoped to the top-level sync boxes only, not the .settings-transfer-box
+   reused inside the demoted manual-backup fold below (.legacy-fold-body) -
+   that one already sits inside its own bordered disclosure and doesn't need
+   a second nested card. Pairs with .ocr-import-box's own background further
+   down so Sync and AI Import read as two distinct panels while skimming,
+   not just two labels in one continuous list of boxes. */
+.transfer-sync-box{padding:10px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid var(--bd)}
 .settings-transfer-text{width:100%;min-height:142px;resize:vertical;padding:10px 11px;border-radius:12px;border:1px solid var(--bd);background:rgba(0,0,0,.18);color:var(--txt);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;line-height:1.45;outline:none}
 .settings-transfer-text:focus{border-color:color-mix(in srgb,var(--accent) 58%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent)}
 .settings-transfer-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}
@@ -1367,8 +1384,7 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
 .legacy-fold-summary::-webkit-details-marker{display:none}
 .legacy-fold-body{padding:0 12px 10px;display:flex;flex-direction:column;gap:7px}
 
-.ocr-import-box{display:flex;flex-direction:column;gap:8px;margin-top:8px;padding-top:11px;border-top:1px solid var(--bd)}
-.ocr-import-heading{font-size:10px;margin-bottom:0;letter-spacing:.3px;font-weight:700;color:var(--sub);text-transform:uppercase}
+.ocr-import-box{display:flex;flex-direction:column;gap:8px;margin-top:12px;padding:12px 10px 10px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid var(--bd)}
 .ocr-import-file-input{display:none}
 .ocr-import-file-row{display:flex;align-items:center;gap:10px}
 .ocr-import-file-row .settings-transfer-btn{width:auto;flex:0 0 auto;min-height:38px;display:inline-flex;align-items:center;justify-content:center;text-align:center;font-size:12.5px;padding:0 18px}

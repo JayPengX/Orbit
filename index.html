@@ -293,7 +293,8 @@
     <button type="button" class="editor-close" onclick="closeTransferSheet()" aria-label="關閉">×</button>
   </div>
   <div class="transfer-sheet-body" id="transfer-sheet-body">
-  <div class="settings-transfer-box" id="sync-setup-box">
+  <div class="transfer-section-heading">同步<span class="transfer-section-tag">持續、跨裝置自動保持一致</span></div>
+  <div class="settings-transfer-box transfer-sync-box" id="sync-setup-box">
     <div class="editor-hint-body" id="sync-setup-hint">同步會把課表存到 Orbit Class 內建的同步伺服器，讓多台裝置自動保持一致，不需要自己申請任何帳號。建立同步後會拿到一組「同步代碼」跟一組「管理者密碼」：同步代碼可以自由分享，任何裝置拿到都能接收更新；管理者密碼才是編輯課表的唯一憑證，只給你想讓它也能編輯的裝置。</div>
     <div class="settings-transfer-actions">
       <button type="button" id="sync-create-btn" class="settings-transfer-btn" onclick="orbitSyncCreate()">
@@ -314,7 +315,7 @@
       </button>
     </div>
   </div>
-  <div class="settings-transfer-box" id="sync-created-codes" hidden>
+  <div class="settings-transfer-box transfer-sync-box" id="sync-created-codes" hidden>
     <div class="editor-hint-body">同步已建立！同步代碼會留在下方畫面隨時看得到，但請務必先把管理者密碼另外存好——離開這個畫面後不會直接顯示，只有這台裝置之後可以在已配對畫面重新顯示它。</div>
     <div class="sync-code-row">
       <div class="sync-code-row-label">同步代碼（可自由分享，任何裝置拿到都能接收更新）</div>
@@ -340,7 +341,7 @@
       </button>
     </div>
   </div>
-  <div class="settings-transfer-box" id="sync-active-box" hidden>
+  <div class="settings-transfer-box transfer-sync-box" id="sync-active-box" hidden>
     <div class="editor-hint-body">此裝置已配對同步。把下方這組代碼分享給其他裝置，對方就能加入接收更新：</div>
     <div id="sync-active-code" class="sync-active-code"></div>
     <div id="sync-role-label" class="sync-role-label"></div>
@@ -397,7 +398,7 @@
     </div>
   </details>
   <div class="ocr-import-box" id="ocr-import-box">
-    <div class="ocr-import-heading">AI 匯入</div>
+    <div class="transfer-section-heading">AI 匯入<span class="transfer-section-tag">單次匯入，不會自動同步</span></div>
     <div class="editor-hint-body">選擇課表照片、螢幕截圖或 PDF 後，AI 會自動判讀其中的課表內容，直接產出課程、教師與節次資料。可以一次選多個檔案，AI 會把它們當成同一份課表一起讀 —— 例如先給課表照片，再給選課系統的截圖來補上正確的科目與老師名稱。</div>
     <div class="ocr-import-file-row">
       <label id="ocr-import-image-label" class="settings-transfer-btn" for="ocr-import-image">
@@ -504,8 +505,8 @@
   </div>
   <div class="test-panel-meta-row">
     <span class="app-version" id="app-version">版本載入中…</span>
-    <button type="button" id="test-refresh-btn" onclick="forceAppRefresh()" aria-label="更新版本">
-      更新
+    <button type="button" id="test-refresh-btn" onclick="checkForAppUpdate()" aria-label="檢查更新">
+      檢查更新
     </button>
     <button type="button" id="test-reset-btn" onclick="resetAllAppData()" aria-label="重設所有資料">
       重設
