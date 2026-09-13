@@ -295,7 +295,7 @@
   <div class="transfer-sheet-body" id="transfer-sheet-body">
   <div class="settings-transfer-box transfer-sync-box" id="sync-setup-box">
     <div class="transfer-section-heading">同步<span class="transfer-section-tag">持續、跨裝置自動保持一致</span></div>
-    <div class="editor-hint-body" id="sync-setup-hint">同步會把課表存到 Orbit Class 內建的同步伺服器，讓多台裝置自動保持一致，不需要自己申請任何帳號。建立同步後會拿到一組「同步代碼」跟一組「管理者密碼」：同步代碼可以自由分享，任何裝置拿到都能接收更新；管理者密碼才是編輯課表的唯一憑證，只給你想讓它也能編輯的裝置。</div>
+    <div class="editor-hint-body" id="sync-setup-hint">課表自動同步到所有裝置，不需要帳號。同步代碼可自由分享；管理者密碼才能編輯課表，請妥善保管。</div>
     <div class="settings-transfer-actions">
       <button type="button" id="sync-create-btn" class="settings-transfer-btn" onclick="orbitSyncCreate()">
         建立新同步
@@ -317,9 +317,9 @@
   </div>
   <div class="settings-transfer-box transfer-sync-box" id="sync-created-codes" hidden>
     <div class="transfer-section-heading">同步<span class="transfer-section-tag">持續、跨裝置自動保持一致</span></div>
-    <div class="editor-hint-body">同步已建立！同步代碼會留在下方畫面隨時看得到，但請務必先把管理者密碼另外存好——離開這個畫面後不會直接顯示，只有這台裝置之後可以在已配對畫面重新顯示它。</div>
+    <div class="editor-hint-body">同步已建立！請先保存好管理者密碼，離開後不會再直接顯示。</div>
     <div class="sync-code-row">
-      <div class="sync-code-row-label">同步代碼（可自由分享，任何裝置拿到都能接收更新）</div>
+      <div class="sync-code-row-label">同步代碼（可自由分享）</div>
       <div class="sync-code-row-value">
         <div id="sync-created-code" class="sync-active-code"></div>
         <button type="button" id="sync-created-code-copy" class="settings-transfer-btn" onclick="copySyncCreatedCode('code')">
@@ -328,7 +328,7 @@
       </div>
     </div>
     <div class="sync-code-row">
-      <div class="sync-code-row-label">管理者密碼（請妥善保管，只分享給想讓它也能編輯的裝置）</div>
+      <div class="sync-code-row-label">管理者密碼（請妥善保管）</div>
       <div class="sync-code-row-value">
         <div id="sync-created-passcode" class="sync-active-code"></div>
         <button type="button" id="sync-created-passcode-copy" class="settings-transfer-btn" onclick="copySyncCreatedCode('passcode')">
@@ -344,11 +344,11 @@
   </div>
   <div class="settings-transfer-box transfer-sync-box" id="sync-active-box" hidden>
     <div class="transfer-section-heading">同步<span class="transfer-section-tag">持續、跨裝置自動保持一致</span></div>
-    <div class="editor-hint-body">此裝置已配對同步。把下方這組代碼分享給其他裝置，對方就能加入接收更新：</div>
+    <div class="editor-hint-body">已配對同步，分享代碼給其他裝置即可加入：</div>
     <div id="sync-active-code" class="sync-active-code"></div>
     <div id="sync-role-label" class="sync-role-label"></div>
     <div id="sync-manager-passcode-box" class="sync-manager-passcode-box" hidden>
-      <div class="editor-hint-body">管理者密碼（分享給想讓它也能編輯的裝置）</div>
+      <div class="editor-hint-body">管理者密碼（請妥善保管）</div>
       <div class="sync-code-row-value">
         <div id="sync-manager-passcode-value" class="sync-active-code" hidden></div>
         <button type="button" id="sync-manager-passcode-toggle" class="settings-transfer-btn" onclick="toggleSyncManagerPasscodeReveal()">
@@ -383,7 +383,7 @@
   <div id="sync-status" class="settings-transfer-status"></div>
   <div class="ocr-import-box" id="ocr-import-box">
     <div class="transfer-section-heading">AI 匯入<span class="transfer-section-tag">單次匯入，不會自動同步</span></div>
-    <div class="editor-hint-body">選擇課表照片、螢幕截圖或 PDF 後，AI 會自動判讀其中的課表內容，直接產出課程、教師與節次資料。可以一次選多個檔案，AI 會把它們當成同一份課表一起讀 —— 例如先給課表照片，再給選課系統的截圖來補上正確的科目與老師名稱。</div>
+    <div class="editor-hint-body">選擇課表照片、截圖或 PDF，AI 自動判讀並產出課表。可選多個檔案一起讀取（例如課表照片＋選課截圖）。</div>
     <div class="ocr-import-file-row">
       <label id="ocr-import-image-label" class="settings-transfer-btn" for="ocr-import-image">
         選擇檔案
@@ -409,7 +409,7 @@
     <div class="legacy-fold-body">
       <div class="settings-transfer-box">
         <textarea id="settings-transfer-text" class="settings-transfer-text" spellcheck="false" placeholder="請在此貼上 Orbit Class 課表設定備份，或按下「匯出」建立備份。"></textarea>
-        <div class="editor-hint-body">這是 Orbit Class 課表設定備份文字。請複製完整內容，包含 BEGIN 與 END 標記。</div>
+        <div class="editor-hint-body">請複製完整備份文字，包含 BEGIN 與 END 標記。</div>
         <div class="settings-transfer-actions">
           <button type="button" id="settings-export-btn" class="settings-transfer-btn" onclick="requestTransferAction('export')">
             匯出
@@ -425,7 +425,7 @@
   <details class="legacy-fold" id="test-mode-fold">
     <summary class="legacy-fold-summary">進階：時間模擬</summary>
     <div class="legacy-fold-body">
-      <div class="editor-hint-body">手動指定星期與時間，預覽課表在該時刻的顯示效果 —— 不會影響實際課表資料，也不會同步到其他裝置。</div>
+      <div class="editor-hint-body">預覽指定時間的課表效果，不影響實際資料。</div>
       <div class="settings-transfer-actions">
         <button type="button" class="settings-transfer-btn" onclick="toggleTestPanel()">
           開啟時間模擬
