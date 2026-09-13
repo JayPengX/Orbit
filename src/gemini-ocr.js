@@ -610,17 +610,38 @@ class AIVisionProcessor {
         dayArr[index] = key;
       });
     });
+
+    // A placeholder this merge just replaced in every period it occupied
+    // (e.g. "多元選修" shared across two slots, both now overwritten) would
+    // otherwise survive as a dangling, unused entry in the class list - the
+    // whole point of replacing it was to remove it, not just to stop
+    // pointing at it. Keep only classes still referenced somewhere in the
+    // final weeklySchedule; a placeholder still occupying an untouched slot
+    // elsewhere (no registration row matched it) correctly survives.
+    const referencedKeys = new Set();
+    WEEKDAYS_INDEX_ORDER.forEach(day => {
+      (weeklySchedule[day] || []).forEach(key => {
+        if (key) referencedKeys.add(key);
+      });
+    });
+    const prunedTeacherDB = {};
+    const prunedLocationDB = {};
+    referencedKeys.forEach(key => {
+      if (teacherDB[key]) prunedTeacherDB[key] = teacherDB[key];
+      if (key in locationDB) prunedLocationDB[key] = locationDB[key];
+    });
+
     return {
       ...candidate,
-      teacherDB,
-      teacherOrder: Object.keys(teacherDB),
-      locationDB,
+      teacherDB: prunedTeacherDB,
+      teacherOrder: Object.keys(prunedTeacherDB),
+      locationDB: prunedLocationDB,
       weeklySchedule,
       countdownEvents: normalizeCountdownEvents([
         ...(candidate.countdownEvents || []),
         ...(registration.countdownEvents || [])
       ]),
-      recognizedBlocks: computeRecognizedBlocks(weeklySchedule, teacherDB)
+      recognizedBlocks: computeRecognizedBlocks(weeklySchedule, prunedTeacherDB)
     };
   }
 

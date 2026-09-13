@@ -291,6 +291,59 @@ describe('AIVisionProcessor.recognizeAndMerge', () => {
     expect(subjects).toEqual(['有效課程']);
     vi.unstubAllGlobals();
   });
+
+  it('drops a placeholder class from the class list once every slot it occupied is replaced', async () => {
+    const processor = new AIVisionProcessor();
+    const fetchMock = vi.fn(async (url, options) => {
+      const body = JSON.parse(options.body);
+      return body.promptType === 'registration'
+        ? fakeRegistrationResponse([
+            { subject: '西班牙語', teacher: '李忍堅', day: 1, periods: [6, 7] }
+          ])
+        : fakeGeminiResponse({
+            // "多元選修" (c1) shares both Monday period-6 and period-7 slots,
+            // the same way one placeholder cell commonly spans several
+            // periods on a real timetable.
+            classes: [{ key: 'c1', subject: '多元選修', teacher: '' }],
+            weeklySchedule: { 1: [null, null, null, null, null, 'c1', 'c1'] },
+            bellTimes: Array.from({ length: 7 }, () => ({ start: '08:00', end: '08:50' }))
+          });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { candidate } = await processor.recognizeAndMerge(fakeFiles(2), () => {});
+    const subjects = Object.values(candidate.teacherDB).map(entry => entry[0]);
+    expect(subjects).not.toContain('多元選修');
+    expect(subjects).toEqual(['西班牙語']);
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps a placeholder class that still occupies an untouched slot elsewhere', async () => {
+    const processor = new AIVisionProcessor();
+    const fetchMock = vi.fn(async (url, options) => {
+      const body = JSON.parse(options.body);
+      return body.promptType === 'registration'
+        ? // Only matches Tuesday period 3 - the Friday period 7 occurrence
+          // of the same placeholder has no matching row.
+          fakeRegistrationResponse([
+            { subject: '社會經濟補給站 V', teacher: '于子芸', day: 2, periods: [3] }
+          ])
+        : fakeGeminiResponse({
+            classes: [{ key: 'c1', subject: '彈性-充補', teacher: '' }],
+            weeklySchedule: {
+              2: [null, null, 'c1'],
+              5: [null, null, null, null, null, null, 'c1']
+            },
+            bellTimes: Array.from({ length: 7 }, () => ({ start: '08:00', end: '08:50' }))
+          });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { candidate } = await processor.recognizeAndMerge(fakeFiles(2), () => {});
+    const subjects = Object.values(candidate.teacherDB).map(entry => entry[0]);
+    expect(subjects).toEqual(expect.arrayContaining(['彈性-充補', '社會經濟補給站 V']));
+    // The still-unmatched Friday slot keeps pointing at the surviving placeholder.
+    expect(candidate.teacherDB[candidate.weeklySchedule[5][6]][0]).toBe('彈性-充補');
+    vi.unstubAllGlobals();
+  });
 });
 
 // Sent while the user is still choosing a file, so DNS/TLS/Worker startup
