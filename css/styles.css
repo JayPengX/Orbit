@@ -1541,6 +1541,16 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
 #test-refresh-btn:disabled{opacity:.6;cursor:default}
 #test-reset-btn{flex:0 0 auto;min-height:24px;width:auto;padding:3px 7px;border-radius:7px;background:rgba(255,69,58,.08);color:#ff453a;border:1px solid rgba(255,69,58,.35);box-shadow:none;font-size:9px;font-weight:800;line-height:1;letter-spacing:0;cursor:pointer;touch-action:manipulation;transition:transform .12s,background .15s}
 #test-reset-btn:active{transform:scale(.92);background:rgba(255,69,58,.16)}
+/* Shown inline in this panel rather than the app's floating .save-toast:
+   that toast renders behind this sheet's own stacking context, so it was
+   invisible right when it mattered most - immediately after a click, with
+   the panel still open. Staying inline also fits how this button is
+   actually used here (checking repeatedly until a deploy lands), where a
+   toast that vanishes after 2.5s would often be missed between clicks. */
+.test-update-status{font-size:10.5px;line-height:1.3;margin:-4px 0 8px;color:var(--sub)}
+.test-update-status:empty{display:none}
+.test-update-status.up-to-date{color:var(--ok)}
+.test-update-status.error{color:#ff453a}
 
 #test-time-slider{-webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:999px;background:var(--bd);margin:6px 0 2px;cursor:pointer}
 #test-time-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:20px;height:20px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:pointer;margin-top:0}

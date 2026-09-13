@@ -612,17 +612,21 @@ function fetchesNewerScript(currentSrc) {
 
 window.checkForAppUpdate = function () {
   const btn = el('test-refresh-btn');
+  const statusEl = el('test-update-status');
   if (btn && btn.disabled) return; // already in progress - ignore repeat clicks
   if (btn) {
     btn.disabled = true;
     btn.textContent = '檢查中…';
   }
+  if (statusEl) {
+    statusEl.className = 'test-update-status';
+    statusEl.textContent = '';
+  }
   const currentScript = document.querySelector('script[type="module"][src]');
   const currentSrc = currentScript && currentScript.getAttribute('src');
   // No script tag to compare against (shouldn't happen in a real build) -
-  // treat it the same as a positive "there's an update", same as a failed
-  // check below: refresh anyway rather than leaving the button stuck on a
-  // comparison that can never succeed.
+  // treat it the same as a positive "there's an update" so the button
+  // doesn't just sit there stuck on a comparison that can never succeed.
   (currentSrc ? fetchesNewerScript(currentSrc) : Promise.resolve(true))
     .then(hasUpdate => {
       if (hasUpdate) {
@@ -632,15 +636,27 @@ window.checkForAppUpdate = function () {
           btn.disabled = false;
           btn.textContent = '檢查更新';
         }
-        const toast = el('save-toast');
-        if (toast) {
-          toast.textContent = '✅ 已是最新版本';
-          toast.classList.add('show');
-          setTimeout(() => toast.classList.remove('show'), 2500);
+        if (statusEl) {
+          statusEl.classList.add('up-to-date');
+          statusEl.textContent = '已是最新版本';
         }
       }
     })
-    .catch(() => performForcedRefresh(btn));
+    .catch(() => {
+      // A failed check (offline, blocked request) isn't the same as "no
+      // update" - surface it instead of guessing either way. This button is
+      // meant to be clicked repeatedly until a real deploy shows up, and
+      // forcing a reload on every network hiccup would just get in the way
+      // of that.
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '檢查更新';
+      }
+      if (statusEl) {
+        statusEl.classList.add('error');
+        statusEl.textContent = '檢查失敗，請確認網路連線';
+      }
+    });
 };
 
 function performForcedRefresh(btn) {
