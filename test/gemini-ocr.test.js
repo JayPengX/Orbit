@@ -81,6 +81,7 @@ describe('AIVisionProcessor.parseResponse turns the AI JSON into the app-interna
     const processor = new AIVisionProcessor();
     const candidate = processor.parseResponse(
       fakeGeminiTextResponse({
+        documentKind: 'timetable',
         bellTimes: [{ start: '08:10', end: '09:00' }],
         classes: [
           { key: 'c1', subject: '國文', teacher: '陳老師', location: 'A101' },
@@ -107,6 +108,7 @@ describe('AIVisionProcessor.parseResponse turns the AI JSON into the app-interna
     const processor = new AIVisionProcessor();
     const candidate = processor.parseResponse(
       fakeGeminiTextResponse({
+        documentKind: 'timetable',
         bellTimes: [{ start: '08:10', end: '09:00' }],
         teacherDB: { A: ['國文', '陳老師', 'A101'] },
         locationDB: { A: 'A101' },
@@ -122,6 +124,7 @@ describe('AIVisionProcessor.parseResponse turns the AI JSON into the app-interna
     const processor = new AIVisionProcessor();
     const candidate = processor.parseResponse(
       fakeGeminiTextResponse({
+        documentKind: 'timetable',
         bellTimes: [],
         classes: [{ key: 'c1', subject: '', teacher: '陳老師', location: '' }],
         weeklySchedule: { 1: [], 2: [], 3: [], 4: [], 5: [] }

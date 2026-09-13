@@ -269,18 +269,20 @@ class AIVisionProcessor {
     this.geminiModels = ['gemini-3.5-flash-lite', 'gemini-3.7-flash'];
   }
 
-  // Low-level call shared by every request this class makes: exactly one
-  // fixed server-side prompt (`promptType`, matching
-  // cloudflare-worker/orbit-worker.js's GEMINI_PROMPT_TYPES) against exactly
-  // the files given. `validate` is optional and, when given, decides
-  // whether a parsed response is good enough to stop at or worth escalating
-  // to the next model for.
-  async callGemini(promptType, files, onProgress, { validate } = {}) {
-    // recognizeAndMerge now runs several callGemini calls concurrently (see
-    // its own comment) - which can easily mean two calls sharing the same
-    // promptType+model at once (e.g. two registration files both trying the
-    // cheap model). console.time/timeEnd key on the label alone, so without
-    // a per-invocation id here, concurrent calls would stomp on each other's
+  // Low-level call shared by every request this class makes: the one fixed
+  // server-side prompt (cloudflare-worker/orbit-worker.js's GEMINI_PROMPT)
+  // against exactly the files given. That prompt is self-classifying now -
+  // every file gets the same request regardless of what it turns out to
+  // contain (see recognizeAndMerge for why upload order can no longer be
+  // trusted to mean anything). `validate` is optional and, when given,
+  // decides whether a parsed response is good enough to stop at or worth
+  // escalating to the next model for.
+  async callGemini(files, onProgress, { validate } = {}) {
+    // recognizeAndMerge runs several callGemini calls concurrently (see its
+    // own comment) - which can easily mean two calls sharing the same model
+    // at once (e.g. two files both trying the cheap model first).
+    // console.time/timeEnd key on the label alone, so without a
+    // per-invocation id here, concurrent calls would stomp on each other's
     // timers instead of each reporting its own duration.
     const callId = nextGeminiCallId++;
     const report = message => {
@@ -297,22 +299,22 @@ class AIVisionProcessor {
 
     // The prompt text and generation config are NOT sent from here - the
     // proxy (cloudflare-worker/orbit-worker.js's /gemini path) owns both and
-    // builds the full Gemini request itself from just {model, promptType,
-    // files}. That's deliberate: it means the proxy can only ever be used to
-    // run one of this app's own fixed, hardcoded prompts against submitted
-    // files, never as a generic pass-through for arbitrary prompts - see
-    // README's security notes on the AI proxy.
+    // builds the full Gemini request itself from just {model, files}. That's
+    // deliberate: it means the proxy can only ever be used to run this app's
+    // own fixed, hardcoded prompt against submitted files, never as a
+    // generic pass-through for arbitrary prompts - see README's security
+    // notes on the AI proxy.
     let lastError = null;
     let lastRejected = null;
     for (const model of this.geminiModels) {
       report(`正在請求 AI 模型（${model}）分析課表…`);
-      const requestBody = JSON.stringify({ model, promptType, files: parts });
+      const requestBody = JSON.stringify({ model, files: parts });
       let response;
       // Split into three marks rather than one so a slow import can be
       // attributed instead of guessed at: if GeminiCall is quick and
       // GeminiParse is slow, the page is stalling on this file's own
       // parsing, not on the network.
-      const callLabel = `GeminiCall:${promptType}:${callId}:${model}`;
+      const callLabel = `GeminiCall:${callId}:${model}`;
       console.time(callLabel);
       try {
         response = await fetch(GEMINI_PROXY_URL, {
@@ -329,11 +331,11 @@ class AIVisionProcessor {
       }
       if (response.ok) {
         report(`AI 已回應（使用模型：${model}），正在解析辨識結果…`);
-        const parseLabel = `GeminiParse:${promptType}:${callId}:${model}`;
+        const parseLabel = `GeminiParse:${callId}:${model}`;
         console.time(parseLabel);
         let candidate;
         try {
-          candidate = this.parseResponse(await response.json(), promptType);
+          candidate = this.parseResponse(await response.json());
         } finally {
           console.timeEnd(parseLabel);
         }
@@ -372,21 +374,14 @@ class AIVisionProcessor {
   }
 
   // `files` is the encoded {mime_type, data} part list (see
-  // encodeSourceForUpload) for the primary timetable file. Kept as its own
-  // method (rather than inlining callGemini('timetable', ...) at every call
-  // site) since it's still the entire flow for a single-file import.
+  // encodeSourceForUpload) - kept as its own method (rather than inlining
+  // callGemini at every call site) since it's still the entire flow for a
+  // single-file import.
   recognizeSchedule(files, onProgress, opts) {
-    return this.callGemini('timetable', files, onProgress, opts);
+    return this.callGemini(files, onProgress, opts);
   }
 
-  // One course-registration-style file (see GEMINI_REGISTRATION_PROMPT) -
-  // always called with exactly one file, never combined with the primary
-  // timetable file in the same request. See recognizeAndMerge.
-  recognizeRegistration(file, onProgress, opts) {
-    return this.callGemini('registration', [file], onProgress, opts);
-  }
-
-  parseResponse(responseData, promptType = 'timetable') {
+  parseResponse(responseData) {
     const rawText = responseData.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!rawText) throw new Error('AI 沒有回傳任何課表內容，請換一張更清楚的照片再試。');
     // Ignore any surrounding features unrelated to the JSON itself (markdown fences, stray
@@ -407,16 +402,28 @@ class AIVisionProcessor {
     } catch (error) {
       throw new Error(`AI 回傳的內容不是有效的 JSON：${error.message}`, { cause: error });
     }
-    return promptType === 'registration'
-      ? this.normalizeRegistrationOutput(parsed)
-      : this.normalizeAIOutput(parsed);
+    // "documentKind" is the model's own answer to "what is this file" (see
+    // GEMINI_PROMPT) - read back here to pick the matching normalizer, and
+    // carried onto the result so recognizeAndMerge can route each file's
+    // outcome correctly without re-inspecting the raw response. Anything
+    // that isn't exactly "timetable" (including "other", and any unexpected
+    // value a model might emit despite the schema's enum) goes through the
+    // registration-shaped normalizer, which handles an empty courses array
+    // as the ordinary, correct outcome for a non-course file.
+    const isTimetable = parsed?.documentKind === 'timetable';
+    const candidate = isTimetable
+      ? this.normalizeAIOutput(parsed)
+      : this.normalizeRegistrationOutput(parsed);
+    candidate.documentKind = isTimetable ? 'timetable' : (parsed?.documentKind ?? 'other');
+    return candidate;
   }
 
-  // Normalizes GEMINI_REGISTRATION_PROMPT's output into a small, self
-  // contained shape - never the app's internal teacherDB/weeklySchedule
-  // shape, since these rows don't know anything about the primary
-  // timetable's existing classes or slots. mergeRegistrationIntoCandidate is
-  // what actually folds this into a real candidate.
+  // Normalizes the "registration" (or "other") half of GEMINI_PROMPT's
+  // output into a small, self contained shape - never the app's internal
+  // teacherDB/weeklySchedule shape, since these rows don't know anything
+  // about the primary timetable's existing classes or slots.
+  // mergeRegistrationIntoCandidate is what actually folds this into a real
+  // candidate.
   normalizeRegistrationOutput(aiResult) {
     const courses = Array.isArray(aiResult?.courses)
       ? aiResult.courses
@@ -669,36 +676,75 @@ class AIVisionProcessor {
   async recognizeAndMerge(files, onProgress, opts = {}) {
     const parts = Array.isArray(files) ? files : [files];
     if (!parts.length) throw new Error('請先選擇檔案。');
-    // The primary file and every registration file are independent requests
-    // - a registration call never depends on the primary's result - so they
-    // run concurrently rather than one after another. This used to be a
-    // sequential for-loop, which stacked each extra file's full round trip
-    // on top of the last; besides being slower than it needed to be, that
-    // made real import time increasingly outrun the ETA timer's estimate
-    // (calibrated for roughly one round trip) the more files were attached,
-    // which is what made the timer look "inconsistent" - accurate for a
-    // single file, increasingly wrong for two or more.
-    const scoped = label =>
-      onProgress && (message => onProgress(parts.length > 1 ? `${label}：${message}` : message));
-    const [primary, ...registrations] = await Promise.all([
-      this.recognizeSchedule([parts[0]], scoped('課表'), opts),
-      ...parts.slice(1).map((file, index) => this.recognizeRegistration(file, scoped(`附加檔案 ${index + 2}`)))
-    ]);
-    let candidate = primary.candidate;
-    const modelsUsed = [primary.modelUsed];
+    // Every file is classified and extracted independently, all requests
+    // concurrent (see callGemini's own comment on why concurrency matters
+    // for the ETA timer). Which file is actually the timetable can no
+    // longer come from position - it used to be "file 1 is always the
+    // timetable, everything after it a registration record", which broke
+    // completely the moment someone picked the files in the other order
+    // (the registration form got read as a timetable grid, finding
+    // nothing; the real timetable photo got read as a course list, also
+    // finding nothing). A file picker has no idea what's inside the files
+    // it returns, so this has to come from what each file's own result
+    // reports about itself - "documentKind" (see GEMINI_PROMPT) - not from
+    // upload order.
+    const scoped = index =>
+      onProgress && (message => onProgress(parts.length > 1 ? `檔案 ${index + 1}：${message}` : message));
+    const results = await Promise.all(
+      parts.map((file, index) => this.recognizeSchedule([file], scoped(index), opts))
+    );
+
+    const timetableIndex = results.findIndex(result => result.candidate.documentKind === 'timetable');
+    if (timetableIndex === -1) {
+      throw new Error('沒有偵測到課表圖片，請確認上傳的檔案中至少有一張完整的每週課表照片或 PDF。');
+    }
+    let candidate = results[timetableIndex].candidate;
+    const modelsUsed = [results[timetableIndex].modelUsed];
+
     // Promise.all preserves input order in its results regardless of which
     // request actually resolved first, so this stays in file order - "a
     // later file wins over an earlier one at the same slot" needs that to
     // be deterministic, not a race between however fast each request ran.
-    registrations.forEach(({ candidate: registration, modelUsed }) => {
-      candidate = this.mergeRegistrationIntoCandidate(candidate, registration);
-      modelsUsed.push(modelUsed);
+    results.forEach((result, index) => {
+      if (index === timetableIndex) return;
+      modelsUsed.push(result.modelUsed);
+      if (result.candidate.documentKind === 'timetable') {
+        // A second file that also looks like a full timetable grid (e.g.
+        // two photos of one physical page) - merging two independently
+        // extracted grids isn't attempted, but its countdownEvents are
+        // still worth keeping.
+        candidate = {
+          ...candidate,
+          countdownEvents: normalizeCountdownEvents([
+            ...(candidate.countdownEvents || []),
+            ...(result.candidate.countdownEvents || [])
+          ])
+        };
+        return;
+      }
+      candidate = this.mergeRegistrationIntoCandidate(candidate, result.candidate);
     });
+
     return { candidate, modelUsed: modelsUsed.join(' + ') };
   }
 }
 
 class DataValidator {
+  // Used for per-file escalation in recognizeAndMerge, where a candidate can
+  // be either shape parseResponse produces (see its own comment). validate()
+  // below assumes a timetable-shaped candidate, and an empty courses array
+  // on a registration/other-shaped one is very often the correct answer (a
+  // file with no enrollment rows, or a genuinely irrelevant photo) rather
+  // than a failure - there's no reliable way to tell those apart from the
+  // output alone, so this never escalates on emptiness for that shape,
+  // unlike the timetable one where "found nothing at all" is treated as
+  // worth a retry with a stronger model.
+  validateDetected(candidate) {
+    return candidate?.documentKind === 'timetable'
+      ? this.validate(candidate)
+      : { valid: true, errors: [] };
+  }
+
   validate(candidate) {
     const errors = [];
     if (!candidate || typeof candidate !== 'object') {
@@ -1131,7 +1177,7 @@ function mountOCRImporter({
       runButton.disabled = false;
       status(
         sources.length > 1
-          ? `已載入 ${sources.length} 個檔案，AI 會一起判讀它們（後面的檔案可以補充或修正前面的）。`
+          ? `已載入 ${sources.length} 個檔案，AI 會自動判斷每個檔案的內容（課表或選課資料），順序不影響結果。`
           : '已載入檔案，點擊匯入讓 AI 自動判讀課表。'
       );
     } catch (error) {
@@ -1184,12 +1230,13 @@ function mountOCRImporter({
       const { candidate, modelUsed } = await aiProcessor.recognizeAndMerge(
         files,
         message => status(message),
-        // Lets a structurally unusable primary-timetable answer escalate to
-        // a stronger model instead of being shown to the user as a broken
-        // preview - the same check the preview itself is about to run. Only
-        // applies to the primary file; a registration file's own request
-        // isn't validated the same way (see recognizeAndMerge).
-        { validate: input => validator.validate(input) }
+        // Lets a structurally unusable timetable-shaped answer escalate to a
+        // stronger model instead of being merged in as-is. Every file gets
+        // the same check now (see validateDetected) since any of them could
+        // turn out to be the timetable - it never escalates purely on an
+        // empty result for a non-timetable file, since that's often just
+        // the correct answer for one.
+        { validate: input => validator.validateDetected(input) }
       );
       status('正在驗證課表資料…');
       const validation = validator.validate(candidate);

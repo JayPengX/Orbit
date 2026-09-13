@@ -196,32 +196,48 @@ async function isRateLimited(env, ip, feature, limit) {
 // AIVisionProcessor.buildPrompt() - kept here now instead, since the whole
 // point of moving it server-side is that the client no longer sends it.
 //
-// Single-file only, deliberately: this used to also carry instructions for
-// cross-referencing a second "course registration" file against this one's
-// generic/placeholder slots, all inside one combined request. Tested live
-// against a real timetable photo + real registration form: the cheap model
-// scrambled that cross-reference badly (courses on the wrong day, several
-// placeholders never resolved, duplicate entries invented for genuinely
-// blank cells), and even the strong model needed noticeably more tokens (and
-// therefore quota) to do it in one shot than two separate, single-purpose
-// calls cost together. See GEMINI_REGISTRATION_PROMPT below - that job now
-// happens as its own request, matched to this one's output deterministically
-// in src/gemini-ocr.js (mergeRegistrationIntoCandidate), not by asking a
-// model to hold both documents in its head at once. This prompt now only
-// ever has to read what's in front of it.
-const GEMINI_PROMPT = `Extract the class timetable from the attached file and return it as a single JSON object. Focus on the timetable only — ignore background, margins, decorations, and unrelated content; it may only occupy part of the frame.
-
-Return valid JSON only, matching this exact schema:
+// Single-file, and self-classifying, deliberately: an earlier version split
+// this into two separate fixed prompts (a "timetable" one and a
+// "registration" one) and had the CLIENT decide, purely from upload order,
+// which file went to which - file 1 was always assumed to be the timetable,
+// every file after it a registration record. That broke completely the
+// moment someone picked the files in the other order: the registration form
+// got read as if it were a timetable grid (producing garbage), and the
+// actual timetable photo got read as if it were a course list (finding
+// nothing to extract). There is no reliable signal in upload order - a file
+// picker doesn't know or care what's in the files - so the model has to
+// determine this itself instead of trusting how the files arrived. Every
+// file now gets exactly this one prompt, and "documentKind" is the model's
+// own answer to "what am I looking at", read back by
+// src/gemini-ocr.js's recognizeAndMerge to route each file's result
+// correctly regardless of what order it was uploaded in.
+//
+// This does cost a little more per call than the two-separate-prompts
+// version did (every call now carries both rule sets, not just the one that
+// turned out to matter) - a fixed, modest, worthwhile trade for a bug class
+// this is not: getting the whole import right no matter what order the
+// files came in, rather than getting it cheaply and only when they came in
+// the order the code silently assumed.
+const GEMINI_PROMPT = `Look at the attached file and decide what kind of document it is, then extract accordingly. Return a single JSON object matching this exact schema:
 {
+  "documentKind": "timetable",
   "bellTimes": [],
   "breakTimes": [{"name":"午休","start":"12:00","end":"13:00"}],
   "classes": [{"key":"c1","subject":"國文","teacher":"陳老師","location":"A101"}, {"key":"c2","subject":"英文","teacher":"王老師","location":"B202"}],
   "weeklySchedule": {"1": ["c1","c2",null], "2": [], "3": [], "4": [], "5": []},
   "reverseWeek": false,
+  "courses": [{"subject":"多媒體音樂 I","teacher":"徐蓉莉","location":"","day":1,"periods":[3,4]}],
   "countdownEvents": [{"name":"116 學測","startDate":"2027-01-22","endDate":"2027-01-24"}]
 }
 
-Interpret the timetable visually and use your best judgment to reconstruct its structure. Rules:
+First, set "documentKind" to exactly one of:
+- "timetable" - the file shows a weekly class schedule grid: a table with days as one axis and periods as the other, each cell showing a subject (and often a teacher/room) for a whole week.
+- "registration" - the file is a course-registration confirmation, enrollment list, or similar record: a list or table where each row names one specific course a student is actually taking, generally alongside which day and period(s) it meets. It does NOT show a full weekly grid.
+- "other" - neither of the above (an unrelated photo, a notice with no course rows or grid, etc).
+
+Then extract only the fields that match the documentKind you chose, and leave every other field at its empty default (empty array, empty object, or false) rather than guessing or leaving it inconsistent with documentKind. countdownEvents is the one exception - check for it regardless of documentKind, per its own rule below.
+
+If documentKind is "timetable", fill in bellTimes/breakTimes/classes/weeklySchedule/reverseWeek (leave courses as an empty array):
 - Read class period times from the image when available. Use 24-hour "HH:MM" strings, one entry per period in order, exactly as shown (either ["08:10","09:00"] or {"start":"08:10","end":"09:00"} is acceptable). Preserve the actual times; never invent, guess, or fall back to standard/default school times. If no class times are visible anywhere, return an empty bellTimes array.
 - Identify visible subjects, teachers, classrooms, breaks, and other timetable information.
 - classes: one entry per distinct subject actually visible in the photo — do not invent subjects that aren't shown. "key" is your own short identifier for that entry (e.g. "c1", "c2") — it is never shown to anyone, it only links weeklySchedule slots back to this entry, so make each one unique. "subject" is the full Chinese subject name. Use "" for teacher/location when that information is not readable.
@@ -230,35 +246,16 @@ Interpret the timetable visually and use your best judgment to reconstruct its s
 - If odd/even weeks contain alternatives in the same slot (shown as two stacked subject+teacher pairs, often marked 單/雙 or "odd/even"), read each alternative's subject and its own teacher as two separate pieces of text first, then combine same-role pieces with "/" — all subjects joined into one "/"-separated subject string, all teachers joined the same way into one "/"-separated teacher string, both in the same left-to-right order, as one shared classes entry for that slot. Never fold a teacher's name into the subject string, or vice versa: subject must end up containing only subject names, teacher only teacher names.
 - Set reverseWeek to true only when the photo clearly indicates a reversed odd/even week orientation; otherwise false.
 - Add breakTimes only for explicitly shown non-class periods such as lunch or cleaning — not empty/free periods.
-- Add countdownEvents only for clearly visible events/exams with a readable calendar date, formatted as "YYYY-MM-DD". Set startDate and endDate to the same date for a single-day event; use the visible first and last dates for a multi-day event/exam period. Only include dates you can actually read; otherwise return an empty array.
-- Do not invent information. When uncertain, prefer an empty value or null.
+
+If documentKind is "registration", fill in courses (leave bellTimes/breakTimes/classes/weeklySchedule empty, reverseWeek false):
+- This kind of file's day/period information may be written out plainly, or packed together compactly — one shorthand seen often enough to call out explicitly: a single day character immediately followed by a run of digits with no separator, where each individual digit is its own period number (so a two-digit run like "34" means periods 3 AND 4, both occupied by that one row, never "period 34" or a "3 through 4" range). Whatever notation this file actually uses, decode it using the day-naming and period-numbering it establishes itself.
+- courses: one entry per distinct course row actually shown — do not invent rows. "day" is an integer: 1 for Monday through 5 for Friday, 6 for Saturday, 0 for Sunday. "periods" is every period number that row's course occupies, as a plain array of integers in ascending order (e.g. a row spanning two consecutive periods is periods:[3,4], never a combined number like 34 or a string). Use "" for teacher/location when not given or not legible.
+
+Regardless of documentKind:
+- Add countdownEvents only for clearly visible events/exams with a readable calendar date, formatted as "YYYY-MM-DD". Set startDate and endDate to the same date for a single-day event; use the visible first and last dates for a multi-day event/exam period. Only include dates you can actually read; otherwise return an empty array. A file can carry a countdown/exam notice with no timetable or course-list content at all (documentKind "other") - still report it.
+- Do not invent information. When uncertain, prefer an empty value, empty array, or null.
 - Every field in the response schema you are given must be present, even when empty.
 - Keep all fields internally consistent.
-- Return ONLY the raw JSON object — no markdown fences, no comments, no extra text.`;
-
-// The second half of the split described above GEMINI_PROMPT: extracts one
-// student's specific enrolled courses (and any exam/event dates) from a
-// single file, entirely independent of the timetable file - it never sees
-// it, so it cannot get confused about which cell is a "placeholder" or
-// scramble one course onto a different day than another. "day"/"periods"
-// are plain numbers rather than a copy of the source document's own notation
-// so src/gemini-ocr.js can match them straight against weeklySchedule's own
-// day keys and bellTimes indices with no further parsing on that end.
-const GEMINI_REGISTRATION_PROMPT = `Extract this student's specific enrolled courses, and any exam/event dates, from the attached file. Return a single JSON object matching this exact schema:
-{
-  "courses": [{"subject":"多媒體音樂 I","teacher":"徐蓉莉","location":"","day":1,"periods":[3,4]}],
-  "countdownEvents": [{"name":"116 學測","startDate":"2027-01-22","endDate":"2027-01-24"}]
-}
-
-This file is typically a course-registration confirmation, enrollment list, or similar record: a table or list where each row names one specific course a student is actually taking, generally alongside which day and period(s) it meets. That day/period information may be written out plainly, or packed together compactly — one shorthand seen often enough to call out explicitly: a single day character immediately followed by a run of digits with no separator, where each individual digit is its own period number (so a two-digit run like "34" means periods 3 AND 4, both occupied by that one row, never "period 34" or a "3 through 4" range). Whatever notation this file actually uses, decode it using the day-naming and period-numbering it establishes itself.
-
-Rules:
-- courses: one entry per distinct course row actually shown — do not invent rows. "day" is an integer: 1 for Monday through 5 for Friday, 6 for Saturday, 0 for Sunday. "periods" is every period number that row's course occupies, as a plain array of integers in ascending order (e.g. a row spanning two consecutive periods is periods:[3,4], never a combined number like 34 or a string).
-- Use "" for teacher/location when not given or not legible.
-- If this file shows no such course rows at all, return an empty courses array — do not force a match that isn't there.
-- Add countdownEvents only for clearly visible events/exams with a readable calendar date, formatted as "YYYY-MM-DD" — same rules as any other date extraction: same date for start/end on a single-day event, the actual visible first/last dates for a range, never invented.
-- Do not invent information. When unsure about one field, prefer an empty string; when unsure about a whole row, leave it out entirely.
-- Every field in the schema must be present, even when empty.
 - Return ONLY the raw JSON object — no markdown fences, no comments, no extra text.`;
 
 // Must match src/gemini-ocr.js's AIVisionProcessor.geminiModels exactly -
@@ -332,8 +329,6 @@ const GEMINI_TIME_RANGE_SCHEMA = {
   required: ['start', 'end']
 };
 const GEMINI_DAY_SCHEMA = { type: 'array', items: { type: 'string', nullable: true } };
-// Shared by GEMINI_RESPONSE_SCHEMA and GEMINI_REGISTRATION_RESPONSE_SCHEMA -
-// both prompts extract countdown events the same way.
 const GEMINI_COUNTDOWN_EVENTS_SCHEMA = {
   type: 'array',
   items: {
@@ -346,9 +341,17 @@ const GEMINI_COUNTDOWN_EVENTS_SCHEMA = {
     required: ['name', 'startDate', 'endDate']
   }
 };
+// One shape covering everything GEMINI_PROMPT can return, discriminated by
+// "documentKind" - see that prompt's own comment for why this is one prompt
+// and one schema now rather than two: which fields the model actually fills
+// in depends on what it decided the file was, never on which request it
+// happened to receive, so there is nothing for a separate schema-per-kind to
+// buy here. src/gemini-ocr.js's parseResponse reads documentKind back to
+// decide which normalizer applies to the rest of the object.
 const GEMINI_RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
+    documentKind: { type: 'string', enum: ['timetable', 'registration', 'other'] },
     bellTimes: { type: 'array', items: GEMINI_TIME_RANGE_SCHEMA },
     breakTimes: {
       type: 'array',
@@ -389,20 +392,11 @@ const GEMINI_RESPONSE_SCHEMA = {
       required: ['1', '2', '3', '4', '5']
     },
     reverseWeek: { type: 'boolean' },
-    countdownEvents: GEMINI_COUNTDOWN_EVENTS_SCHEMA
-  },
-  required: ['bellTimes', 'classes', 'weeklySchedule']
-};
-
-// Mirrors GEMINI_REGISTRATION_PROMPT's schema exactly, same reasoning as
-// GEMINI_RESPONSE_SCHEMA above (constrained decoding over prompt prose
-// alone). "day"/"periods" as plain integers (not the source document's own
-// notation) is what lets src/gemini-ocr.js's mergeRegistrationIntoCandidate
-// match a course straight onto weeklySchedule's day keys and bellTimes
-// indices without parsing anything itself.
-const GEMINI_REGISTRATION_RESPONSE_SCHEMA = {
-  type: 'object',
-  properties: {
+    // "day"/"periods" as plain integers (not the source document's own
+    // notation) is what lets src/gemini-ocr.js's
+    // mergeRegistrationIntoCandidate match a course straight onto
+    // weeklySchedule's day keys and bellTimes indices without parsing
+    // anything itself.
     courses: {
       type: 'array',
       items: {
@@ -419,7 +413,7 @@ const GEMINI_REGISTRATION_RESPONSE_SCHEMA = {
     },
     countdownEvents: GEMINI_COUNTDOWN_EVENTS_SCHEMA
   },
-  required: ['courses', 'countdownEvents']
+  required: ['documentKind', 'bellTimes', 'classes', 'weeklySchedule', 'courses', 'countdownEvents']
 };
 
 // Same reasoning as AIVisionProcessor.buildGenerationConfig() (which this
@@ -455,16 +449,6 @@ function buildGenerationConfig(model, schema) {
     thinkingConfig: /^gemini-2\./.test(model) ? { thinkingBudget: 0 } : { thinkingLevel: 'low' }
   };
 }
-
-// The two fixed prompt+schema pairs a request may select via `promptType` -
-// see GEMINI_PROMPT and GEMINI_REGISTRATION_PROMPT above for what each is
-// for. Selecting between two hardcoded pairs (never a client-supplied
-// prompt) is what keeps this proxy from becoming a generic pass-through -
-// see README's security notes on the AI proxy.
-const GEMINI_PROMPT_TYPES = {
-  timetable: { prompt: GEMINI_PROMPT, schema: GEMINI_RESPONSE_SCHEMA },
-  registration: { prompt: GEMINI_REGISTRATION_PROMPT, schema: GEMINI_REGISTRATION_RESPONSE_SCHEMA }
-};
 
 // What a single submitted file may be. Images and PDFs are the two things
 // Gemini actually *looks at* rather than flattening to text (see its
@@ -552,16 +536,10 @@ async function handleGeminiRequest(request, env, headers, ip) {
   } catch {
     return json({ error: { message: 'Invalid JSON body' } }, 400, headers);
   }
-  const { model, promptType: rawPromptType } = body || {};
+  const { model } = body || {};
   if (!GEMINI_ALLOWED_MODELS.includes(model)) {
     return json({ error: { message: 'Unsupported model' } }, 400, headers);
   }
-  // Defaults to 'timetable' rather than rejecting a missing/unknown value -
-  // a client running from a stale service worker cache never sent this
-  // field at all, and should keep getting the behavior it always did rather
-  // than a hard error after this Worker is redeployed.
-  const promptType = Object.hasOwn(GEMINI_PROMPT_TYPES, rawPromptType) ? rawPromptType : 'timetable';
-  const { prompt, schema } = GEMINI_PROMPT_TYPES[promptType];
   const parsedFiles = readGeminiFiles(body);
   if (parsedFiles.error) return json({ error: { message: parsedFiles.error } }, 400, headers);
   if (!env.GEMINI_API_KEY) {
@@ -571,16 +549,15 @@ async function handleGeminiRequest(request, env, headers, ip) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${env.GEMINI_API_KEY}`;
   // Every submitted file goes into one part list, in the order the user
   // picked them. In practice src/gemini-ocr.js now sends exactly one file
-  // per request for both promptTypes (see mergeRegistrationIntoCandidate for
-  // why the old one-request-sees-everything design was dropped), but this
-  // stays capable of taking several - e.g. 'timetable' with two photos of
-  // one physical page split across the frame. The prompt leads, so the
-  // instructions are in context before the first file rather than after the
-  // last.
+  // per request (each classified and extracted independently - see
+  // recognizeAndMerge for why), but this stays capable of taking several -
+  // e.g. two photos of one physical page split across the frame. The prompt
+  // leads, so the instructions are in context before the first file rather
+  // than after the last.
   const contents = [
     {
       parts: [
-        { text: prompt },
+        { text: GEMINI_PROMPT },
         ...parsedFiles.files.map(file => ({
           inline_data: { mime_type: file.mime_type, data: file.data }
         }))
@@ -591,7 +568,7 @@ async function handleGeminiRequest(request, env, headers, ip) {
     const upstream = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents, generationConfig: buildGenerationConfig(model, schema) })
+      body: JSON.stringify({ contents, generationConfig: buildGenerationConfig(model, GEMINI_RESPONSE_SCHEMA) })
     });
     // Piped straight through rather than parsed and re-serialized here: the
     // body is JSON the client parses itself either way, and buffering the
