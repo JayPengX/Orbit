@@ -1507,6 +1507,19 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
    edge without this. */
 @media (max-width:480px){.editor-sheet .bell-row{gap:6px;padding:12px 10px 12px 9px}.editor-sheet .bell-num{width:24px;height:24px;font-size:12px}.bell-inputs{gap:4px}.editor-sheet .time-input{padding:9px 2px;font-size:13.5px}.editor-sheet .delete-btn{width:22px;height:22px;font-size:12px}}
 
+/* Countdown date range (.countdown-date-range) at phone width: same
+   problem as .bell-row above, worse. A native <input type="date"> needs
+   real width to render its own text (day/month/year plus its built-in
+   icon) and, unlike a plain text input, cannot just clip that text when
+   it's too narrow - Safari wraps the date's own display onto a second
+   line inside the input instead, which is what made the end date look
+   like it had fallen onto its own row. Two of these plus the arrow
+   separator sharing one line, at the padding/font-size sized against a
+   desktop pointer, didn't leave enough room on an iPhone. Trimmed
+   padding/gap and a touch smaller font give the native widget enough
+   width to render its text on one line again. */
+@media (max-width:480px){.countdown-date-range{gap:4px}.countdown-event-fields .countdown-event-start,.countdown-event-fields .countdown-event-end{padding:7px 4px;font-size:13.5px}.countdown-date-range .time-sep{font-size:11px}}
+
 /* ============================================================================
    Test panel (time simulation) and style panel
    ========================================================================= */
