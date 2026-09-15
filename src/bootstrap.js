@@ -80,3 +80,22 @@ window.addEventListener('pageshow', nudgeSafeAreaRecalc);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') nudgeSafeAreaRecalc();
 });
+
+// Three decorative CSS animations in styles.css (.dashboard::before's
+// glassDrift, .is-now .status-tag's pulse, .row.is-now's glow) run
+// `infinite` with no stopping point of their own - fine for an ordinary
+// browser tab, which the OS/browser throttles once backgrounded, but
+// reported to leave an iPhone noticeably warm when this app is kept on the
+// home screen: standalone-mode WebKit has not reliably applied that same
+// throttling to a still-animating page the way it does an ordinary
+// backgrounded Safari tab, so the compositor can keep repainting a hidden
+// PWA indefinitely. Pausing them explicitly on visibilitychange (rather
+// than trusting the platform to do it) is the actual fix - see styles.css's
+// .orbit-motion-paused rules for where each is paused, and its own comment
+// for why `animation-play-state:paused` rather than removing the animation
+// outright (it resumes from the exact frame it left off on).
+function setMotionPausedForVisibility() {
+  document.body.classList.toggle('orbit-motion-paused', document.hidden);
+}
+setMotionPausedForVisibility();
+document.addEventListener('visibilitychange', setMotionPausedForVisibility);

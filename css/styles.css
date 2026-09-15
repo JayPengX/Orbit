@@ -274,6 +274,18 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   animation:glassDrift 26s var(--ease-glass) infinite alternate;
 }
 @media (prefers-reduced-motion:reduce){.dashboard::before{animation:none}}
+/* This, statusTagLivePulse and rowLiveGlow (further down) are the only
+   `infinite` animations in the app - each keeps running, and keeps the
+   compositor doing work every frame, for as long as its element is on
+   screen, with no natural stopping point of its own. Installed as a
+   home-screen PWA, that screen can realistically stay open for a whole
+   class period or longer, and standalone-mode WebKit has not reliably
+   throttled a still-animating page the way an ordinary backgrounded Safari
+   tab is - see bootstrap.js's visibilitychange listener that adds this
+   class, the actual fix for reports of the phone getting warm from just
+   leaving this open. Paused, not removed: the exact frame it was on when
+   paused is exactly where it resumes. */
+body.orbit-motion-paused .dashboard::before{animation-play-state:paused}
 /* Someone who has asked the OS for less transparency wants less of exactly
    this effect, so the rim drops its extra backdrop pass and keeps only the
    (opaque-safe) chromatic edge. */
@@ -356,6 +368,36 @@ body::before{
 @media (max-width:430px){body{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}}
 
 .test-banner{position:fixed;top:0;left:0;width:100%;background:var(--warn);color:var(--pro-secondary-text);font-size:11px;font-weight:800;text-align:center;z-index:999;padding:6px max(8px,env(safe-area-inset-right)) 6px max(8px,env(safe-area-inset-left));padding-top:calc(6px + env(safe-area-inset-top));display:none}
+
+/* Blocks landscape on a phone-sized screen: this layout is designed around
+   a tall, narrow card, and turning a phone sideways squeezes every row down
+   to a sliver instead of actually showing more. Rather than trying to
+   relayout for a shape the design was never meant to fit, tell the person
+   to rotate back - the same tradeoff a lot of native phone apps make.
+   max-height:500px (checked against landscape's swapped axes, so this is
+   really the phone's short dimension) is what separates this from a
+   landscape TABLET or laptop, both of which have plenty of room and are
+   deliberately left alone; a real device matrix is the only way to be sure
+   this line sits below every current iPhone's landscape height and above
+   every iPad's. display:none by default, pure CSS with no JS dependency,
+   so it can never be left showing (or missing) by a script that failed to
+   run - only the media query below ever turns it on. */
+.orientation-lock{
+  display:none;position:fixed;inset:0;z-index:2000000;
+  flex-direction:column;align-items:center;justify-content:center;gap:16px;
+  background:#0B1117;color:#F8FAFC;text-align:center;padding:24px;
+}
+.orientation-lock-icon{
+  width:56px;height:34px;border:3px solid currentColor;border-radius:7px;position:relative;flex:0 0 auto;
+}
+.orientation-lock-icon::after{
+  content:'';position:absolute;top:50%;right:-15px;transform:translateY(-50%);
+  border:7px solid transparent;border-left-color:currentColor;
+}
+.orientation-lock-text{margin:0;max-width:280px;font-size:16px;font-weight:700;line-height:1.6}
+@media (orientation:landscape) and (max-height:500px){
+  .orientation-lock{display:flex}
+}
 
 /* ============================================================================
    Dashboard card
@@ -893,6 +935,7 @@ body.orbit-suppress-list-animation .animate-list .row{animation:none}
 .is-next .status-tag::before{border-radius:1px;width:5px;height:5px;clip-path:polygon(0 0,60% 50%,0 100%);background:currentColor}
 @keyframes statusTagLivePulse{0%,100%{opacity:1}50%{opacity:.55}}
 @media (prefers-reduced-motion:reduce){.is-now .status-tag{animation:none}}
+body.orbit-motion-paused .is-now .status-tag{animation-play-state:paused}
 .week-label{display:inline-flex;align-items:center;min-height:26px;padding:4px 8px;border-bottom:none;border-radius:9px;font-size:15px;line-height:1;font-weight:900;white-space:nowrap}
 .label-odd{background:var(--odd-bg);color:var(--odd-txt)}
 .label-even{background:var(--even-bg);color:var(--even-txt)}
@@ -932,6 +975,7 @@ body.orbit-suppress-list-animation .animate-list .row{animation:none}
   border-left:4px solid var(--pro-secondary);padding-left:10px;
 }
 @media (prefers-reduced-motion:reduce){.row.is-now{animation:none;box-shadow:var(--glass-shadow-soft),0 0 0 1px color-mix(in srgb,var(--pro-secondary) 55%,transparent),0 0 20px color-mix(in srgb,var(--pro-secondary) 34%,transparent)}}
+body.orbit-motion-paused .row.is-now{animation-play-state:paused}
 @supports not (backdrop-filter:blur(1px)){
   .row.is-next{background:linear-gradient(135deg,color-mix(in srgb,var(--pro-accent) 26%,var(--orbit-panel-strong)),color-mix(in srgb,var(--pro-accent) 8%,var(--orbit-panel-strong)))}
   .row.is-now{background:linear-gradient(135deg,color-mix(in srgb,var(--pro-secondary) 28%,var(--orbit-panel-strong)),color-mix(in srgb,var(--pro-secondary) 9%,var(--orbit-panel-strong)))}
