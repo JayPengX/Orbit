@@ -132,6 +132,135 @@ describe('AIVisionProcessor.parseResponse turns the AI JSON into the app-interna
     );
     expect(Object.keys(candidate.teacherDB)).toHaveLength(0);
   });
+
+  // Regression coverage: the model is asked for one classes entry per
+  // distinct subject, but in practice sometimes still emits the same
+  // subject+teacher a second time under its own separate key - reported as
+  // a Friday-specific class showing up as a duplicate subject, though
+  // nothing about the underlying cause is actually Friday-specific.
+  it('collapses two classes entries that share a subject and teacher into one class', () => {
+    const processor = new AIVisionProcessor();
+    const candidate = processor.parseResponse(
+      fakeGeminiTextResponse({
+        documentKind: 'timetable',
+        bellTimes: [{ start: '08:10', end: '09:00' }],
+        classes: [
+          { key: 'c1', subject: '國文', teacher: '陳老師', location: 'A101' },
+          // A separately-recognized Friday column re-reports the same class
+          // under its own key, with no location this time.
+          { key: 'c2', subject: '國文', teacher: '陳老師', location: '' }
+        ],
+        weeklySchedule: { 1: ['c1'], 2: [], 3: [], 4: [], 5: ['c2'] }
+      })
+    );
+    expect(Object.keys(candidate.teacherDB)).toHaveLength(1);
+    const [key] = Object.keys(candidate.teacherDB);
+    expect(candidate.teacherDB[key]).toEqual(['國文', '陳老師', 'A101']);
+    // Both weekdays still point at the one surviving class.
+    expect(candidate.weeklySchedule[1][0]).toBe(key);
+    expect(candidate.weeklySchedule[5][0]).toBe(key);
+  });
+
+  it('keeps two classes with the same subject but a different teacher as distinct classes', () => {
+    const processor = new AIVisionProcessor();
+    const candidate = processor.parseResponse(
+      fakeGeminiTextResponse({
+        documentKind: 'timetable',
+        bellTimes: [{ start: '08:10', end: '09:00' }],
+        classes: [
+          { key: 'c1', subject: '國文', teacher: '陳老師', location: '' },
+          { key: 'c2', subject: '國文', teacher: '林老師', location: '' }
+        ],
+        weeklySchedule: { 1: ['c1', 'c2'], 2: [], 3: [], 4: [], 5: [] }
+      })
+    );
+    expect(Object.keys(candidate.teacherDB)).toHaveLength(2);
+  });
+});
+
+// Regression coverage: GEMINI_PROMPT asks the model to infer a sensible
+// year for a date shown without one, anchored to "today" - but that's a
+// model guess, not a guarantee, so the client applies its own
+// belt-and-suspenders fix: an AI-recognized countdown event that has
+// already fully ended by today gets rolled forward to the nearest year
+// that puts it at or after today, since nobody imports a school poster to
+// track an exam that's already over.
+describe('AI-recognized countdown events are rolled forward instead of left in the past', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 5, 15)); // 2026-06-15
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('rolls a year-off single-day event forward to the next occurrence of that month/day', () => {
+    const processor = new AIVisionProcessor();
+    const candidate = processor.parseResponse(
+      fakeGeminiTextResponse({
+        documentKind: 'timetable',
+        bellTimes: [],
+        classes: [],
+        weeklySchedule: {},
+        // The model guessed this year, but 1/22 of this year has already
+        // passed relative to the mocked "today" above.
+        countdownEvents: [{ name: '學測', startDate: '2026-01-22', endDate: '2026-01-22' }]
+      })
+    );
+    expect(candidate.countdownEvents).toEqual([
+      { name: '學測', startDate: '2027-01-22', endDate: '2027-01-22' }
+    ]);
+  });
+
+  it('leaves an already-future event untouched', () => {
+    const processor = new AIVisionProcessor();
+    const candidate = processor.parseResponse(
+      fakeGeminiTextResponse({
+        documentKind: 'timetable',
+        bellTimes: [],
+        classes: [],
+        weeklySchedule: {},
+        countdownEvents: [{ name: '校慶', startDate: '2026-12-01', endDate: '2026-12-01' }]
+      })
+    );
+    expect(candidate.countdownEvents).toEqual([
+      { name: '校慶', startDate: '2026-12-01', endDate: '2026-12-01' }
+    ]);
+  });
+
+  it('preserves a multi-day span while rolling both dates forward together', () => {
+    const processor = new AIVisionProcessor();
+    const candidate = processor.parseResponse(
+      fakeGeminiTextResponse({
+        documentKind: 'registration',
+        courses: [],
+        countdownEvents: [{ name: '期中考', startDate: '2026-01-20', endDate: '2026-01-22' }]
+      })
+    );
+    expect(candidate.countdownEvents).toEqual([
+      { name: '期中考', startDate: '2027-01-20', endDate: '2027-01-22' }
+    ]);
+  });
+
+  it('defaults the imported order to closest date first, regardless of recognition order', () => {
+    const processor = new AIVisionProcessor();
+    const candidate = processor.parseResponse(
+      fakeGeminiTextResponse({
+        documentKind: 'timetable',
+        bellTimes: [],
+        classes: [],
+        weeklySchedule: {},
+        countdownEvents: [
+          { name: '期末考', startDate: '2026-12-01', endDate: '2026-12-01' },
+          { name: '運動會', startDate: '2026-07-01', endDate: '2026-07-01' },
+          { name: '段考', startDate: '2026-08-01', endDate: '2026-08-01' }
+        ]
+      })
+    );
+    expect(candidate.countdownEvents.map(event => event.name)).toEqual([
+      '運動會',
+      '段考',
+      '期末考'
+    ]);
+  });
 });
 
 // Regression coverage for a preview bug: the countdown-events fold is the
@@ -173,7 +302,9 @@ describe('ImportPreview reveals the countdown-events fold when the AI actually f
     expect(fold).not.toBeNull();
     expect(fold.hidden).toBe(false);
     expect(fold.open).toBe(true);
-    expect(root.querySelectorAll('[data-ocr-countdown-list] .countdown-event-name')).toHaveLength(1);
+    expect(root.querySelectorAll('[data-ocr-countdown-list] .countdown-event-name')).toHaveLength(
+      1
+    );
     expect(root.querySelector('.countdown-event-name').value).toBe('期末考');
     // Reuses the main countdown editor's own field layout
     // (.countdown-event-fields/.countdown-date-range in editor-core.js),

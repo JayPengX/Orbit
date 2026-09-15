@@ -51,7 +51,9 @@ describe('AIVisionProcessor.recognizeSchedule with a configured proxy', () => {
     const processor = new AIVisionProcessor();
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => fakeGeminiResponse({ documentKind: 'timetable', teacherDB: {}, weeklySchedule: {} }))
+      vi.fn(async () =>
+        fakeGeminiResponse({ documentKind: 'timetable', teacherDB: {}, weeklySchedule: {} })
+      )
     );
     await expect(processor.recognizeSchedule(fakeFiles(), () => {})).resolves.toMatchObject({
       modelUsed: 'gemini-3.5-flash-lite'
@@ -283,18 +285,58 @@ describe('AIVisionProcessor.recognizeAndMerge', () => {
     vi.unstubAllGlobals();
   });
 
-  it('throws a clear error when no attached file is classified as a timetable', async () => {
+  it('throws a clear error when nothing at all was recognized (no timetable, no courses, no countdown)', async () => {
+    const processor = new AIVisionProcessor();
+    const fetchMock = routedFetchMock({
+      other: fakeGeminiResponse({
+        documentKind: 'other',
+        classes: [],
+        weeklySchedule: {},
+        courses: []
+      }),
+      'other-2': fakeGeminiResponse({
+        documentKind: 'other',
+        classes: [],
+        weeklySchedule: {},
+        courses: []
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(
+      processor.recognizeAndMerge([tag('other'), tag('other-2')], () => {})
+    ).rejects.toThrow(/沒有偵測到課表/);
+    vi.unstubAllGlobals();
+  });
+
+  it('builds a candidate from a registration file alone when no timetable photo was uploaded', async () => {
     const processor = new AIVisionProcessor();
     const fetchMock = routedFetchMock({
       registration: fakeRegistrationResponse([
         { subject: '西班牙語', teacher: '李忍堅', day: 1, periods: [6, 7] }
-      ]),
-      other: fakeGeminiResponse({ documentKind: 'other', classes: [], weeklySchedule: {}, courses: [] })
+      ])
     });
     vi.stubGlobal('fetch', fetchMock);
-    await expect(
-      processor.recognizeAndMerge([tag('registration'), tag('other')], () => {})
-    ).rejects.toThrow(/沒有偵測到課表/);
+    const { candidate } = await processor.recognizeAndMerge([tag('registration')], () => {});
+    const subjects = Object.values(candidate.teacherDB).map(entry => entry[0]);
+    expect(subjects).toEqual(['西班牙語']);
+    vi.unstubAllGlobals();
+  });
+
+  it('builds a candidate from a single countdown-only photo with no timetable and no courses', async () => {
+    const processor = new AIVisionProcessor();
+    const fetchMock = routedFetchMock({
+      other: fakeGeminiResponse({
+        documentKind: 'other',
+        classes: [],
+        weeklySchedule: {},
+        courses: [],
+        countdownEvents: [{ name: '116 學測', startDate: '2027-01-22', endDate: '2027-01-24' }]
+      })
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { candidate } = await processor.recognizeAndMerge([tag('other')], () => {});
+    expect(candidate.countdownEvents.map(event => event.name)).toContain('116 學測');
+    expect(Object.keys(candidate.teacherDB)).toEqual([]);
     vi.unstubAllGlobals();
   });
 

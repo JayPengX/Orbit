@@ -201,6 +201,65 @@ function warmUpGeminiProxy() {
   });
 }
 
+// Shifts a YYYY-MM-DD date forward by whole years, the way a plain
+// {year, month, day} +N-years bump would - used only to correct an
+// already-elapsed AI-recognized date, so there's no real-world "the 29th of
+// February N years from now" case worth handling more carefully than
+// JS Date's own end-of-month rollover.
+function shiftDateYears(dateStr, deltaYears) {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const shifted = new Date(year + deltaYears, month - 1, day);
+  return `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, '0')}-${String(shifted.getDate()).padStart(2, '0')}`;
+}
+function todayIsoLocal() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+// GEMINI_PROMPT (see the Worker) asks the model to infer a sensible year for
+// a date shown without one, using "today" as an anchor - but that's still a
+// model guess, not a guarantee, and a wrong guess reliably lands one or more
+// whole years short rather than off by a few days. Belt-and-suspenders: an
+// event that has already fully ended by today almost certainly means the
+// year was mis-guessed (nobody photographs a school poster to import an
+// already-over exam as their next countdown), so roll it forward to the
+// nearest year that makes it current or upcoming instead of leaving a
+// "countdown" pointed at the past. A genuinely already-over event a user
+// deliberately keeps around (typed in by hand, or restored from a backup)
+// never passes through this - it's only ever applied to freshly AI-parsed
+// dates, both here and in normalizeRegistrationOutput.
+function rollCountdownEventsToFuture(events, todayIso = todayIsoLocal()) {
+  return events.map(event => {
+    let { startDate, endDate } = event;
+    let delta = 0;
+    // Bounded rather than an unconditional while(true): a malformed date
+    // (already guarded against upstream by normalizeCountdownEvent, but
+    // cheap insurance) must never spin this forever.
+    while (endDate < todayIso && delta < 50) {
+      delta += 1;
+      startDate = shiftDateYears(event.startDate, delta);
+      endDate = shiftDateYears(event.endDate, delta);
+    }
+    return delta ? { ...event, startDate, endDate } : event;
+  });
+}
+// AI import's own default order (see updateExamCountdown, which otherwise
+// just shows whichever event happens to be first in the stored array): the
+// soonest event first. Deliberately scoped to freshly-recognized events
+// only, not the shared data.js normalizeCountdownEvents used for manual
+// edits and backups - describeSettingsDiff relies on that one preserving
+// whatever order the caller gave it to detect a pure reorder (see
+// editor-backup-diff.test.js), which a global sort would silently defeat.
+function sortCountdownEventsByDate(events) {
+  return [...events].sort((a, b) =>
+    a.startDate < b.startDate ? -1 : a.startDate > b.startDate ? 1 : 0
+  );
+}
+function finalizeAiCountdownEvents(rawEvents) {
+  return sortCountdownEventsByDate(
+    rollCountdownEventsToFuture(normalizeCountdownEvents(rawEvents))
+  );
+}
+
 // Shared by normalizeAIOutput and mergeRegistrationIntoCandidate - both end
 // up with a final {weeklySchedule, teacherDB} pair that recognizedBlocks
 // (the shape the preview UI reads) needs rebuilt from scratch afterward.
@@ -450,7 +509,7 @@ class AIVisionProcessor {
     return {
       courses,
       countdownEvents: Array.isArray(aiResult?.countdownEvents)
-        ? normalizeCountdownEvents(aiResult.countdownEvents)
+        ? finalizeAiCountdownEvents(aiResult.countdownEvents)
         : []
     };
   }
@@ -513,6 +572,14 @@ class AIVisionProcessor {
     const teacherDB = {};
     const locationDB = {};
     const keyMap = {};
+    // Keyed by subject+teacher - the model is asked for one classes
+    // entry per distinct subject, but sometimes still emits the same
+    // subject+teacher twice under two different keys (seen most often for
+    // a day column read in a separate pass, e.g. one whose Friday session
+    // got recognized apart from the rest of the week). Reusing the first
+    // entry's key for a later duplicate keeps that from landing as a
+    // visible second "same subject" row in the imported class list.
+    const classKeyByIdentity = new Map();
     let courseCounter = 1;
     // Does NOT fall subject back to dbKey itself - that would have been
     // reasonable for the legacy map shape (its key is typically the
@@ -531,14 +598,21 @@ class AIVisionProcessor {
         .trim()
         .replace(/／/g, '/');
       subject = subject.replace(/／/g, '/');
+      const cleanDbKey = String(dbKey || '')
+        .trim()
+        .replace(/／/g, '/');
+      const identity = `${subject}::${teacher}`;
+      const existingKey = classKeyByIdentity.get(identity);
+      if (existingKey) {
+        keyMap[cleanDbKey] = existingKey;
+        if (location && !locationDB[existingKey]) locationDB[existingKey] = location;
+        return;
+      }
       const key = `oc${courseCounter++}`;
-      keyMap[
-        String(dbKey || '')
-          .trim()
-          .replace(/／/g, '/')
-      ] = key;
+      keyMap[cleanDbKey] = key;
       teacherDB[key] = [subject, teacher, location];
       locationDB[key] = location;
+      classKeyByIdentity.set(identity, key);
     };
     if (Array.isArray(aiResult.classes)) {
       aiResult.classes.forEach(entry => {
@@ -590,7 +664,7 @@ class AIVisionProcessor {
       recognizedBlocks: computeRecognizedBlocks(weeklySchedule, teacherDB)
     };
     candidate.countdownEvents = Array.isArray(aiResult.countdownEvents)
-      ? normalizeCountdownEvents(aiResult.countdownEvents)
+      ? finalizeAiCountdownEvents(aiResult.countdownEvents)
       : [];
     return candidate;
   }
@@ -617,10 +691,25 @@ class AIVisionProcessor {
     // per-parse counter starts back at 1 too, and these two candidates are
     // merged together, so distinct prefixes are the only thing stopping a
     // silent key collision that would overwrite an unrelated class.
+    //
+    // A registration document often lists one row per day a course meets
+    // (e.g. separate Monday/Wednesday/Friday rows for the same course)
+    // rather than one row naming every period at once - reuse the same key
+    // for every row that shares a subject+teacher instead of giving each
+    // day its own class entry, or the course would show up as several
+    // duplicate-looking "same subject" rows in the imported class list.
+    const keyByIdentity = new Map();
     registration.courses.forEach(course => {
-      const key = `rc${counter++}`;
-      teacherDB[key] = [course.subject, course.teacher, course.location];
-      locationDB[key] = course.location;
+      const identity = `${course.subject}::${course.teacher}`;
+      let key = keyByIdentity.get(identity);
+      if (!key) {
+        key = `rc${counter++}`;
+        keyByIdentity.set(identity, key);
+        teacherDB[key] = [course.subject, course.teacher, course.location];
+        locationDB[key] = course.location;
+      } else if (course.location && !locationDB[key]) {
+        locationDB[key] = course.location;
+      }
       const dayArr = weeklySchedule[course.day] || (weeklySchedule[course.day] = []);
       course.periods.forEach(period => {
         const index = period - 1;
@@ -655,10 +744,16 @@ class AIVisionProcessor {
       teacherOrder: Object.keys(prunedTeacherDB),
       locationDB: prunedLocationDB,
       weeklySchedule,
-      countdownEvents: normalizeCountdownEvents([
-        ...(candidate.countdownEvents || []),
-        ...(registration.countdownEvents || [])
-      ]),
+      // Both sides already went through finalizeAiCountdownEvents on their
+      // own, so this only needs to re-sort the combined list back into
+      // closest-first order - concatenating two already-sorted lists isn't
+      // itself sorted.
+      countdownEvents: sortCountdownEventsByDate(
+        normalizeCountdownEvents([
+          ...(candidate.countdownEvents || []),
+          ...(registration.countdownEvents || [])
+        ])
+      ),
       recognizedBlocks: computeRecognizedBlocks(weeklySchedule, prunedTeacherDB)
     };
   }
@@ -689,17 +784,34 @@ class AIVisionProcessor {
     // reports about itself - "documentKind" (see GEMINI_PROMPT) - not from
     // upload order.
     const scoped = index =>
-      onProgress && (message => onProgress(parts.length > 1 ? `檔案 ${index + 1}：${message}` : message));
+      onProgress &&
+      (message => onProgress(parts.length > 1 ? `檔案 ${index + 1}：${message}` : message));
     const results = await Promise.all(
       parts.map((file, index) => this.recognizeSchedule([file], scoped(index), opts))
     );
 
-    const timetableIndex = results.findIndex(result => result.candidate.documentKind === 'timetable');
-    if (timetableIndex === -1) {
-      throw new Error('沒有偵測到課表圖片，請確認上傳的檔案中至少有一張完整的每週課表照片或 PDF。');
+    const timetableIndex = results.findIndex(
+      result => result.candidate.documentKind === 'timetable'
+    );
+    // No weekly-grid photo at all is only a hard failure if there's also
+    // nothing else worth importing - a file can be a pure countdown/exam
+    // notice (documentKind "other") or a registration record with no
+    // accompanying timetable photo, and both are legitimate single-file
+    // imports on their own (see GEMINI_PROMPT's countdownEvents rule).
+    // Falling through to an empty timetable shell below lets that data
+    // still reach the merge/preview step instead of being rejected outright.
+    const hasOtherContent = results.some(
+      result =>
+        (result.candidate.countdownEvents || []).length || (result.candidate.courses || []).length
+    );
+    if (timetableIndex === -1 && !hasOtherContent) {
+      throw new Error(
+        '沒有偵測到課表圖片或倒數活動，請確認上傳的檔案中至少有一張完整的每週課表照片、選課紀錄，或含有日期的倒數活動通知。'
+      );
     }
-    let candidate = results[timetableIndex].candidate;
-    const modelsUsed = [results[timetableIndex].modelUsed];
+    let candidate =
+      timetableIndex === -1 ? this.normalizeAIOutput({}) : results[timetableIndex].candidate;
+    const modelsUsed = timetableIndex === -1 ? [] : [results[timetableIndex].modelUsed];
 
     // Promise.all preserves input order in its results regardless of which
     // request actually resolved first, so this stays in file order - "a
@@ -715,10 +827,12 @@ class AIVisionProcessor {
         // still worth keeping.
         candidate = {
           ...candidate,
-          countdownEvents: normalizeCountdownEvents([
-            ...(candidate.countdownEvents || []),
-            ...(result.candidate.countdownEvents || [])
-          ])
+          countdownEvents: sortCountdownEventsByDate(
+            normalizeCountdownEvents([
+              ...(candidate.countdownEvents || []),
+              ...(result.candidate.countdownEvents || [])
+            ])
+          )
         };
         return;
       }

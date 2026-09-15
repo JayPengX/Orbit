@@ -192,6 +192,14 @@ async function isRateLimited(env, ip, feature, limit) {
 
 // ==== /gemini - AI schedule-photo import ====================================
 
+// Taiwan is UTC+8 with no DST, so a fixed offset gives the exact local
+// calendar date - no timezone database needed for a Worker that otherwise
+// runs in UTC. Used to anchor GEMINI_PROMPT's year-less-date rule to "today"
+// from this app's users' own point of view, not the server's.
+function todayIsoInTaipei() {
+  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
 // Exact copy of the prompt that used to live in src/gemini-ocr.js's
 // AIVisionProcessor.buildPrompt() - kept here now instead, since the whole
 // point of moving it server-side is that the client no longer sends it.
@@ -218,7 +226,16 @@ async function isRateLimited(env, ip, feature, limit) {
 // this is not: getting the whole import right no matter what order the
 // files came in, rather than getting it cheaply and only when they came in
 // the order the code silently assumed.
-const GEMINI_PROMPT = `Look at the attached file and decide what kind of document it is, then extract accordingly. Return a single JSON object matching this exact schema:
+// A function of "today" rather than a plain constant: countdownEvents below
+// needs a reference date so the model can resolve a year-less calendar date
+// (e.g. a poster showing only "1/22", no year) to the correct year itself,
+// instead of guessing one with no anchor at all - which in practice skewed
+// toward whatever year the model's training data made it default to, often
+// landing the "countdown" in the past. Computed fresh per request rather
+// than once at module load, since a Worker instance can stay warm across
+// requests spanning a real date change.
+function buildGeminiPrompt(todayIso) {
+  return `Look at the attached file and decide what kind of document it is, then extract accordingly. Return a single JSON object matching this exact schema:
 {
   "documentKind": "timetable",
   "bellTimes": [],
@@ -252,11 +269,13 @@ If documentKind is "registration", fill in courses (leave bellTimes/breakTimes/c
 - courses: one entry per distinct course row actually shown — do not invent rows. "day" is an integer: 1 for Monday through 5 for Friday, 6 for Saturday, 0 for Sunday. "periods" is every period number that row's course occupies, as a plain array of integers in ascending order (e.g. a row spanning two consecutive periods is periods:[3,4], never a combined number like 34 or a string). Use "" for teacher/location when not given or not legible.
 
 Regardless of documentKind:
-- Add countdownEvents only for clearly visible events/exams with a readable calendar date, formatted as "YYYY-MM-DD". Set startDate and endDate to the same date for a single-day event; use the visible first and last dates for a multi-day event/exam period. Only include dates you can actually read; otherwise return an empty array. A file can carry a countdown/exam notice with no timetable or course-list content at all (documentKind "other") - still report it.
+- Add countdownEvents only for clearly visible events/exams with a readable calendar date, formatted as "YYYY-MM-DD". Set startDate and endDate to the same date for a single-day event; use the visible first and last dates for a multi-day event/exam period. Only include dates you can actually read the day and month of; otherwise return an empty array. A file can carry a countdown/exam notice with no timetable or course-list content at all (documentKind "other") - still report it.
+- Today's date is ${todayIso}. If a countdown/exam date shows a day and month but no visible year, infer the year yourself so the resulting date is the nearest upcoming date on or after today: use this year unless that month/day has already passed this year, in which case use next year instead. Never infer a year that puts the event in the past. If a year is actually visible in the photo, always use that one instead, even if it looks like it's already past.
 - Do not invent information. When uncertain, prefer an empty value, empty array, or null.
 - Every field in the response schema you are given must be present, even when empty.
 - Keep all fields internally consistent.
 - Return ONLY the raw JSON object — no markdown fences, no comments, no extra text.`;
+}
 
 // Must match src/gemini-ocr.js's AIVisionProcessor.geminiModels exactly -
 // this is the actual enforcement point that stops the model name from being
@@ -557,7 +576,7 @@ async function handleGeminiRequest(request, env, headers, ip) {
   const contents = [
     {
       parts: [
-        { text: GEMINI_PROMPT },
+        { text: buildGeminiPrompt(todayIsoInTaipei()) },
         ...parsedFiles.files.map(file => ({
           inline_data: { mime_type: file.mime_type, data: file.data }
         }))
@@ -568,7 +587,10 @@ async function handleGeminiRequest(request, env, headers, ip) {
     const upstream = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents, generationConfig: buildGenerationConfig(model, GEMINI_RESPONSE_SCHEMA) })
+      body: JSON.stringify({
+        contents,
+        generationConfig: buildGenerationConfig(model, GEMINI_RESPONSE_SCHEMA)
+      })
     });
     // Piped straight through rather than parsed and re-serialized here: the
     // body is JSON the client parses itself either way, and buffering the
