@@ -3,11 +3,35 @@ import { loadApp } from './helpers/loadApp.js';
 import { buildFixtureData, seedLocalStorage } from './helpers/fixtureData.js';
 
 let describeSettingsDiff;
+let settingsDataForExport;
 
 beforeAll(async () => {
   seedLocalStorage();
   await loadApp();
-  ({ describeSettingsDiff } = await import('../src/editor-backup.js'));
+  ({ describeSettingsDiff, settingsDataForExport } = await import('../src/editor-backup.js'));
+});
+
+// Regression coverage for a real reported bug: AI import (and manual
+// paste-import) both call settingsDataForExport() to read "the current
+// settings" for their merge-vs-replace confirm step, straight from the
+// standalone transfer sheet - without ever requiring the schedule editor
+// sheet to have been opened first (see openTransferSheet in editor-core.js,
+// which can open on its own). settingsDataForExport() itself reads the
+// editor sheet's own form DOM (#teacher-list, #countdown-event-list, etc.),
+// which is only ever populated by openEditor(). Before this fix, a session
+// that never opened the schedule editor got back completely empty markup as
+// "current" - so picking "合併" (merge) during an AI import looked like a
+// merge but actually discarded every existing class and countdown event the
+// editor never got a chance to render.
+describe('settingsDataForExport reflects saved data even if the editor sheet was never opened', () => {
+  it('is not empty on a fresh app load, before openEditor() has ever run', () => {
+    expect(document.getElementById('editor-sheet')?.classList.contains('show')).toBe(false);
+    const current = settingsDataForExport();
+    expect(Object.keys(current.teacherDB).length).toBeGreaterThan(0);
+    expect(current.countdownEvents).toEqual([
+      { name: '第一次段考', startDate: '2024-01-15', endDate: '2024-01-17' }
+    ]);
+  });
 });
 
 describe('describeSettingsDiff: pure reorder detection', () => {

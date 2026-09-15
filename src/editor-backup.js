@@ -514,7 +514,30 @@ function normalizeSettingsData(raw, { requireMarker = false } = {}) {
     styleSlots: normalizeStyleSlots(source.styleSlots)
   };
 }
+// Reads "the current settings" as collectEditorFormState() sees them -
+// which means the editor sheet's own form fields (#teacher-list,
+// #schedule-grid, #countdown-event-list, etc.), not state.applicationData
+// directly. That's deliberate when the editor is actually open, so an
+// in-progress unsaved edit is what gets exported/diffed/merged against,
+// not whatever was last saved. But those DOM lists are only ever populated
+// by openEditor() - a caller that reaches this (AI import and manual
+// paste-import both can, straight from the standalone transfer sheet,
+// without ever opening the schedule editor first - see openTransferSheet)
+// while the editor sheet has never been opened this session would
+// otherwise read completely empty markup as "current", making a "merge"
+// look like it kept everything while actually discarding every class and
+// countdown event the editor never got a chance to render. Re-render the
+// form from the real saved data first whenever the editor isn't open -
+// there's no in-progress edit to lose in that case - so "current" always
+// reflects state.applicationData at minimum.
 function settingsDataForExport() {
+  if (!document.getElementById('editor-sheet')?.classList.contains('show')) {
+    renderEditorTeachers();
+    renderEditorBells();
+    renderEditorBreaks();
+    renderEditorSchedule();
+    renderCountdownEvent();
+  }
   sortEditorPeriodsByTime();
   return {
     ...normalizeSettingsData({
