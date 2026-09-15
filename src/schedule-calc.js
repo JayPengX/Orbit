@@ -44,14 +44,17 @@ export function computeDashboardViewModel({ now, curDay, week, todaySchedule, br
   });
   const activeBreak =
     curIdx === -1
-      ? (breakTimes || []).find(
-          item =>
-            item.name &&
-            item.start &&
-            item.end &&
-            mins >= parseTime(item.start) &&
-            mins < parseTime(item.end)
-        )
+      ? (breakTimes || []).find(item => {
+          if (!item.name || !item.start || !item.end) return false;
+          const startMin = parseTime(item.start);
+          const endMin = parseTime(item.end);
+          // endMin <= startMin means the break crosses midnight (e.g. 18:00
+          // -> 05:00): it's active from start through midnight, then again
+          // from midnight through end, so either side of "now" counts.
+          return endMin > startMin
+            ? mins >= startMin && mins < endMin
+            : mins >= startMin || mins < endMin;
+        })
       : null;
 
   // statusText/nextText/nextMeta/dotState/timerVisible/progressVisible are
@@ -79,12 +82,21 @@ export function computeDashboardViewModel({ now, curDay, week, todaySchedule, br
       dotState = 'wait';
       timerVisible = true;
       timerLabel = t('dashboard.duringClass');
+      const SECONDS_PER_DAY = 86400;
       const breakStart = parseTime(activeBreak.start) * 60;
-      const breakEnd = parseTime(activeBreak.end) * 60;
-      timerValue = formatCountdown(breakEnd - secs);
+      let breakEnd = parseTime(activeBreak.end) * 60;
+      let curSecs = secs;
+      if (breakEnd <= breakStart) {
+        // Crosses midnight: push the end (and "now", if we're past midnight
+        // in the early-morning tail) onto the same continuous timeline as
+        // the start so the countdown/progress math below stays linear.
+        breakEnd += SECONDS_PER_DAY;
+        if (curSecs < breakStart) curSecs += SECONDS_PER_DAY;
+      }
+      timerValue = formatCountdown(breakEnd - curSecs);
       progressVisible = true;
       progressIsClass = false;
-      progressPercent = Math.min(100, ((secs - breakStart) / (breakEnd - breakStart)) * 100);
+      progressPercent = Math.min(100, ((curSecs - breakStart) / (breakEnd - breakStart)) * 100);
       curIdx = -1;
       nxtIdx = today.findIndex(c => parseTime(c.s) >= parseTime(activeBreak.end));
     } else if (curIdx !== -1) {

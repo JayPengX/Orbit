@@ -2,7 +2,12 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { loadApp } from './helpers/loadApp.js';
 import { getISOWeekNumber, parseTime, processSplitName } from '../src/schedule.js';
 import { state } from '../src/state.js';
-import { normalizeCountdownEvent, sanitizeBreakTimes, validateTimeIntervals } from '../src/data.js';
+import {
+  isValidTimeRange,
+  normalizeCountdownEvent,
+  sanitizeBreakTimes,
+  validateTimeIntervals
+} from '../src/data.js';
 import {
   decodeTransferData,
   encodeTransferData,
@@ -67,6 +72,42 @@ describe('validateTimeIntervals', () => {
       )
     ).toThrow(/重疊/);
   });
+
+  it('rejects a bell period that crosses midnight (only breaks may do that)', () => {
+    expect(() => validateTimeIntervals([['23:00', '01:00']], [])).toThrow();
+  });
+
+  it('accepts a special-time break that crosses midnight', () => {
+    expect(() =>
+      validateTimeIntervals(
+        [['08:00', '08:50']],
+        [{ name: '就寢時間', start: '18:00', end: '05:00' }]
+      )
+    ).not.toThrow();
+  });
+
+  it('rejects an overnight break that overlaps another interval across the midnight wrap', () => {
+    expect(() =>
+      validateTimeIntervals(
+        [['04:00', '06:00']],
+        [{ name: '就寢時間', start: '18:00', end: '05:00' }]
+      )
+    ).toThrow(/重疊/);
+  });
+});
+
+describe('isValidTimeRange', () => {
+  it('rejects an overnight range by default', () => {
+    expect(isValidTimeRange('18:00', '05:00')).toBe(false);
+  });
+
+  it('accepts an overnight range when overnight ranges are allowed', () => {
+    expect(isValidTimeRange('18:00', '05:00', true)).toBe(true);
+  });
+
+  it('still rejects a zero-length range even when overnight is allowed', () => {
+    expect(isValidTimeRange('18:00', '18:00', true)).toBe(false);
+  });
 });
 
 describe('countdown event normalization', () => {
@@ -119,6 +160,13 @@ describe('sanitizeBreakTimes', () => {
   it('auto-fills a default break that fits without conflict', () => {
     const result = sanitizeBreakTimes(bellTimes, []);
     expect(result).toContainEqual({ name: '打掃時間', start: '08:50', end: '09:10' });
+  });
+
+  it('keeps a custom break that crosses midnight', () => {
+    const result = sanitizeBreakTimes(bellTimes, [
+      { name: '就寢時間', start: '18:00', end: '05:00' }
+    ]);
+    expect(result).toContainEqual({ name: '就寢時間', start: '18:00', end: '05:00' });
   });
 });
 

@@ -93,28 +93,45 @@ function isValidTime(value) {
   const [hours, minutes] = String(value).split(':').map(Number);
   return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
 }
-function isValidTimeRange(start, end) {
+// `allowOvernight` lets a range's end be earlier than its start, meaning it
+// crosses midnight (e.g. 18:00 -> 05:00). Only named breaks ("special time")
+// may do this - bell periods (class time) always stay within one day.
+function isValidTimeRange(start, end, allowOvernight = false) {
   if (!isValidTime(start) || !isValidTime(end)) return false;
-  return editorTimeToMinutes(end) > editorTimeToMinutes(start);
+  const startMin = editorTimeToMinutes(start);
+  const endMin = editorTimeToMinutes(end);
+  return allowOvernight ? endMin !== startMin : endMin > startMin;
+}
+// Splits a start/end range into 1 or 2 same-day [start, end) pieces so an
+// overnight range (end <= start, meaning it crosses midnight) can be
+// compared for overlap using plain minute-of-day numbers. Every bell period
+// and break recurs identically every day, so two recurring ranges overlap
+// at some point iff their day-pieces overlap within a single day.
+function timeRangeToDayPieces(startMin, endMin) {
+  if (endMin > startMin) return [[startMin, endMin]];
+  const pieces = [];
+  if (startMin < 1440) pieces.push([startMin, 1440]);
+  if (endMin > 0) pieces.push([0, endMin]);
+  return pieces;
 }
 function validateTimeIntervals(bellTimes, breakTimes) {
   const intervals = [];
-  const addInterval = (start, end, label) => {
-    if (!isValidTimeRange(start, end)) throw new Error(`${label}時間必須是有效的開始與結束時間。`);
-    intervals.push({ start, end, label });
+  const addInterval = (start, end, label, allowOvernight) => {
+    if (!isValidTimeRange(start, end, allowOvernight))
+      throw new Error(`${label}時間必須是有效的開始與結束時間。`);
+    timeRangeToDayPieces(editorTimeToMinutes(start), editorTimeToMinutes(end)).forEach(
+      ([pieceStart, pieceEnd]) => intervals.push({ start: pieceStart, end: pieceEnd, label })
+    );
   };
-  (bellTimes || []).forEach((item, index) => addInterval(item[0], item[1], `第 ${index + 1} 節`));
-  (breakTimes || []).forEach(item => addInterval(item.start, item.end, `特殊時段「${item.name}」`));
-  intervals.sort(
-    (a, b) =>
-      editorTimeToMinutes(a.start) - editorTimeToMinutes(b.start) ||
-      editorTimeToMinutes(a.end) - editorTimeToMinutes(b.end)
+  (bellTimes || []).forEach((item, index) =>
+    addInterval(item[0], item[1], `第 ${index + 1} 節`, false)
   );
+  (breakTimes || []).forEach(item =>
+    addInterval(item.start, item.end, `特殊時段「${item.name}」`, true)
+  );
+  intervals.sort((a, b) => a.start - b.start || a.end - b.end);
   intervals.forEach((item, index) => {
-    if (
-      index > 0 &&
-      editorTimeToMinutes(item.start) < editorTimeToMinutes(intervals[index - 1].end)
-    )
+    if (index > 0 && item.start < intervals[index - 1].end)
       throw new Error(`時間衝突：${intervals[index - 1].label} 與 ${item.label} 重疊。`);
   });
 }
@@ -183,7 +200,7 @@ function sanitizeBreakTimes(bellTimes, breakTimes = []) {
     const start = String(item.start || '').trim();
     const end = String(item.end || '').trim();
     if (!name && !start && !end) return;
-    if (!name || !isValidTimeRange(start, end)) return;
+    if (!name || !isValidTimeRange(start, end, true)) return;
     try {
       validateTimeIntervals(bellTimes, [...validBreaks, { name, start, end }]);
       validBreaks.push({ name, start, end });

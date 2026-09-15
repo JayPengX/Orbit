@@ -122,3 +122,30 @@ describe('computeDashboardViewModel - boundary cases', () => {
     expect(tuesday.nextText).toBe('再見');
   });
 });
+
+describe('computeDashboardViewModel - overnight (cross-midnight) special time', () => {
+  const overnightBreak = [{ name: '就寢時間', start: '18:00', end: '05:00' }];
+  const formatCountdownFor = totalSeconds =>
+    `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`;
+
+  it('is active before midnight, counting down toward the next-day end', () => {
+    // 22:00 -> 05:00 next day is 7h = 25200s away
+    const vm = compute(at(22, 0, 0), { breakTimes: overnightBreak });
+    expect(vm.statusText).toBe('就寢時間');
+    expect(vm.timerValue).toBe(formatCountdownFor(7 * 3600));
+    expect(vm.progressPercent).toBeCloseTo((4 / 11) * 100, 5); // 4h of 18:00-05:00's 11h
+  });
+
+  it('is still active in the early-morning tail after midnight', () => {
+    // 02:00 -> 05:00 is 3h away; 8h elapsed of the 11h window
+    const vm = compute(at(2, 0, 0), { breakTimes: overnightBreak });
+    expect(vm.statusText).toBe('就寢時間');
+    expect(vm.timerValue).toBe(formatCountdownFor(3 * 3600));
+    expect(vm.progressPercent).toBeCloseTo((8 / 11) * 100, 5);
+  });
+
+  it('is not active outside the overnight window', () => {
+    const vm = compute(at(12, 0, 0), { breakTimes: overnightBreak });
+    expect(vm.statusText).not.toBe('就寢時間');
+  });
+});
