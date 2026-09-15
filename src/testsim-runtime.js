@@ -7,7 +7,8 @@
 import { state } from './state.js';
 import { closeTestPanel, syncTestToolbar } from './dashboard.js';
 import { syncTestPlayPauseUi } from './dashboard-render.js';
-import { parseTime } from './schedule.js';
+import { getWeekType } from './schedule.js';
+import { computeDashboardViewModel } from './schedule-calc.js';
 
 // Everything below is module-private already - this file used to wrap it all
 // in an IIFE, which a module doesn't need: nothing here is exported, so
@@ -321,32 +322,28 @@ function applyDashboardState() {
   const now = getTestAwareNow();
   const curDay = window.MANUALLY_TEST ? normalizeDay(window.TEST_DAY) : now.getDay();
   const today = state.runtimeSchedule[curDay] || [];
-  const firstClass = today[0];
-  const lastClass = today[today.length - 1];
-  const mins = now.getHours() * 60 + now.getMinutes();
-  const hasParser = typeof parseTime === 'function';
-  const finishedSchoolDay = !!(hasParser && lastClass && mins >= parseTime(lastClass.e));
-  const outsideClassRange = !!(
-    hasParser &&
-    firstClass &&
-    lastClass &&
-    (mins < parseTime(firstClass.s) || mins >= parseTime(lastClass.e))
-  );
+  // This used to re-derive "is there a timer to show right now" from
+  // scratch (first/last class times only), with no idea breakTimes even
+  // existed - so an active overnight special time (e.g. 18:00 -> 05:00)
+  // still got its timer hidden the moment school hours ended, even though
+  // computeDashboardViewModel() correctly says it should still show one.
+  // Asking that same function instead of guessing again keeps the two from
+  // ever disagreeing.
+  const viewModel = computeDashboardViewModel({
+    now,
+    curDay,
+    week: getWeekType(),
+    todaySchedule: today,
+    breakTimes: state.applicationData.breakTimes
+  });
+  const hideTimedUi = !viewModel.timerVisible;
   // True once nothing on today's schedule still starts after now, even mid-way through the
   // last class or its trailing break — not just once the whole day is over. Without this, the
   // dashboard kept showing an empty "next class" panel throughout the entire last period.
-  const hasUpcomingClass = today.some(function (c) {
-    return hasParser && parseTime(c.s) > mins;
-  });
-  const noUpcomingClass = !!(
-    today.length &&
-    !hasUpcomingClass &&
-    !finishedSchoolDay &&
-    !outsideClassRange
-  );
-  dashboard.classList.toggle('v3-15-day-finished', finishedSchoolDay);
-  dashboard.classList.toggle('v3-16-outside-class-range', outsideClassRange);
-  dashboard.classList.toggle('orbit-no-school-day', !today.length);
+  const noUpcomingClass = viewModel.timerVisible && viewModel.nxtIdx === -1;
+  dashboard.classList.toggle('v3-15-day-finished', hideTimedUi);
+  dashboard.classList.toggle('v3-16-outside-class-range', hideTimedUi);
+  dashboard.classList.toggle('orbit-no-school-day', hideTimedUi);
   dashboard.classList.toggle('orbit-no-upcoming-class', noUpcomingClass);
 }
 function syncTestingBody() {
