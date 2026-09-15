@@ -657,8 +657,12 @@ const SYNC_CODE_PATTERN = /^[2-9A-HJ-NP-Z]{8}$/;
 const SYNC_CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 const SYNC_CODE_LENGTH = 8;
 
-function generateSyncCode() {
-  const bytes = new Uint8Array(SYNC_CODE_LENGTH);
+// `length` defaults to Orbit's own 8-character code/passcode shape;
+// VOCAB_SYNC_APP's single-passcode design (see below) passes a longer one,
+// since that one string is the ONLY secret standing between the internet
+// and a learner's progress, unlike Orbit's own code+passcode pair.
+function generateSyncCode(length = SYNC_CODE_LENGTH) {
+  const bytes = new Uint8Array(length);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, byte => SYNC_CODE_ALPHABET[byte % SYNC_CODE_ALPHABET.length]).join('');
 }
@@ -675,6 +679,21 @@ async function sha256Hex(text) {
   return Array.from(new Uint8Array(digest))
     .map(byte => byte.toString(16).padStart(2, '0'))
     .join('');
+}
+
+// /vocab-sync's single-passcode design (see VOCAB_SYNC_APP below) never uses
+// a client-supplied passcode as a Firestore document id directly - that
+// would put the plaintext secret in plain sight in the database itself
+// (visible to anyone with Firestore/GCP console access, a backup export, or
+// a misconfigured rule), the exact thing hashing a passcode is for
+// elsewhere in this file. Hashing it into the lookup key instead means the
+// only way to ever reach a given document is to already know the passcode
+// that hashes to it - there's nothing else here to check it against, and
+// nothing else needed: same "prove you know the secret" property as
+// ORBIT_SYNC_APP's managerPasscodeHash comparison, just reached by using
+// the hash AS the address instead of storing it alongside one.
+async function docIdForPasscode(passcode) {
+  return sha256Hex(passcode);
 }
 
 // Same cap as the Firestore rule (request.resource.data.payload.size() <
@@ -718,22 +737,40 @@ const SYNC_VERIFY_RATE_LIMIT = 300;
 // this stays small.
 const ORBIT_MAX_PAYLOAD_LENGTH = MAX_PAYLOAD_LENGTH;
 
+// ---- /vocab-sync's own single-passcode design -------------------------
+//
+// Orbit Vocab has no manager/viewer split the way Orbit's own /sync does
+// (see VOCAB_SYNC_APP's singleCredential below) - every pairing belongs to
+// one learner's own devices, and every operation (including a plain read)
+// already needs the real secret. Rather than mint a separate public "code"
+// alongside a passcode the way /sync does (which would just be one more
+// string to type/copy for no security benefit here - see that app's own
+// sync.js), /vocab-sync uses ONE random string as both the pairing's
+// identifier and its only credential: the client sends it as `?passcode=`
+// on every request, and this Worker derives the actual Firestore document
+// id from it (see docIdForPasscode below) rather than ever using it, or
+// anything derived from it, as a client-facing lookup key on its own.
+//
+// Longer than Orbit's own 8-character code/passcode (see SYNC_CODE_LENGTH)
+// specifically because it's now the ONLY secret guarding a learner's
+// progress, not one of two. 16 characters from the same 32-symbol alphabet
+// is 80 bits of entropy (32^16) - comfortably beyond brute-force range even
+// before VOCAB_SYNC_WRITE_RATE_LIMIT/VOCAB_SYNC_DELETE_RATE_LIMIT below are
+// factored in.
+const VOCAB_PASSCODE_LENGTH = 16;
+const VOCAB_PASSCODE_PATTERN = /^[2-9A-HJ-NP-Z]{16}$/;
+
 // ---- /vocab-sync's own rate-limit buckets ----------------------------
 //
 // A separate set of counters from /sync's above (see isRateLimited's
 // `feature` keying) - vocab-sync's traffic shape is different enough to
-// tune independently: Orbit Vocab has no manager/viewer split
-// (see VOCAB_SYNC_APP's readRequiresPasscode below), so every read is
-// already a credential check and lands in the 'verify' bucket, not 'read' -
-// VOCAB_SYNC_READ_RATE_LIMIT is kept only so the generic handler below
-// always has a number to pass, even though no legitimate request should
-// ever actually consume it.
+// tune independently. There's no 'verify' bucket distinct from 'read' any
+// more (unlike an earlier revision of this design): every read already
+// carries and checks the passcode, so there's no passcode-less "just
+// polling" read left to charge against a separate, cheaper bucket - this is
+// simply the bucket ordinary activity-driven polling lands in (see that
+// app's sync.js), generous for the same reason Orbit's own read limit is.
 const VOCAB_SYNC_READ_RATE_LIMIT = 6000;
-// Generous, since this is the bucket ordinary polling actually lands in
-// here (see above) - same order of magnitude as Orbit's own read limit,
-// since the underlying "how often does an open tab poll" shape is the same
-// activity-driven, throttled-per-touch pattern (see that app's sync.js).
-const VOCAB_SYNC_VERIFY_RATE_LIMIT = 6000;
 const VOCAB_SYNC_WRITE_RATE_LIMIT = 300;
 const VOCAB_SYNC_DELETE_RATE_LIMIT = 20;
 const VOCAB_SYNC_CREATE_RATE_LIMIT = 20;
@@ -927,12 +964,15 @@ async function firestoreDelete(env, collection, code) {
 // `appConfig` (see ORBIT_SYNC_APP/VOCAB_SYNC_APP below) is what lets this
 // one pair of functions serve both /sync and /vocab-sync: which Firestore
 // collection, which rate-limit counters/limits, how big a payload is
-// allowed, and whether GET itself requires the passcode (see
-// readRequiresPasscode's own comment on VOCAB_SYNC_APP for why that one
-// differs between the two apps). Every error message, status code, and
-// field name stays byte-for-byte identical to before this was generalized
-// for /sync's own traffic - only the collection/limits/payload cap actually
-// vary per app.
+// allowed, and how a request identifies+authenticates itself.
+// `appConfig.singleCredential` picks between the two designs: Orbit's own
+// /sync keeps its original code+separate-manager-passcode shape (reads open
+// to any code holder, only writes/deletes need the passcode); Orbit Vocab's
+// /vocab-sync (see VOCAB_SYNC_APP's own comment, and docIdForPasscode
+// above) uses one passcode as both identifier and credential for every
+// operation, including reads. Every error message, status code, and field
+// name for Orbit's own /sync traffic stays byte-for-byte identical to
+// before this was generalized.
 async function handleSyncCreate(request, env, headers, ip, appConfig) {
   const rateLimit = await isRateLimited(
     env,
@@ -957,6 +997,19 @@ async function handleSyncCreate(request, env, headers, ip, appConfig) {
   }
 
   try {
+    if (appConfig.singleCredential) {
+      // One random string is both this pairing's identifier and its only
+      // credential (see VOCAB_SYNC_APP's own comment) - there's no separate
+      // managerPasscodeHash field to seed the way Orbit's own /sync needs,
+      // because the document id itself (derived below) only ever names a
+      // document reachable by someone who supplies the correct passcode.
+      // An ordinary upsert PATCH (see firestorePatch) is exactly as much
+      // "create" as this design ever needs.
+      const passcode = generateSyncCode(appConfig.credentialLength);
+      const docId = await docIdForPasscode(passcode);
+      const created = await firestorePatch(env, appConfig.collection, docId, payload);
+      return json({ passcode, updateTime: created.updateTime }, 200, headers);
+    }
     const code = generateSyncCode();
     const managerPasscode = generateSyncCode();
     const managerPasscodeHash = await sha256Hex(managerPasscode);
@@ -987,43 +1040,83 @@ async function handleSyncRequest(request, env, headers, ip, appConfig) {
     return json({ error: { message: 'Worker 尚未設定 Firebase 服務帳戶。' } }, 500, headers);
   }
 
-  // Creating a new pairing needs no code at all yet - it mints one - so it
-  // branches off before the code-in-query-string handling every other
-  // method needs.
+  // Creating a new pairing needs no identifier at all yet - it mints one -
+  // so it branches off before the identifier handling every other method
+  // needs.
   if (request.method === 'POST') return handleSyncCreate(request, env, headers, ip, appConfig);
 
   const url = new URL(request.url);
-  const code = (url.searchParams.get('code') || '').trim().toUpperCase();
-  if (!SYNC_CODE_PATTERN.test(code)) {
-    return json({ error: { message: 'Invalid pairing code' } }, 400, headers);
+  // `suppliedPasscode` is unconditionally read here (not just under
+  // singleCredential) because ORBIT_SYNC_APP's own GET/DELETE branches
+  // below reuse this same query-string value for their manager-passcode
+  // check - only PATCH (there, sent in the body instead) needs its own.
+  const suppliedPasscode = (url.searchParams.get('passcode') || '').trim();
+  // The single-credential design (see VOCAB_SYNC_APP) never takes a raw
+  // client-supplied identifier as a Firestore document id - see
+  // docIdForPasscode's own comment on why. Every other app keeps the
+  // original design: the plain code itself, pattern-validated up front so
+  // a malformed one never even reaches Firestore.
+  let docId;
+  if (appConfig.singleCredential) {
+    if (!appConfig.credentialPattern.test(suppliedPasscode)) {
+      return json({ error: { message: 'Invalid passcode' } }, 400, headers);
+    }
+    docId = await docIdForPasscode(suppliedPasscode);
+  } else {
+    const code = (url.searchParams.get('code') || '').trim().toUpperCase();
+    if (!SYNC_CODE_PATTERN.test(code)) {
+      return json({ error: { message: 'Invalid pairing code' } }, 400, headers);
+    }
+    docId = code;
   }
 
   if (request.method === 'GET') {
-    // A passcode riding along on GET resolves whether it's *this*
-    // document's manager passcode (join-time role check, or an
-    // already-joined viewer device unlocking manager mode) - see the
-    // SYNC_VERIFY_RATE_LIMIT comment above for why that gets its own
-    // bucket instead of sharing ordinary polling's.
-    const suppliedPasscode = (url.searchParams.get('passcode') || '').trim();
-    // Orbit's /sync deliberately leaves reads open to anyone holding the
-    // plain sync code (a teacher broadcasting one schedule to many
-    // read-only student devices). An app with no such broadcast/viewer
-    // concept (see appConfig.readRequiresPasscode) has no legitimate
-    // passcode-less GET at all, so refuse it outright rather than ever
-    // handing back that app's payload to a bare code holder.
-    if (appConfig.readRequiresPasscode && !suppliedPasscode) {
+    if (appConfig.singleCredential) {
+      // Every GET here already supplied (and, via docId above, was just
+      // checked against) the real passcode - there's nothing left to
+      // distinguish a "verify" call from ordinary polling the way Orbit's
+      // own /sync does below, so this is simply the one read bucket.
       const rateLimit = await isRateLimited(
         env,
         ip,
-        `${appConfig.featurePrefix}:verify`,
-        appConfig.verifyLimit
+        `${appConfig.featurePrefix}:read`,
+        appConfig.readLimit
       );
       headers['X-RateLimit-Backend'] = rateLimit.backend;
       if (rateLimit.limited) {
         return json({ error: { message: '請求過於頻繁，請稍後再試。' } }, 429, headers);
       }
-      return json({ error: { message: '需要密碼才能讀取。' } }, 403, headers);
+      try {
+        const doc = await firestoreGet(env, appConfig.collection, docId);
+        // A wrong passcode and a never-created one both land here and look
+        // identical to the caller - see docIdForPasscode's own comment: the
+        // document only ever exists under the hash of the correct
+        // passcode, so there's nothing else to check it against.
+        if (!doc.exists) return json({ exists: false, updateTime: '', payload: '' }, 200, headers);
+        return json(
+          { exists: true, updateTime: doc.updateTime, payload: doc.payload },
+          200,
+          headers
+        );
+      } catch (error) {
+        return json(
+          { error: { message: error.message || 'Upstream request failed' } },
+          502,
+          headers
+        );
+      }
     }
+    // ORBIT_SYNC_APP's own code+manager-passcode design, unchanged from
+    // before this was generalized. A passcode riding along on GET resolves
+    // whether it's *this* document's manager passcode (join-time role
+    // check, or an already-joined viewer device unlocking manager mode) -
+    // see the SYNC_VERIFY_RATE_LIMIT comment above for why that gets its
+    // own bucket instead of sharing ordinary polling's. Orbit's /sync
+    // deliberately leaves reads open to anyone holding the plain sync code
+    // (a teacher broadcasting one schedule to many read-only student
+    // devices), so there's no passcode-less-GET refusal here the way
+    // singleCredential's branch above never needs either (it never gets a
+    // passcode-less GET past the docId derivation to begin with).
     const kind = suppliedPasscode ? 'verify' : 'read';
     const limit = suppliedPasscode ? appConfig.verifyLimit : appConfig.readLimit;
     const rateLimit = await isRateLimited(env, ip, `${appConfig.featurePrefix}:${kind}`, limit);
@@ -1032,19 +1125,8 @@ async function handleSyncRequest(request, env, headers, ip, appConfig) {
       return json({ error: { message: '請求過於頻繁，請稍後再試。' } }, 429, headers);
     }
     try {
-      const doc = await firestoreGet(env, appConfig.collection, code);
+      const doc = await firestoreGet(env, appConfig.collection, docId);
       if (!doc.exists) return json({ exists: false, updateTime: '', payload: '' }, 200, headers);
-      if (appConfig.readRequiresPasscode) {
-        const suppliedHash = await sha256Hex(suppliedPasscode);
-        if (suppliedHash !== doc.managerPasscodeHash) {
-          return json({ error: { message: '密碼不正確。' } }, 403, headers);
-        }
-        return json(
-          { exists: true, updateTime: doc.updateTime, payload: doc.payload, role: 'manager' },
-          200,
-          headers
-        );
-      }
       const result = { exists: true, updateTime: doc.updateTime, payload: doc.payload };
       if (suppliedPasscode) {
         const suppliedHash = await sha256Hex(suppliedPasscode);
@@ -1074,28 +1156,51 @@ async function handleSyncRequest(request, env, headers, ip, appConfig) {
       return json({ error: { message: 'Invalid JSON body' } }, 400, headers);
     }
     const payload = body?.payload;
-    const passcode = typeof body?.passcode === 'string' ? body.passcode.trim() : '';
     if (typeof payload !== 'string' || !payload || payload.length > appConfig.maxPayloadLength) {
       return json({ error: { message: 'Missing or invalid payload' } }, 400, headers);
     }
+    if (appConfig.singleCredential) {
+      // Nothing further to check here: docId (derived above from the
+      // supplied passcode) only ever names a document a correct passcode
+      // could reach in the first place - see docIdForPasscode's own
+      // comment. A 404 below means either this passcode was never used to
+      // create a pairing, or (functionally identical from the outside)
+      // it's simply wrong.
+      try {
+        const doc = await firestoreGet(env, appConfig.collection, docId);
+        if (!doc.exists) return json({ error: { message: '找不到這組同步密碼。' } }, 404, headers);
+        const result = await firestorePatch(env, appConfig.collection, docId, payload);
+        return json(result, 200, headers);
+      } catch (error) {
+        return json(
+          { error: { message: error.message || 'Upstream request failed' } },
+          502,
+          headers
+        );
+      }
+    }
+    // ORBIT_SYNC_APP's own manager-passcode design, unchanged - sent in the
+    // body (unlike GET/DELETE's query-string `suppliedPasscode`) since this
+    // app already sends a JSON body for every PATCH anyway.
+    const managerPasscode = typeof body?.passcode === 'string' ? body.passcode.trim() : '';
     try {
-      const doc = await firestoreGet(env, appConfig.collection, code);
+      const doc = await firestoreGet(env, appConfig.collection, docId);
       if (!doc.exists) return json({ error: { message: '找不到這組配對代碼。' } }, 404, headers);
-      const passcodeHash = passcode ? await sha256Hex(passcode) : '';
-      if (!passcode || passcodeHash !== doc.managerPasscodeHash) {
+      const passcodeHash = managerPasscode ? await sha256Hex(managerPasscode) : '';
+      if (!managerPasscode || passcodeHash !== doc.managerPasscodeHash) {
         return json({ error: { message: '需要正確的密碼才能寫入。' } }, 403, headers);
       }
-      const result = await firestorePatch(env, appConfig.collection, code, payload);
+      const result = await firestorePatch(env, appConfig.collection, docId, payload);
       return json(result, 200, headers);
     } catch (error) {
       return json({ error: { message: error.message || 'Upstream request failed' } }, 502, headers);
     }
   }
 
-  // DELETE - same passcode requirement as PATCH above. Takes the passcode
-  // from the query string rather than a body: neither app ever sends one
-  // with its DELETE requests, matching how `code` itself is already passed
-  // the same way.
+  // DELETE - single-credential apps need nothing beyond docId itself (see
+  // PATCH above); ORBIT_SYNC_APP still needs the manager passcode, taken
+  // from the query string (`suppliedPasscode`, computed above) since
+  // neither app ever sends a DELETE body.
   const rateLimit = await isRateLimited(
     env,
     ip,
@@ -1106,9 +1211,20 @@ async function handleSyncRequest(request, env, headers, ip, appConfig) {
   if (rateLimit.limited) {
     return json({ error: { message: '請求過於頻繁，請稍後再試。' } }, 429, headers);
   }
-  const suppliedPasscode = (url.searchParams.get('passcode') || '').trim();
+  if (appConfig.singleCredential) {
+    try {
+      const doc = await firestoreGet(env, appConfig.collection, docId);
+      // Already gone (or never existed) - not an error from the caller's
+      // point of view, same as ORBIT_SYNC_APP's own 404-as-success below.
+      if (!doc.exists) return json({ deleted: true }, 200, headers);
+      await firestoreDelete(env, appConfig.collection, docId);
+      return json({ deleted: true }, 200, headers);
+    } catch (error) {
+      return json({ error: { message: error.message || 'Upstream request failed' } }, 502, headers);
+    }
+  }
   try {
-    const doc = await firestoreGet(env, appConfig.collection, code);
+    const doc = await firestoreGet(env, appConfig.collection, docId);
     // Nothing to check a passcode against - already gone (or never
     // existed), same as a 404 from the old design: not an error from the
     // caller's point of view.
@@ -1117,7 +1233,7 @@ async function handleSyncRequest(request, env, headers, ip, appConfig) {
     if (!suppliedPasscode || passcodeHash !== doc.managerPasscodeHash) {
       return json({ error: { message: '需要正確的密碼才能刪除整個同步。' } }, 403, headers);
     }
-    await firestoreDelete(env, appConfig.collection, code);
+    await firestoreDelete(env, appConfig.collection, docId);
     return json({ deleted: true }, 200, headers);
   } catch (error) {
     return json({ error: { message: error.message || 'Upstream request failed' } }, 502, headers);
@@ -1129,7 +1245,9 @@ async function handleSyncRequest(request, env, headers, ip, appConfig) {
 // Orbit's own /sync: unchanged behavior from before generalization - reads
 // stay open to any holder of the plain sync code (the teacher/manager
 // broadcasts to many read-only student/viewer devices), only writes and
-// deletes need the manager passcode.
+// deletes need the manager passcode. `singleCredential` is left unset
+// (falsy), same as always taking the code+manager-passcode branch in
+// handleSyncCreate/handleSyncRequest above.
 const ORBIT_SYNC_APP = {
   collection: 'orbit-schedules',
   featurePrefix: 'sync',
@@ -1138,27 +1256,26 @@ const ORBIT_SYNC_APP = {
   verifyLimit: SYNC_VERIFY_RATE_LIMIT,
   writeLimit: SYNC_WRITE_RATE_LIMIT,
   deleteLimit: SYNC_DELETE_RATE_LIMIT,
-  createLimit: SYNC_CREATE_RATE_LIMIT,
-  readRequiresPasscode: false
+  createLimit: SYNC_CREATE_RATE_LIMIT
 };
-// Orbit Vocab's /vocab-sync: every pairing belongs to one
-// learner syncing their own progress across their own devices - there is
-// no teacher/student broadcast use case the way Orbit has, so there is no
-// viewer role to keep open for. Requiring the passcode for GET too (not
-// just PATCH/DELETE) means a personal learning record can't be read by
-// anyone who only ever learns the plain sync code (e.g. glimpses it over
-// someone's shoulder) - every device that can read this app's progress can
-// also write it, which is fine, since it's the same one learner either way.
+// Orbit Vocab's /vocab-sync: every pairing belongs to one learner syncing
+// their own progress across their own devices - there is no teacher/student
+// broadcast use case the way Orbit has, so there is no viewer role, and
+// nothing for a separate, less-sensitive "public code" to protect either
+// (see VOCAB_PASSCODE_LENGTH's own comment). `singleCredential: true` is
+// what sends handleSyncCreate/handleSyncRequest down the one-passcode
+// branch instead of Orbit's own code+manager-passcode one.
 const VOCAB_SYNC_APP = {
   collection: 'vocab-progress-sync',
   featurePrefix: 'vocab-sync',
   maxPayloadLength: VOCAB_MAX_PAYLOAD_LENGTH,
   readLimit: VOCAB_SYNC_READ_RATE_LIMIT,
-  verifyLimit: VOCAB_SYNC_VERIFY_RATE_LIMIT,
   writeLimit: VOCAB_SYNC_WRITE_RATE_LIMIT,
   deleteLimit: VOCAB_SYNC_DELETE_RATE_LIMIT,
   createLimit: VOCAB_SYNC_CREATE_RATE_LIMIT,
-  readRequiresPasscode: true
+  singleCredential: true,
+  credentialLength: VOCAB_PASSCODE_LENGTH,
+  credentialPattern: VOCAB_PASSCODE_PATTERN
 };
 
 // ==== Routing ================================================================

@@ -260,7 +260,7 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 
 - 用**同一個** Firebase 專案、**同一組**服務帳戶密鑰（`FIREBASE_PROJECT_ID`／`FIREBASE_CLIENT_EMAIL`／`FIREBASE_PRIVATE_KEY`）——完成上方〈跨裝置同步〉的設定後，`/vocab-sync` 不需要任何額外的 Secret。
 - 存進不同的 Firestore collection（`vocab-progress-sync`，而不是 Orbit 自己用的 `orbit-schedules`），並且用獨立的流量計數器（`vocab-sync:*`，見 `orbit-worker.js` 裡的 `VOCAB_SYNC_*` 常數），彼此互不影響——`/vocab-sync` 被濫用不會吃掉 `/sync` 或 `/gemini` 的額度，反之亦然。
-- 配對代碼／密碼機制與 `/sync` 相同，但**沒有「僅接收」角色**：`/vocab-sync` 的讀取（`GET`）也需要密碼才能成功，不像 `/sync` 讀取本身不設防——因為英文單字工具的同步情境是「同一個學習者的自己的多台裝置」，不是「一位老師的課表廣播給很多學生唯讀」，沒有必要留一個誰都能讀的公開讀取權限（見 `orbit-worker.js` 裡 `VOCAB_SYNC_APP.readRequiresPasscode` 旁的註解）。
+- 配對機制跟 `/sync` **不一樣**：`/vocab-sync` 沒有「僅接收」角色，也沒有另一組同步代碼——只有**一組密碼**，同時當識別碼與唯一憑證，讀取（`GET`）跟寫入一樣都需要它才能成功，不像 `/sync` 讀取本身不設防；因為英文單字工具的同步情境是「同一個學習者自己的多台裝置」，不是「一位老師的課表廣播給很多學生唯讀」，沒有必要留一個誰都能讀的公開讀取權限，也沒必要為此多維護一組不需要的代碼。伺服器端只存這組密碼的雜湊值（`docIdForPasscode` 把它雜湊成 Firestore 文件 ID，而不是直接拿明文密碼當 ID），密碼本身也拉長到 16 碼（見 `orbit-worker.js` 裡 `VOCAB_SYNC_APP` 與 `VOCAB_PASSCODE_LENGTH` 旁的註解）。
 - 部署者只要照上方〈AI 辨識課表照片〉與〈跨裝置同步〉的步驟部署過這一支 Worker、且完成 Firestore 服務帳戶設定，`/vocab-sync` 就自動可用；把 Worker 網址**加上 `/vocab-sync`**，設進 Orbit Vocab 那個 repo 對應的 GitHub Actions 變數即可（細節見該 repo 的 README）。
 - 這是單向依賴：Orbit 完全不需要知道 Orbit Vocab 的存在也能正常運作，`/vocab-sync` 只是這支 Worker 多服務的一個路徑，不會出現在 Orbit 自己的網頁或程式碼裡。
 
