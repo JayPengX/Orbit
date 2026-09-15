@@ -337,7 +337,19 @@ async function writeSyncDoc(code, payload, passcode) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ payload, passcode })
   });
-  if (!response.ok) return { ok: false, error: await proxyErrorMessage(response) };
+  if (!response.ok) {
+    // A 404 here specifically means the Worker's own firestoreGet found
+    // nothing under this code (see handleSyncRequest's PATCH branch) - a
+    // reliable, status-code-level signal (not a string match on the error
+    // message) that pushSyncSnapshot's caller can use to tell "the shared
+    // document was deleted out from under this device" apart from every
+    // other write failure (rate limit, wrong passcode, upstream error).
+    return {
+      ok: false,
+      notFound: response.status === 404,
+      error: await proxyErrorMessage(response)
+    };
+  }
   const doc = await response.json();
   return { ok: true, updateTime: doc.updateTime || '' };
 }
@@ -392,7 +404,17 @@ async function pushSyncSnapshot() {
   try {
     const payload = await encodeTransferData(dataForPush());
     const result = await writeSyncDoc(code, payload, getSyncManagerPasscode());
-    if (!result.ok) throw new Error(result.error);
+    if (!result.ok) {
+      // This device's own stored code already proved it worked at least
+      // once (create/join both require the doc to exist first) - a 404 here
+      // means the shared document was deleted from elsewhere (see
+      // orbitSyncDeleteForEveryone), not a malformed/never-valid code.
+      // Reported back as its own outcome (not thrown as a plain error) so
+      // syncTick can auto-unlink instead of just showing a confusing
+      // "找不到這組配對代碼" on every future tick.
+      if (result.notFound) return { ok: true, pushed: false, remoteDeleted: true };
+      throw new Error(result.error);
+    }
     writeLocal(LAST_UPDATE_TIME_KEY, result.updateTime);
     // Owned here, not by callers - applyEditorSettingsData's own
     // immediate-push-on-save (see editor-backup.js) and syncTick's regular
@@ -400,7 +422,7 @@ async function pushSyncSnapshot() {
     // that reliably knows "what we last actually pushed matches what's live
     // right now" regardless of which caller triggered it.
     lastPushedSnapshot = snapshotForComparison(state.applicationData);
-    return { ok: true };
+    return { ok: true, pushed: true };
   } catch (error) {
     return { ok: false, error: `同步上傳失敗：${error.message || error}` };
   }
@@ -466,6 +488,23 @@ function setSyncStatusUi(message, isError) {
   setStatusText('sync-status', message, isError);
 }
 
+// Reached from syncTick whenever a poll discovers the shared document is
+// gone (a pull's exists:false, or a push's 404 - see pullSyncSnapshot and
+// pushSyncSnapshot's own remoteDeleted). Every device with this code
+// configured already proved it worked at least once (create/join both
+// require the doc to exist first), so this can only mean
+// orbitSyncDeleteForEveryone ran on another device - not a code that was
+// never valid to begin with. Falls back to local-only exactly like a manual
+// "解除同步" would (see orbitSyncUnlink's own confirm handler), plus the
+// same backup-restore offer every other unlink path gives, so this device
+// doesn't sit there re-polling a dead code forever with no explanation.
+function handleRemoteSyncDeleted() {
+  clearSyncPairing();
+  renderSyncPanel();
+  setSyncStatusUi('同步已被管理者整個刪除，這台裝置已自動解除同步（本機課表不受影響）。');
+  promptScheduleBackupRestore();
+}
+
 // One check does at most one round trip: push when this device changed
 // since its last push, otherwise pull to pick up any change from
 // elsewhere. Never both in the same tick - there's nothing to reconcile
@@ -483,16 +522,28 @@ async function syncTick() {
     if (isEditorDirty()) return false;
     if (isSyncViewer()) {
       const result = await pullSyncSnapshot();
+      if (result.ok && result.exists === false) {
+        handleRemoteSyncDeleted();
+        return false;
+      }
       if (!result.ok) setSyncStatusUi(result.error, true);
       return !!result.applied;
     }
     const currentSnapshot = snapshotForComparison(state.applicationData);
     if (currentSnapshot !== lastPushedSnapshot) {
       const result = await pushSyncSnapshot();
+      if (result.ok && result.remoteDeleted) {
+        handleRemoteSyncDeleted();
+        return false;
+      }
       if (!result.ok) setSyncStatusUi(result.error, true);
       return result.ok;
     }
     const result = await pullSyncSnapshot();
+    if (result.ok && result.exists === false) {
+      handleRemoteSyncDeleted();
+      return false;
+    }
     if (!result.ok) setSyncStatusUi(result.error, true);
     return !!result.applied;
   } finally {

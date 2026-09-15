@@ -384,6 +384,63 @@ describe('pullSyncSnapshot', () => {
   });
 });
 
+// pushSyncSnapshot/pullSyncSnapshot themselves stay pure (they just report
+// exists/remoteDeleted back - see the assertions above and pullSyncSnapshot's
+// own {exists:false} test) - syncTick is what actually acts on that signal.
+// See the "backup can be recovered" describe block below for the case where
+// this also has a pre-join schedule to offer back.
+describe('syncTick auto-unlinks when the shared sync document is gone', () => {
+  it('a viewer whose pull comes back exists:false clears the pairing and reports why, instead of polling a dead code forever', async () => {
+    sync.setSyncPairing('CODE1234');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, json: async () => ({ exists: false }) }))
+    );
+
+    const result = await sync.syncTick();
+
+    expect(result).toBe(false);
+    expect(sync.isSyncConfigured()).toBe(false);
+    expect(document.getElementById('sync-status').textContent).toMatch(/自動解除同步/);
+  });
+
+  it("a manager's push that comes back 404 (the doc is gone) clears the pairing the same way, not as a raw push failure", async () => {
+    sync.setSyncPairing('CODE1234', 'PASSCODE1');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 404,
+        json: async () => ({ error: { message: '找不到這組配對代碼。' } })
+      }))
+    );
+
+    const result = await sync.syncTick();
+
+    expect(result).toBe(false);
+    expect(sync.isSyncConfigured()).toBe(false);
+    expect(document.getElementById('sync-status').textContent).toMatch(/自動解除同步/);
+  });
+
+  it('a non-404 push failure (e.g. a transient 500) is left as an ordinary error - it does not unlink', async () => {
+    sync.setSyncPairing('CODE1234', 'PASSCODE1');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 500,
+        json: async () => ({ error: { message: 'Upstream request failed' } })
+      }))
+    );
+
+    const result = await sync.syncTick();
+
+    expect(result).toBe(false);
+    expect(sync.isSyncConfigured()).toBe(true);
+    expect(document.getElementById('sync-status').textContent).toMatch(/同步上傳失敗/);
+  });
+});
+
 // orbitSyncUnlink itself (the confirm-and-copy warning flow) is pure local
 // state with no network call either way - see test/sync.test.js for that
 // coverage, not duplicated here.
@@ -721,6 +778,24 @@ describe('a pre-join schedule backup can be recovered after unlinking or deletin
     expect(document.getElementById('editor-confirm-sheet').classList.contains('show')).toBe(true);
     expect(document.getElementById('editor-confirm-title').textContent).toMatch(/找回/);
   });
+
+  // The other device's syncTick discovering the deletion (rather than this
+  // device being the one that deleted it) auto-unlinks the same way, and
+  // offers the same recovery prompt - see handleRemoteSyncDeleted.
+  it('a viewer that finds the shared document gone on its own next tick also pops up the recovery prompt', async () => {
+    await joinWithDifferentSchedule(); // plain viewer join, replaces the local schedule
+    sync.renderSyncPanel();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, json: async () => ({ exists: false }) }))
+    );
+
+    await sync.syncTick();
+
+    expect(sync.isSyncConfigured()).toBe(false);
+    expect(document.getElementById('editor-confirm-sheet').classList.contains('show')).toBe(true);
+    expect(document.getElementById('editor-confirm-title').textContent).toMatch(/找回/);
+  });
 });
 
 // startSyncLoop() itself only ever runs once for the whole module (guarded
@@ -739,7 +814,15 @@ describe('activity-driven sync: reads only happen when the user touches the UI',
     // tests (or the app's own boot) may have left lastActivitySyncAt at -
     // that's module-level state shared across every test in this file.
     vi.setSystemTime(Date.now() + 3_600_000);
-    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ exists: false }) }));
+    // exists:true with no payload (not exists:false) - this test is only
+    // about the activity throttle, not about the remote-deletion handling
+    // covered separately below; exists:false here would auto-unlink after
+    // the very first tick (see handleRemoteSyncDeleted) and the device would
+    // no longer be configured for the later ticks this test still expects.
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ exists: true, updateTime: 'unchanged', payload: '' })
+    }));
     vi.stubGlobal('fetch', fetchMock);
 
     document.dispatchEvent(new Event('click'));
