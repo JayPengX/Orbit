@@ -128,14 +128,20 @@ describe('computeDashboardViewModel - boundary cases', () => {
 
 describe('computeDashboardViewModel - overnight (cross-midnight) special time', () => {
   const overnightBreak = [{ name: '就寢時間', start: '18:00', end: '05:00' }];
-  const formatCountdownFor = totalSeconds =>
-    `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`;
+  const pad2 = n => String(n).padStart(2, '0');
+  const formatCountdownFor = totalSeconds => {
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return hours > 0 ? `${hours}:${pad2(minutes)}:${pad2(seconds)}` : `${minutes}:${pad2(seconds)}`;
+  };
 
   it('is active before midnight, counting down toward the next-day end', () => {
     // 22:00 -> 05:00 next day is 7h = 25200s away
     const vm = compute(at(22, 0, 0), { breakTimes: overnightBreak });
     expect(vm.statusText).toBe('就寢時間');
     expect(vm.timerValue).toBe(formatCountdownFor(7 * 3600));
+    expect(vm.timerValue).toBe('7:00:00'); // hours shown, not minutes - see below
     expect(vm.progressPercent).toBeCloseTo((4 / 11) * 100, 5); // 4h of 18:00-05:00's 11h
   });
 

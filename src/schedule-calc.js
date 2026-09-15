@@ -8,8 +8,15 @@
 import { pad2, parseTime, processSplitName } from './schedule.js';
 import { t } from './strings.js';
 
+// Class/break countdowns used to always render as minutes:seconds, which
+// reads fine for a ~50-minute class but turns an overnight special time
+// (which can run many hours) into a meaningless triple-digit minute count
+// like "540:00" instead of "9:00:00". Show hours whenever there are any.
 function formatCountdown(diffSeconds) {
-  return `${Math.floor(diffSeconds / 60)}:${pad2(diffSeconds % 60)}`;
+  const hours = Math.floor(diffSeconds / 3600);
+  const minutes = Math.floor((diffSeconds % 3600) / 60);
+  const seconds = diffSeconds % 60;
+  return hours > 0 ? `${hours}:${pad2(minutes)}:${pad2(seconds)}` : `${minutes}:${pad2(seconds)}`;
 }
 
 function decorateSpecialTimeName(name) {
