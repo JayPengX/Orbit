@@ -49,6 +49,11 @@ describe('an active break after the school day ends stays visible', () => {
     expect(dashboard.classList.contains('v3-15-day-finished')).toBe(false);
     expect(dashboard.classList.contains('v3-16-outside-class-range')).toBe(false);
     expect(dashboard.classList.contains('orbit-no-school-day')).toBe(false);
+    // The timer stays up, but there's no "next class" to preview during a
+    // special time (same as during the actual last class of the day) - this
+    // class is what hides just the next-class column, not the whole timer.
+    expect(dashboard.classList.contains('orbit-no-upcoming-class')).toBe(true);
+    expect(document.getElementById('next-name').innerText).toBe('再見');
   });
 
   it('still hides the timer UI once the break itself has ended', () => {

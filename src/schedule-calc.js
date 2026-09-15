@@ -117,7 +117,10 @@ export function computeDashboardViewModel({ now, curDay, week, todaySchedule, br
       progressIsClass = false;
       progressPercent = breakView.progressPercent;
       curIdx = -1;
-      nxtIdx = today.findIndex(c => parseTime(c.s) >= parseTime(activeBreak.end));
+      // No "next class" preview during a special time, same as after the
+      // last class of the day - it isn't the next thing coming up, it's
+      // whatever happens once the special time itself ends.
+      nxtIdx = -1;
     } else if (curIdx !== -1) {
       const info = processSplitName(today[curIdx], week);
       statusText = info.n;

@@ -153,6 +153,15 @@ describe('computeDashboardViewModel - overnight (cross-midnight) special time', 
     expect(vm.progressPercent).toBeCloseTo((8 / 11) * 100, 5);
   });
 
+  it('does not preview a next class while the special time is active - same as after the last class', () => {
+    const evening = compute(at(22, 0, 0), { breakTimes: overnightBreak });
+    expect(evening.nxtIdx).toBe(-1);
+    expect(evening.nextText).toBe('再見'); // curDay: 1 (Monday) in the shared `compute()` fixture
+
+    const earlyMorning = compute(at(2, 0, 0), { breakTimes: overnightBreak });
+    expect(earlyMorning.nxtIdx).toBe(-1);
+  });
+
   it('is not active outside the overnight window', () => {
     const vm = compute(at(12, 0, 0), { breakTimes: overnightBreak });
     expect(vm.statusText).not.toBe('就寢時間');
