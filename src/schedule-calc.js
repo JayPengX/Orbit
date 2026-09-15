@@ -16,6 +16,28 @@ function decorateSpecialTimeName(name) {
   return name ? name.trim() : '';
 }
 
+// A named break/special time (e.g. 18:00 -> 05:00 lights-out) recurs every
+// day regardless of whether that day has any classes, so its countdown and
+// progress need computing the same way whether or not it's a school day.
+function computeBreakView(activeBreak, secs) {
+  const SECONDS_PER_DAY = 86400;
+  const breakStart = parseTime(activeBreak.start) * 60;
+  let breakEnd = parseTime(activeBreak.end) * 60;
+  let curSecs = secs;
+  if (breakEnd <= breakStart) {
+    // Crosses midnight: push the end (and "now", if we're past midnight in
+    // the early-morning tail) onto the same continuous timeline as the
+    // start so the countdown/progress math below stays linear.
+    breakEnd += SECONDS_PER_DAY;
+    if (curSecs < breakStart) curSecs += SECONDS_PER_DAY;
+  }
+  return {
+    statusText: decorateSpecialTimeName(activeBreak.name),
+    timerValue: formatCountdown(breakEnd - curSecs),
+    progressPercent: Math.min(100, ((curSecs - breakStart) / (breakEnd - breakStart)) * 100)
+  };
+}
+
 /**
  * @param {object} input
  * @param {Date} input.now
@@ -78,25 +100,15 @@ export function computeDashboardViewModel({ now, curDay, week, todaySchedule, br
 
   if (isSchoolDay) {
     if (activeBreak) {
-      statusText = decorateSpecialTimeName(activeBreak.name);
+      const breakView = computeBreakView(activeBreak, secs);
+      statusText = breakView.statusText;
       dotState = 'wait';
       timerVisible = true;
       timerLabel = t('dashboard.duringClass');
-      const SECONDS_PER_DAY = 86400;
-      const breakStart = parseTime(activeBreak.start) * 60;
-      let breakEnd = parseTime(activeBreak.end) * 60;
-      let curSecs = secs;
-      if (breakEnd <= breakStart) {
-        // Crosses midnight: push the end (and "now", if we're past midnight
-        // in the early-morning tail) onto the same continuous timeline as
-        // the start so the countdown/progress math below stays linear.
-        breakEnd += SECONDS_PER_DAY;
-        if (curSecs < breakStart) curSecs += SECONDS_PER_DAY;
-      }
-      timerValue = formatCountdown(breakEnd - curSecs);
+      timerValue = breakView.timerValue;
       progressVisible = true;
       progressIsClass = false;
-      progressPercent = Math.min(100, ((curSecs - breakStart) / (breakEnd - breakStart)) * 100);
+      progressPercent = breakView.progressPercent;
       curIdx = -1;
       nxtIdx = today.findIndex(c => parseTime(c.s) >= parseTime(activeBreak.end));
     } else if (curIdx !== -1) {
@@ -154,6 +166,18 @@ export function computeDashboardViewModel({ now, curDay, week, todaySchedule, br
       nextText = curDay === 5 ? t('dashboard.seeYouWeekend') : t('dashboard.seeYouTomorrow');
       nextMeta = '';
     }
+  } else if (activeBreak) {
+    const breakView = computeBreakView(activeBreak, secs);
+    statusText = breakView.statusText;
+    dotState = 'wait';
+    timerVisible = true;
+    timerLabel = t('dashboard.duringClass');
+    timerValue = breakView.timerValue;
+    progressVisible = true;
+    progressIsClass = false;
+    progressPercent = breakView.progressPercent;
+    nextText = t('dashboard.seeYouMonday');
+    nextMeta = '';
   } else {
     statusText = t('dashboard.noSchoolToday');
     nextText = t('dashboard.seeYouMonday');

@@ -103,7 +103,10 @@ describe('computeDashboardViewModel - boundary cases', () => {
   });
 
   it('on a day with no classes at all: 今日無課', () => {
-    const vm = compute(at(9, 0, 0), { todaySchedule: [] });
+    // breakTimes: [] isolates this from any break that happens to be active
+    // at 9:00 - see the dedicated "no school day" describe block below for
+    // that interaction.
+    const vm = compute(at(9, 0, 0), { todaySchedule: [], breakTimes: [] });
     expect(vm.statusText).toBe('今日無課');
     expect(vm.isSchoolDay).toBe(false);
     expect(vm.isDayFinished).toBe(false);
@@ -147,5 +150,27 @@ describe('computeDashboardViewModel - overnight (cross-midnight) special time', 
   it('is not active outside the overnight window', () => {
     const vm = compute(at(12, 0, 0), { breakTimes: overnightBreak });
     expect(vm.statusText).not.toBe('就寢時間');
+  });
+
+  it('still shows its countdown on a day with no classes at all', () => {
+    // e.g. a weekend, where todaySchedule is empty - the bedtime break
+    // isn't tied to school hours, so it should count down just like it
+    // does on a school day instead of being hidden behind "今日無課".
+    const vm = compute(at(22, 0, 0), {
+      todaySchedule: [],
+      breakTimes: overnightBreak
+    });
+    expect(vm.isSchoolDay).toBe(false);
+    expect(vm.statusText).toBe('就寢時間');
+    expect(vm.timerVisible).toBe(true);
+    expect(vm.timerValue).toBe(formatCountdownFor(7 * 3600));
+    expect(vm.progressVisible).toBe(true);
+    expect(vm.dotState).toBe('wait');
+  });
+
+  it('falls back to 今日無課 on a no-class day when no break is active', () => {
+    const vm = compute(at(12, 0, 0), { todaySchedule: [], breakTimes: overnightBreak });
+    expect(vm.statusText).toBe('今日無課');
+    expect(vm.timerVisible).toBe(false);
   });
 });
