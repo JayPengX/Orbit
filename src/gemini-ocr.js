@@ -414,6 +414,20 @@ class AIVisionProcessor {
       if (response.status === 400 && /API_KEY_INVALID/.test(message)) {
         throw new Error('AI 服務目前無法使用，請稍後再試。');
       }
+      // Google's Gemini API rejects the request based on the calling IP's
+      // geolocation - here, the Cloudflare Worker's own egress IP, not the
+      // end user's. Cloudflare can route the Worker's outbound call through
+      // any of its edge colos, and some of those colos geolocate to a
+      // country Google blocks outright, so this can surface even for a user
+      // whose real location is fully supported. Every model in the fallback
+      // list shares that same outbound path, so escalating to the next one
+      // would just fail the same way - this throws immediately instead of
+      // burning through the whole list first.
+      if (response.status === 400 && /User location is not supported/i.test(message)) {
+        throw new Error(
+          'AI 服務暫時因伺服器所在地區限制而無法使用，這通常只是暫時性的網路路由問題，請稍後再試一次。'
+        );
+      }
       if (response.status === 429 && /請求過於頻繁/.test(message)) {
         throw new Error(message);
       }

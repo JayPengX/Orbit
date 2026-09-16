@@ -33,6 +33,26 @@ name = "orbit-workers-proxy"
 main = "orbit-worker.js"
 compatibility_date = "2025-01-01"
 
+# Smart Placement: without this, Cloudflare runs each request's Worker
+# isolate at whichever edge colo is nearest the calling browser, so /gemini's
+# one outbound fetch (to generativelanguage.googleapis.com) also originates
+# from that colo's egress IP. Some of Cloudflare's colos geolocate to
+# countries/territories Google's Gemini API refuses outright ("User location
+# is not supported for the API use", a plain 400 - see
+# AIVisionProcessor.callGemini's handling of it in src/gemini-ocr.js), so a
+# user whose traffic happens to route through one of those colos hits this
+# error even though their own real location is fully supported. "smart" asks
+# Cloudflare to instead place the isolate near wherever the Worker's own
+# subrequests actually go (here, effectively a stable region close to
+# Google's endpoint) - it does not name a specific region, but it aims this
+# Worker at the backend it talks to instead of the client that happened to
+# call it, which is exactly what this route needs since talking to Gemini is
+# its only real work. Dashboard-only deploys (no wrangler) get the same
+# effect from that Worker's Settings -> Placement -> "Smart" toggle - this
+# comment is the reason to turn it on there.
+[placement]
+mode = "smart"
+
 # Only needed for the /sync path (see orbit-worker.js's handleSyncRequest).
 # Not a secret on its own - it's already public today in the no-proxy
 # fallback path (VITE_ORBIT_SYNC_PROJECT_ID ships inside the client JS

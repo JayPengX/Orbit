@@ -161,6 +161,37 @@ describe('AIVisionProcessor.recognizeSchedule with a configured proxy', () => {
     vi.unstubAllGlobals();
   });
 
+  // The actual bug report this addresses: Google's Gemini API rejects a
+  // request based on the *proxy's* egress IP, not the end user's real
+  // location - so this can surface for a user whose own location is fully
+  // supported, whenever Cloudflare happens to route the Worker's outbound
+  // call through a colo Google blocks. Every model shares that same
+  // outbound path, so it must not burn through the whole fallback list
+  // first, and the raw English upstream message must not leak into the
+  // otherwise-Chinese error shown to the user.
+  it('gives a clear Chinese message for a Gemini-side location block, without trying other models', async () => {
+    const processor = new AIVisionProcessor();
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 400,
+      statusText: 'Bad Request',
+      json: async () => ({
+        error: { message: 'User location is not supported for the API use.' }
+      })
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    let caught;
+    try {
+      await processor.recognizeSchedule(fakeFiles(), () => {});
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught?.message).toMatch(/地區限制|稍後再試/);
+    expect(caught?.message).not.toMatch(/User location/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
   it('refuses to run while offline, without making any network request', async () => {
     Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
     const processor = new AIVisionProcessor();

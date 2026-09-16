@@ -157,6 +157,7 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 5. 複製 Worker 網址（`https://<worker 名稱>.<子網域>.workers.dev`），**加上 `/gemini`**。
 6. GitHub 專案 Settings → Secrets and variables → Actions → **Variables**（不是 Secrets，這個值本來就會進公開前端程式碼），新增 `VITE_ORBIT_GEMINI_PROXY_URL`，值是上一步含 `/gemini` 的完整網址。下次推送到 `main`，站台就會改用代理。
 7. **建議但非必要**：Cloudflare 左側選單 Workers & Pages → KV → Create namespace（名稱隨意）；回到這個 Worker 的 Settings → Bindings → Add → KV Namespace，變數名稱填 `RATE_LIMIT_KV`，選剛建立的命名空間 → Deploy。這一步讓每小時請求限制變成跨邊緣節點的真計數器（見上方安全性小節），跳過的話功能一樣能用，只是這層限制比較弱。如果下方跨裝置同步的進階設定也會用到，同一個 KV 命名空間可以兩邊共用（兩個功能的計數器鍵值前綴不同，不會互相干擾）。
+8. **建議**：這個 Worker 的 Settings → Placement，打開 **Smart Placement**。沒開的話 Cloudflare 預設會挑離「打這個 Worker 網址的瀏覽器」最近的邊緣節點執行，`/gemini` 對 Google 的那一次呼叫也就從那個節點的對外 IP 送出——Cloudflare 偶爾會挑到一個 Google 直接判定「地區不支援」的節點，即使使用者自己所在的地區完全合法，也會在該次請求收到 AI 匯入失敗、`AI 辨識請求失敗（400）：User location is not supported for the API use.`（見 `src/gemini-ocr.js`）。Smart Placement 改成看 Worker 自己的對外呼叫落在哪裡，讓執行位置貼近它實際在講話的對象（這裡就是 Google 的 API），而不是貼近剛好呼叫到它的瀏覽器，能明顯降低（但不保證完全消除，畢竟不是使用者自己能挑節點）這種間歇性失敗的機率。用 Wrangler CLI 部署的話這個設定已經寫在 `cloudflare-worker/wrangler.toml` 的 `[placement]` 區塊裡，不用手動到後台開。
 
 也可以用 Wrangler CLI 部署（見 `cloudflare-worker/wrangler.toml` 開頭註解，含 KV 命名空間的 CLI 建立指令），效果相同。想調整每小時限制次數，改 `orbit-worker.js` 裡的 `GEMINI_RATE_LIMIT` 常數即可。
 
