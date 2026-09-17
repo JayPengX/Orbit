@@ -872,24 +872,20 @@ async function handleNlEditRequest(request, env, headers, ip) {
   }
 }
 
-// ==== /vocab-ai - Orbit Vocab's live, per-learner AI features ===============
+// ==== /vocab-ai - Orbit Vocab's live, per-learner AI feature ================
 //
-// Two on-demand features from the sibling repo Orbit Vocab (see that repo's
-// README/vocab-ai.js), both genuinely needing a LIVE, per-request Gemini
-// call rather than that repo's offline batch script
+// An on-demand feature from the sibling repo Orbit Vocab (see that repo's
+// README/vocab-ai.js), genuinely needing a LIVE, per-request Gemini call
+// rather than that repo's offline batch script
 // (scripts/generate_ai_signals.py, which pre-generates one static
 // confusedWith/mnemonic/priorDifficulty per word into data/ai_signals.json
-// at build time): each request here depends on THIS learner's own data -
-// their actual recorded wrong-answer history for one word, or which
-// specific handful of words they're reviewing right now - which a
+// at build time): the request here depends on THIS learner's own data -
+// their actual recorded wrong-answer history for one word - which a
 // build-time batch job run once for every word in the vocabulary has no
 // way to know.
 //   - kind: "mnemonic" - one memory hook targeted at a specific word's
 //     recorded wrong-answer pattern for THIS learner, not the generic
 //     one-per-word hook data/ai_signals.json already ships offline.
-//   - kind: "story" - one short story weaving together a handful of this
-//     learner's current 答錯待複習/學習中 words as a memory-palace-style
-//     group mnemonic, reviewed together instead of word-by-word.
 // No passcode/identity check here (unlike /vocab-sync) - this isn't tied to
 // any one learner's sync pairing, so it uses the same trust model /gemini
 // already does: rate-limited by IP and gated by GEMINI_API_KEY, callable by
@@ -903,15 +899,15 @@ async function handleNlEditRequest(request, env, headers, ip) {
 
 // Reuses /gemini's own GEMINI_API_KEY secret (see handleGeminiRequest) -
 // nothing new to configure once AI 辨識課表照片 is already set up. Not
-// client-selectable (unlike /gemini's own `model` field): both features here
-// are small, fixed-shape, low-stakes generation tasks with no multi-model
+// client-selectable (unlike /gemini's own `model` field): this feature is a
+// small, fixed-shape, low-stakes generation task with no multi-model
 // fallback chain worth maintaining, so this just picks the fastest verified
 // model from GEMINI_ALLOWED_MODELS above rather than exposing a second knob.
 const VOCAB_AI_MODEL = 'gemini-3.5-flash-lite';
 // Tighter than GEMINI_RATE_LIMIT (20/hour is for a whole schedule-photo
 // import session; this is for a single learner's own occasional taps on
-// "產生記憶法"/"產生故事" while reviewing) - generous for real use, still
-// bounded per IP.
+// "產生記憶法" while reviewing) - generous for real use, still bounded per
+// IP.
 const VOCAB_AI_RATE_LIMIT = 30;
 // Bounds on every piece of client-submitted text below - see
 // cleanVocabAiText's own comment on why these are enforced here rather than
@@ -921,18 +917,11 @@ const VOCAB_AI_MAX_POS_LEN = 20;
 const VOCAB_AI_MAX_MEANING_LEN = 200;
 const VOCAB_AI_MAX_WRONG_ANSWERS = 5;
 const VOCAB_AI_MAX_WRONG_ANSWER_LEN = 40;
-const VOCAB_AI_MIN_STORY_WORDS = 2;
-const VOCAB_AI_MAX_STORY_WORDS = 6;
 
 const VOCAB_MNEMONIC_RESPONSE_SCHEMA = {
   type: 'object',
   properties: { mnemonic: { type: 'string' } },
   required: ['mnemonic']
-};
-const VOCAB_STORY_RESPONSE_SCHEMA = {
-  type: 'object',
-  properties: { story: { type: 'string' } },
-  required: ['story']
 };
 
 // Bounds and normalizes one piece of client-submitted text (a word, a POS
@@ -972,21 +961,6 @@ Chinese meaning: ${meaning || '(none given)'}
 ${mistakesLine}
 
 Write ONE short, specific mnemonic (under 30 words, in Traditional Chinese, weaving in the English word/letters where useful) that would actually help THIS learner stop making THIS mistake. Do not just restate the correct spelling - give a genuinely memorable hook tied to the mistake pattern above.`;
-}
-
-// Lists every target word explicitly (not just "5 words") and demands they
-// all appear, spelled exactly as given - the client-side validation this
-// feeds (see Orbit Vocab's vocab-ai.js) re-checks that demand was actually
-// met rather than trusting the model's own compliance, same defensive
-// posture as generate_ai_signals.py's clean_item().
-function buildVocabStoryPrompt(words) {
-  const rows = words.map((w) => `- "${w.word}"${w.meaning ? ` (${w.meaning})` : ''}`).join('\n');
-  return `You are creating a memory-palace-style mnemonic story for a Taiwanese high school student studying English vocabulary.
-
-Below are ${words.length} target English words with their Chinese meanings:
-${rows}
-
-Write ONE short, vivid, memorable story in Traditional Chinese (under 150 words) that uses EVERY one of these target words at least once, spelled exactly as given, in Latin letters (never translate them into Chinese, never split them up with spaces or punctuation in the middle) - the story itself is what should help the student recall all of them together as one group, not word by word.`;
 }
 
 async function callVocabAiGemini(prompt, schema, env) {
@@ -1042,29 +1016,6 @@ async function handleVocabAiRequest(request, env, headers, ip) {
       const mnemonic = typeof result.mnemonic === 'string' ? result.mnemonic.trim() : '';
       if (!mnemonic) return json({ error: { message: 'AI 沒有回傳有效的記憶法。' } }, 502, headers);
       return json({ mnemonic }, 200, headers);
-    }
-
-    if (body?.kind === 'story') {
-      const words = (Array.isArray(body.words) ? body.words : [])
-        .slice(0, VOCAB_AI_MAX_STORY_WORDS)
-        .map((w) => ({
-          word: cleanVocabAiText(w && w.word, VOCAB_AI_MAX_WORD_LEN),
-          meaning: w && typeof w.meaning === 'string' ? w.meaning.trim().slice(0, VOCAB_AI_MAX_MEANING_LEN) : ''
-        }))
-        .filter((w) => w.word);
-      if (words.length < VOCAB_AI_MIN_STORY_WORDS) {
-        return json({ error: { message: `至少需要 ${VOCAB_AI_MIN_STORY_WORDS} 個單字才能產生故事` } }, 400, headers);
-      }
-
-      const result = await callVocabAiGemini(buildVocabStoryPrompt(words), VOCAB_STORY_RESPONSE_SCHEMA, env);
-      const story = typeof result.story === 'string' ? result.story.trim() : '';
-      if (!story) return json({ error: { message: 'AI 沒有回傳有效的故事。' } }, 502, headers);
-      // Echoes back the exact word list actually sent to the model (after
-      // this function's own filtering above) - not the client's original,
-      // unfiltered request array - so the client's own "did it really use
-      // every word" check (see Orbit Vocab's vocab-ai.js) validates against
-      // what was actually sent to the model.
-      return json({ story, words: words.map((w) => w.word) }, 200, headers);
     }
 
     return json({ error: { message: 'Missing or invalid kind' } }, 400, headers);

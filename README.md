@@ -293,15 +293,14 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 
 ### 這支 Worker 同時也服務 Orbit Vocab 的個人化 AI 功能（`/vocab-ai`）
 
-除了 `/vocab-sync` 之外，`orbit-worker.js` 還多了一個 `/vocab-ai` 路徑，一樣是服務 [Orbit Vocab](https://github.com/jaypengx-collab/Orbit-Vocab)，但用途不同：`/vocab-ai` 是**即時、依這個學習者當下自己的資料**產生內容的兩個功能——
+除了 `/vocab-sync` 之外，`orbit-worker.js` 還多了一個 `/vocab-ai` 路徑，一樣是服務 [Orbit Vocab](https://github.com/jaypengx-collab/Orbit-Vocab)，但用途不同：`/vocab-ai` 是**即時、依這個學習者當下自己的資料**產生內容的功能——
 
 - **個人化記憶法**：依這個學習者自己實際打錯過的拼法，產生針對這個錯誤模式的記憶法（不是每個人看到都一樣的靜態提示）。
-- **記憶宮殿故事模式**：把這個學習者目前「答錯待複習／學習中」裡的幾個單字，編成一則同時用到全部單字的短故事。
 
-這兩個功能都需要知道「這個學習者現在的資料長什麼樣子」，所以不能像 Orbit Vocab 既有的 `scripts/generate_ai_signals.py`（離線、一次性幫全部 3,060 個單字產生 `data/ai_signals.json` 靜態資料）一樣在建置時預先算好——只能在使用當下即時呼叫。
+這個功能需要知道「這個學習者現在的資料長什麼樣子」，所以不能像 Orbit Vocab 既有的 `scripts/generate_ai_signals.py`（離線、一次性幫全部 3,060 個單字產生 `data/ai_signals.json` 靜態資料）一樣在建置時預先算好——只能在使用當下即時呼叫。
 
 - **沿用 `/gemini` 的 `GEMINI_API_KEY`**，不需要另外申請或設定：完成上方〈AI 辨識課表照片〉的部署設定後，`/vocab-ai` 就自動可用，不需要 Firebase 相關的任何 Secret（跟 `/vocab-sync` 不一樣，這個路徑完全不碰 Firestore）。
-- **沒有密碼或身分驗證**，信任模型跟 `/gemini` 一樣——單純用 IP 做流量限制（見 `orbit-worker.js` 裡的 `VOCAB_AI_RATE_LIMIT`），不綁定任何一個學習者的同步配對；因為這兩個功能本來就跟「這台裝置是誰的同步」無關，只是把目前畫面上看得到的單字／錯誤紀錄送出去問一次。
+- **沒有密碼或身分驗證**，信任模型跟 `/gemini` 一樣——單純用 IP 做流量限制（見 `orbit-worker.js` 裡的 `VOCAB_AI_RATE_LIMIT`），不綁定任何一個學習者的同步配對；因為這個功能本來就跟「這台裝置是誰的同步」無關，只是把目前畫面上看得到的單字／錯誤紀錄送出去問一次。
 - **獨立的流量計數器**（`vocab-ai:*`），不會跟 `/gemini` 或 `/vocab-sync` 互搶額度，反之亦然。
 - 部署者不需要任何額外步驟——已經照上方設定過 `GEMINI_API_KEY` 的話，`/vocab-ai` 立刻可用；只要 Orbit Vocab 那個 repo 已經照上一節設定過 `PROXY_URL`（同一支 Worker 網址，不加路徑），`/vocab-ai` 會跟 `/vocab-sync` 一起自動開通，不用再多設定什麼（細節見該 repo 的 README）。
 - 同樣是單向依賴：Orbit 自己完全不使用、也不知道 `/vocab-ai` 的存在。
