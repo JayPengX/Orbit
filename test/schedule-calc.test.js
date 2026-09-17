@@ -77,6 +77,18 @@ describe('computeDashboardViewModel - boundary cases', () => {
     expect(vm.teacherText).toBe('');
   });
 
+  it('still previews the real next class during a special time that sits between two periods', () => {
+    // 打掃時間 (08:50-09:10) is a routine interruption between period 0 and
+    // period 1, not the end of the school day - the "next" panel should
+    // keep showing 國文/公民 at 09:10 the whole time, not fall back to a
+    // sign-off the way it correctly does once the day is actually over.
+    const vm = compute(at(9, 0, 0));
+    expect(vm.statusText).toBe('打掃時間'); // still the special time as the main status
+    expect(vm.nxtIdx).toBe(1);
+    expect(vm.nextText).toBe('國文'); // week: '單' in the shared `compute()` fixture
+    expect(vm.nextMeta).toBe('09:10 · 李老師 · 102');
+  });
+
   it('during a between-period gap with no named break: 下課, counts down to the next period', () => {
     // there's no break defined for 10:00-10:10; falls through to the
     // generic "下課, waiting for next period" branch
@@ -153,13 +165,24 @@ describe('computeDashboardViewModel - overnight (cross-midnight) special time', 
     expect(vm.progressPercent).toBeCloseTo((8 / 11) * 100, 5);
   });
 
-  it('does not preview a next class while the special time is active - same as after the last class', () => {
+  it('still has no next class once the whole school day is genuinely over', () => {
+    // 22:00 is well after today's last period (11:00 in the shared
+    // `compute()` fixture) - there's nothing left today for "next" to point
+    // to, break or no break, so this comes out -1 on its own.
     const evening = compute(at(22, 0, 0), { breakTimes: overnightBreak });
     expect(evening.nxtIdx).toBe(-1);
     expect(evening.nextText).toBe('再見'); // curDay: 1 (Monday) in the shared `compute()` fixture
+  });
 
+  it('previews today\'s first class once the overnight break reaches its early-morning tail', () => {
+    // 02:00 is still within the same 就寢時間 window, but it's also before
+    // today's first period (08:00) - the school day hasn't started yet, so
+    // unlike the evening case above there genuinely IS a next class today,
+    // and it should preview normally instead of being suppressed just
+    // because a special time happens to still be active.
     const earlyMorning = compute(at(2, 0, 0), { breakTimes: overnightBreak });
-    expect(earlyMorning.nxtIdx).toBe(-1);
+    expect(earlyMorning.nxtIdx).toBe(0);
+    expect(earlyMorning.nextText).toBe('數學');
   });
 
   it('is not active outside the overnight window', () => {

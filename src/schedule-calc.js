@@ -117,10 +117,17 @@ export function computeDashboardViewModel({ now, curDay, week, todaySchedule, br
       progressIsClass = false;
       progressPercent = breakView.progressPercent;
       curIdx = -1;
-      // No "next class" preview during a special time, same as after the
-      // last class of the day - it isn't the next thing coming up, it's
-      // whatever happens once the special time itself ends.
-      nxtIdx = -1;
+      // nxtIdx is left exactly as the forEach above already computed it -
+      // the first today's-class whose start time hasn't passed yet,
+      // regardless of any break. A special time (in the everyday sense:
+      // 打掃時間 between two periods, a between-period assembly, ...) is a
+      // temporary interruption, not the end of the school day - if there's
+      // still a real class coming up today, the "next" preview should keep
+      // showing it exactly like it would between any two ordinary periods.
+      // It naturally still comes out -1 on its own for a break that really
+      // does mean "no more school today" (this fixture's overnight 就寢
+      // break during its evening portion, or any break sitting after the
+      // last period) - nothing here needs to force that case specially.
     } else if (curIdx !== -1) {
       const info = processSplitName(today[curIdx], week);
       statusText = info.n;
