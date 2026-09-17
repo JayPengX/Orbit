@@ -20,3 +20,13 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: cloudflare-worker
           command: deploy
+          # wrangler.toml's [placement] uses `region` (explicit cloud-region
+          # placement, see that file's own comment) instead of the older
+          # `mode = "smart"` - Wrangler 3.90 (this action's actual installed
+          # default as of this writing, despite its docs claiming v4) doesn't
+          # recognize that on its own and fails config validation with
+          # "placement.mode is a required field". Pinned to major version 4
+          # explicitly rather than relying on the action's own default,
+          # so a future change to that default can't silently break this
+          # again the same way.
+          wranglerVersion: '4'
