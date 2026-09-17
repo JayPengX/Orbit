@@ -20,21 +20,3 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: cloudflare-worker
           command: deploy
-      # Optional second deployment (wrangler.toml's [env.fallback], no Smart
-      # Placement) - see that section's own comment. This deploys fine even
-      # before its one-time `wrangler secret put GEMINI_API_KEY --env
-      # fallback` step has ever been run (the deployed Worker just answers
-      # every request with its own already-handled "not configured" 500
-      # until then, same as the primary Worker would) - continue-on-error is
-      # only a safety net against something else going wrong with this
-      # second deploy (e.g. an account-level Worker script limit), so it
-      # can never take down the primary deploy above, which already
-      # completed by this point either way.
-      - name: Deploy fallback Worker (optional)
-        continue-on-error: true
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: cloudflare-worker
-          command: deploy --env fallback

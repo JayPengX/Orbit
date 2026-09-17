@@ -39,7 +39,6 @@ jobs:
       - name: Build
         env:
           VITE_PROXY_URL: ${{ vars.PROXY_URL }}
-          VITE_PROXY_URL_FALLBACK: ${{ vars.PROXY_URL_FALLBACK }}
         run: npm run build
       - name: Setup Pages
         uses: actions/configure-pages@v5

@@ -38,7 +38,7 @@ import {
   setEditorConfirmContent,
   showEditorConfirmSheet
 } from './editor-core.js';
-import { proxyPath, proxyFallbackPath } from './proxy-config.js';
+import { proxyPath } from './proxy-config.js';
 
 // Must match GEMINI_ALLOWED_MODELS in cloudflare-worker/orbit-worker.js -
 // the Worker's /nl-edit path reuses the exact same vetted model list as
@@ -52,10 +52,6 @@ const NL_EDIT_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.7-flash'];
 // (see isNlEditConfigured's callers), no bring-your-own-key fallback. The
 // `/nl-edit` path is hardcoded here, not part of the env var.
 const NL_EDIT_PROXY_URL = proxyPath('/nl-edit');
-// See gemini-ocr.js's matching GEMINI_FALLBACK_PROXY_URL comment - a second,
-// Smart Placement-off Worker deployment a location-blocked retry can fall
-// back to instead of hitting the exact same stuck colo again.
-const NL_EDIT_FALLBACK_PROXY_URL = proxyFallbackPath('/nl-edit');
 function isNlEditConfigured() {
   return !!NL_EDIT_PROXY_URL;
 }
@@ -114,12 +110,12 @@ function extractJsonObject(rawText) {
 // result instead of throwing directly for the location-block case
 // specifically, since callNlEditProxy needs to tell that one apart from
 // every other failure (which isn't worth retrying a whole pass over).
-async function tryNlEditModels(text, context, proxyUrl) {
+async function tryNlEditModels(text, context) {
   let lastError = null;
   for (const model of NL_EDIT_MODELS) {
     let response;
     try {
-      response = await fetch(proxyUrl, {
+      response = await fetch(NL_EDIT_PROXY_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, text, context })
@@ -173,19 +169,18 @@ async function tryNlEditModels(text, context, proxyUrl) {
 
 // Low-level call: same fastest-first-model/escalate-on-transient-failure
 // shape as gemini-ocr.js's AIVisionProcessor.callGemini, PLUS the same
-// location-block retry that function has - see its GEMINI_FALLBACK_PROXY_URL
-// comment for why a plain retry against the same Worker deployment tends to
-// land on the exact same stuck colo, and why NL_EDIT_FALLBACK_PROXY_URL
-// (when configured) is what actually gives a retry a different colo to try.
+// location-block retry that function has - a brand new request has a real
+// chance of landing on a different Cloudflare edge colo than the one that
+// just got blocked, so it's worth retrying a couple of whole passes (with a
+// short delay) before finally giving up, rather than surfacing the error on
+// the very first hit.
 async function callNlEditProxy(text, context, status) {
   if (!NL_EDIT_PROXY_URL) throw new Error(t('nlEdit.notConfigured'));
   if (!navigator.onLine) throw new Error(t('nlEdit.offline'));
   const LOCATION_BLOCK_RETRY_LIMIT = 2;
   const LOCATION_BLOCK_RETRY_DELAY_MS = 500;
   for (let locationAttempt = 0; ; locationAttempt++) {
-    const proxyUrl =
-      (locationAttempt === 0 ? NL_EDIT_PROXY_URL : NL_EDIT_FALLBACK_PROXY_URL) || NL_EDIT_PROXY_URL;
-    const result = await tryNlEditModels(text, context, proxyUrl);
+    const result = await tryNlEditModels(text, context);
     if (result.ok) return result.value;
     if (!result.locationBlocked || locationAttempt >= LOCATION_BLOCK_RETRY_LIMIT) throw result.error;
     status?.(
