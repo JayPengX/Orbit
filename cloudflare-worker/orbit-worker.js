@@ -5,6 +5,11 @@
 //   POST      /gemini     - AI schedule-photo import (see src/gemini-ocr.js).
 //                            Holds the real Gemini API key server-side so
 //                            end users never need one of their own.
+//   POST      /nl-edit    - Natural-language schedule edits (see
+//                            src/editor-nl-edit.js). Reuses /gemini's own
+//                            GEMINI_API_KEY and model list - same
+//                            underlying Gemini access, a different fixed
+//                            prompt/schema pair.
 //   GET/PATCH/DELETE /sync - Orbit's own cross-device schedule sync (see
 //                            src/sync.js).
 //   GET/PATCH/DELETE /vocab-sync - Orbit Vocab's cross-device
@@ -597,6 +602,204 @@ async function handleGeminiRequest(request, env, headers, ip) {
     // whole thing in the Worker first only adds the upstream's full
     // download time to every request before a single byte reaches the
     // browser.
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: { ...headers, 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    return json({ error: { message: error.message || 'Upstream request failed' } }, 502, headers);
+  }
+}
+
+// ==== /nl-edit - natural-language schedule edits ============================
+//
+// Same discipline as /gemini above: the client (src/editor-nl-edit.js) only
+// ever sends {model, text, context} - a short instruction plus a small,
+// already-typed snapshot of the caller's own current schedule. This Worker
+// owns the actual prompt and response_schema, so the deployed proxy URL
+// (public in the client bundle either way, same reasoning as /gemini) can
+// only ever be used to run this one fixed "turn this instruction into one
+// schedule edit" request, never an arbitrary free-form prompt.
+//
+// Reuses GEMINI_API_KEY and GEMINI_ALLOWED_MODELS rather than needing its
+// own secret or its own model list - it's the same underlying Gemini access,
+// just a different fixed prompt/schema pair, same reasoning as /vocab-sync
+// reusing /sync's Firebase credentials instead of needing its own.
+
+// Deliberately tight: a real instruction ("把我週二第三節改成物理") is a
+// handful of words. Anything dramatically longer than that is not a
+// schedule-edit instruction this feature is meant to serve - refusing it
+// here keeps a misuse attempt cheap to reject instead of costing a Gemini
+// call.
+const MAX_NL_EDIT_TEXT_LENGTH = 200;
+// The context is just the caller's own weeklySchedule/classes/bellTimes
+// (see buildNlEditContext in src/editor-nl-edit.js) - a real schedule is a
+// few KB of JSON at most. This stays generous above that while still
+// refusing something that's clearly not this shape (a client bug, or a
+// request built by hand that skipped the real client entirely) before it
+// ever reaches Gemini.
+const MAX_NL_EDIT_CONTEXT_LENGTH = 20000;
+const NL_EDIT_RATE_LIMIT = 20;
+
+// The exact shape src/editor-nl-edit.js's validateNlEditResult() reads back.
+// One flat, always-fully-populated object discriminated by "status"/"op" -
+// same reasoning as GEMINI_RESPONSE_SCHEMA above: Gemini's response_schema
+// has no way to express "this field only when that one has this value", so
+// every field is always present and the unused ones sit at their nullable/
+// empty default instead. `day`/`period`/`fromDay`/`fromPeriod`/`toDay`/
+// `toPeriod` are nullable integers rather than a sentinel like -1, mirroring
+// GEMINI_DAY_SCHEMA's own use of `nullable` for exactly this "not
+// applicable" case.
+const NL_EDIT_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    status: { type: 'string', enum: ['ok', 'unclear', 'not_found'] },
+    reason: { type: 'string' },
+    op: { type: 'string', enum: ['setSlot', 'moveSlot', 'none'] },
+    day: { type: 'integer', nullable: true },
+    period: { type: 'integer', nullable: true },
+    subject: { type: 'string' },
+    teacher: { type: 'string' },
+    location: { type: 'string' },
+    fromDay: { type: 'integer', nullable: true },
+    fromPeriod: { type: 'integer', nullable: true },
+    toDay: { type: 'integer', nullable: true },
+    toPeriod: { type: 'integer', nullable: true }
+  },
+  required: [
+    'status',
+    'reason',
+    'op',
+    'day',
+    'period',
+    'subject',
+    'teacher',
+    'location',
+    'fromDay',
+    'fromPeriod',
+    'toDay',
+    'toPeriod'
+  ]
+};
+
+// The fixed, server-owned prompt - the client never sends prompt text of
+// its own (see the top-of-section comment). `context` is embedded directly
+// rather than sent as a separate structured turn: a single-turn
+// generateContent call has nowhere else to put it, and it's already small
+// (see MAX_NL_EDIT_CONTEXT_LENGTH).
+function buildNlEditPrompt(text, context) {
+  return `You translate one Traditional Chinese natural-language instruction about editing a weekly class schedule into exactly one structured edit operation. Return a single JSON object matching this exact schema:
+{
+  "status": "ok",
+  "reason": "",
+  "op": "setSlot",
+  "day": 2,
+  "period": 2,
+  "subject": "物理",
+  "teacher": "",
+  "location": "",
+  "fromDay": null,
+  "fromPeriod": null,
+  "toDay": null,
+  "toPeriod": null
+}
+
+The current schedule, given as read-only context (never invent a day, period, or class that isn't consistent with it):
+${JSON.stringify(context)}
+
+"classes" above is every currently defined course ({key, subject, teacher, location}). "weeklySchedule" maps a day number to an array of class keys, one per period (an empty string means that period is free that day). "bellTimes" is the list of [start, end] 24-hour times, one per period, in the same order/index as weeklySchedule's arrays.
+
+Day numbering: 0 = 週日, 1 = 週一, 2 = 週二, 3 = 週三, 4 = 週四, 5 = 週五, 6 = 週六 (matches JavaScript's Date.getDay(), the same numbering weeklySchedule's own keys already use).
+Period numbering: 0-based, matching the index into weeklySchedule's arrays and bellTimes (period 0 is 第一節, period 1 is 第二節, and so on).
+
+The instruction to translate: "${text}"
+
+Decide "op":
+- "setSlot": set or replace what one specific day+period contains. Fill "day", "period", and "subject" (required - the Chinese subject name). Fill "teacher"/"location" only when the instruction gives them, or when an existing entry in "classes" already names that exact subject (reuse that entry's teacher/location rather than guessing); otherwise leave "teacher"/"location" as empty strings. Leave every "from*"/"to*" field null.
+- "moveSlot": move whatever currently occupies one day+period to a different day+period, without changing what class it is. Fill "fromDay", "fromPeriod", "toDay", "toPeriod". Leave "subject"/"teacher"/"location" as empty strings and "day"/"period" null.
+- "none": use this whenever "status" is not "ok" (see below). Leave every other field at its empty/null default.
+
+Decide "status":
+- "ok": the instruction maps cleanly to exactly one of the operations above, using only days/periods/classes that make sense against the given context.
+- "unclear": the instruction is ambiguous, contradictory, does not describe a schedule edit at all, or cannot be confidently reduced to exactly one of the operations above. Briefly explain why in "reason" (Traditional Chinese, one short sentence).
+- "not_found": the instruction is clear about what kind of edit it wants, but names a day, period, or existing class that does not exist in the given context (e.g. a period number beyond how many periods exist, or moving from a day+period that is currently empty). Briefly explain in "reason" (Traditional Chinese, one short sentence).
+
+Never describe more than one edit. Never invent a day, period, subject, teacher, or location the instruction does not give you or that "classes"/"weeklySchedule" does not already support. When in doubt, prefer "unclear" over guessing.
+Return ONLY the raw JSON object — no markdown fences, no comments, no extra text.`;
+}
+
+// Structural shape check only (mirrors readGeminiFiles' own level of
+// strictness) - src/editor-nl-edit.js's validateNlEditResult() is what
+// actually re-checks the *response* against this same context once Gemini
+// answers; this just makes sure what's about to be embedded in the prompt
+// is the shape the prompt claims it is.
+function readNlEditContext(context) {
+  if (!context || typeof context !== 'object') return null;
+  const { weeklySchedule, classes, bellTimes } = context;
+  if (!weeklySchedule || typeof weeklySchedule !== 'object' || Array.isArray(weeklySchedule))
+    return null;
+  if (!Array.isArray(classes) || !Array.isArray(bellTimes)) return null;
+  if (Object.values(weeklySchedule).some(day => !Array.isArray(day))) return null;
+  if (
+    classes.some(
+      entry => !entry || typeof entry !== 'object' || typeof entry.key !== 'string' || typeof entry.subject !== 'string'
+    )
+  )
+    return null;
+  if (
+    bellTimes.some(
+      item => !Array.isArray(item) || item.length !== 2 || typeof item[0] !== 'string' || typeof item[1] !== 'string'
+    )
+  )
+    return null;
+  return { weeklySchedule, classes, bellTimes };
+}
+
+async function handleNlEditRequest(request, env, headers, ip) {
+  if (request.method !== 'POST') return json({ error: { message: 'POST only' } }, 405, headers);
+
+  const rateLimit = await isRateLimited(env, ip, 'nl-edit', NL_EDIT_RATE_LIMIT);
+  headers['X-RateLimit-Backend'] = rateLimit.backend;
+  if (rateLimit.limited) {
+    return json({ error: { message: '請求過於頻繁，請稍後再試。' } }, 429, headers);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: { message: 'Invalid JSON body' } }, 400, headers);
+  }
+  const { model } = body || {};
+  if (!GEMINI_ALLOWED_MODELS.includes(model)) {
+    return json({ error: { message: 'Unsupported model' } }, 400, headers);
+  }
+  const text = typeof body?.text === 'string' ? body.text.trim() : '';
+  if (!text || text.length > MAX_NL_EDIT_TEXT_LENGTH) {
+    return json({ error: { message: 'Missing or invalid text' } }, 400, headers);
+  }
+  const context = readNlEditContext(body?.context);
+  if (!context) return json({ error: { message: 'Missing or invalid context' } }, 400, headers);
+  if (JSON.stringify(context).length > MAX_NL_EDIT_CONTEXT_LENGTH) {
+    return json({ error: { message: 'Context too large' } }, 400, headers);
+  }
+  if (!env.GEMINI_API_KEY) {
+    return json({ error: { message: 'Worker 尚未設定 GEMINI_API_KEY。' } }, 500, headers);
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${env.GEMINI_API_KEY}`;
+  const contents = [{ parts: [{ text: buildNlEditPrompt(text, context) }] }];
+  try {
+    const upstream = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents,
+        generationConfig: buildGenerationConfig(model, NL_EDIT_RESPONSE_SCHEMA)
+      })
+    });
+    // Piped straight through, same reasoning as handleGeminiRequest's own
+    // response - the client parses this JSON itself either way.
     return new Response(upstream.body, {
       status: upstream.status,
       headers: { ...headers, 'Content-Type': 'application/json' }
@@ -1291,6 +1494,7 @@ export default {
     const path = new URL(request.url).pathname.replace(/\/+$/, '');
 
     if (path === '/gemini') return handleGeminiRequest(request, env, headers, ip);
+    if (path === '/nl-edit') return handleNlEditRequest(request, env, headers, ip);
     if (path === '/sync') return handleSyncRequest(request, env, headers, ip, ORBIT_SYNC_APP);
     if (path === '/vocab-sync') return handleSyncRequest(request, env, headers, ip, VOCAB_SYNC_APP);
     return json({ error: { message: 'Not found' } }, 404, headers);

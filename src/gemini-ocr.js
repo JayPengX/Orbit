@@ -9,7 +9,7 @@ import {
   normalizeSettingsData,
   settingsDataForExport
 } from './editor-backup.js';
-import { formatClassLabel } from './editor-core.js';
+import { editorTimeToMinutes, formatClassLabel } from './editor-core.js';
 import { updateTeacherCardAvatar } from './editor-teachers.js';
 import { isSyncViewer } from './sync.js';
 
@@ -904,6 +904,108 @@ class DataValidator {
   }
 }
 
+// ---- Second-pass anomaly detection ----
+// DataValidator.validate() above only checks structural validity (a
+// well-formed shape - valid time strings, a weeklySchedule object, at
+// least one class or countdown event) - it says nothing about whether the
+// content makes sense. This is a second pass over an already
+// structurally-valid candidate, looking for content a human would find
+// suspicious even though nothing about it breaks the schema. Pure, cheap,
+// client-side comparisons only - no extra Gemini call, no added latency or
+// quota cost - since every check here is a heuristic that CAN be wrong
+// (e.g. a school that genuinely runs two overlapping bell tracks for
+// different grades), these are always surfaced as warnings in
+// ImportPreview, never as something that blocks or hides the import
+// button - see DataValidator.validate for the actual hard-block checks.
+function timeRangesOverlap(startA, endA, startB, endB) {
+  return startA < endB && startB < endA;
+}
+function detectScheduleAnomalies(candidate) {
+  const warnings = [];
+  const bellTimes = Array.isArray(candidate?.bellTimes) ? candidate.bellTimes : [];
+  const breakTimes = Array.isArray(candidate?.breakTimes) ? candidate.breakTimes : [];
+  const weeklySchedule = candidate?.weeklySchedule || {};
+  const teacherDB = candidate?.teacherDB || {};
+  // null for any period whose start/end couldn't be read as a time at all -
+  // every check below simply skips it rather than comparing against a
+  // meaningless range.
+  const bellRanges = bellTimes.map(time => {
+    const start = Array.isArray(time) ? time[0] : time?.start;
+    const end = Array.isArray(time) ? time[1] : time?.end;
+    return start && end ? [editorTimeToMinutes(start), editorTimeToMinutes(end)] : null;
+  });
+
+  // 1. Two bell periods whose own time ranges overlap - independent of
+  // whether either period actually has a class assigned anywhere, this
+  // alone means the recognized bell schedule itself is inconsistent.
+  bellRanges.forEach((rangeA, indexA) => {
+    if (!rangeA) return;
+    bellRanges.forEach((rangeB, indexB) => {
+      if (!rangeB || indexB <= indexA) return;
+      if (timeRangesOverlap(rangeA[0], rangeA[1], rangeB[0], rangeB[1])) {
+        warnings.push(`第 ${indexA + 1} 節與第 ${indexB + 1} 節的時間重疊，請確認鐘聲時間是否正確。`);
+      }
+    });
+  });
+
+  // 2. A period whose time range falls inside a recognized break (lunch,
+  // cleaning...) but still has a class assigned on some day - often means
+  // the OCR misread a break row as an ordinary class row, or attached the
+  // wrong period index to a class.
+  breakTimes.forEach(item => {
+    if (!item?.start || !item?.end) return;
+    const breakRange = [editorTimeToMinutes(item.start), editorTimeToMinutes(item.end)];
+    bellRanges.forEach((range, period) => {
+      if (!range || !timeRangesOverlap(range[0], range[1], breakRange[0], breakRange[1])) return;
+      WEEKDAYS_INDEX_ORDER.forEach(day => {
+        const key = (weeklySchedule[day] || [])[period];
+        if (!key) return;
+        const subject = teacherDB[key]?.[0] || '未命名';
+        warnings.push(
+          `${WEEKDAY_LABELS[day]}第 ${period + 1} 節與「${item.name}」時段重疊，但仍排了課程「${subject}」，請確認是否誤植。`
+        );
+      });
+    });
+  });
+
+  // 3. Two periods on the same day whose bell-time ranges overlap and both
+  // have a class assigned - a genuine scheduling clash (衝堂), distinct
+  // from check 1 above (which fires on the bell schedule alone, regardless
+  // of whether anything is actually assigned to either period).
+  WEEKDAYS_INDEX_ORDER.forEach(day => {
+    const dayRow = weeklySchedule[day] || [];
+    bellRanges.forEach((rangeA, periodA) => {
+      if (!rangeA || !dayRow[periodA]) return;
+      bellRanges.forEach((rangeB, periodB) => {
+        if (!rangeB || periodB <= periodA || !dayRow[periodB]) return;
+        if (!timeRangesOverlap(rangeA[0], rangeA[1], rangeB[0], rangeB[1])) return;
+        const subjectA = teacherDB[dayRow[periodA]]?.[0] || '未命名';
+        const subjectB = teacherDB[dayRow[periodB]]?.[0] || '未命名';
+        warnings.push(
+          `${WEEKDAY_LABELS[day]}第 ${periodA + 1} 節「${subjectA}」與第 ${periodB + 1} 節「${subjectB}」時間重疊，可能是衝堂。`
+        );
+      });
+    });
+  });
+
+  // 4. A period whose duration is implausibly short or long for a real
+  // class - not itself a conflict, but the same "the bell schedule
+  // probably got misread" signal as check 1.
+  bellRanges.forEach((range, index) => {
+    if (!range) return;
+    const minutes = range[1] - range[0];
+    if (minutes <= 0) {
+      warnings.push(`第 ${index + 1} 節的結束時間不晚於開始時間，請確認鐘聲時間是否正確。`);
+    } else if (minutes < 5) {
+      warnings.push(`第 ${index + 1} 節只有 ${minutes} 分鐘，可能是鐘聲時間辨識錯誤。`);
+    } else if (minutes > 240) {
+      warnings.push(`第 ${index + 1} 節長達 ${(minutes / 60).toFixed(1)} 小時，可能是鐘聲時間辨識錯誤。`);
+    }
+  });
+
+  return warnings;
+}
+
 class ImportPreview {
   constructor(root, onImport) {
     this.root = root;
@@ -925,6 +1027,23 @@ class ImportPreview {
     this.root.replaceChildren(previewTemplate.content.cloneNode(true));
     this.root.querySelector('[data-ocr-preview-meta]').textContent =
       '請確認並視需要修改下方內容，再按下方按鈕匯入。';
+
+    const warningsBox = this.root.querySelector('[data-ocr-warnings]');
+    const warnings = detectScheduleAnomalies(candidate);
+    if (warningsBox) {
+      warningsBox.hidden = !warnings.length;
+      if (warnings.length) {
+        warningsBox
+          .querySelector('[data-ocr-warnings-list]')
+          .replaceChildren(
+            ...warnings.map(text => {
+              const item = document.createElement('li');
+              item.textContent = text;
+              return item;
+            })
+          );
+      }
+    }
 
     const bellList = this.root.querySelector('[data-ocr-bell-list]');
     bellTimes.forEach((time, index) => {
@@ -1473,6 +1592,7 @@ ocrImageInput?.addEventListener('change', async event => {
 export {
   AIVisionProcessor,
   DataValidator,
+  detectScheduleAnomalies,
   estimateRecognitionSeconds,
   ETA_REVEAL_DELAY_MS,
   ImportPreview,

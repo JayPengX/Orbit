@@ -262,15 +262,18 @@ function applyOfflineLock() {
   sheet.classList.toggle('is-offline', offline);
   const ocrStatus = document.getElementById('ocr-import-status');
   const syncStatus = document.getElementById('sync-status');
+  const nlEditStatus = document.getElementById('nl-edit-status');
   if (offline) {
     if (ocrStatus) ocrStatus.textContent = OFFLINE_MESSAGE;
     if (syncStatus) syncStatus.textContent = OFFLINE_MESSAGE;
+    if (nlEditStatus) nlEditStatus.textContent = OFFLINE_MESSAGE;
   } else if (wasOffline) {
     // Only clear it if it's still showing our own message - connectivity
     // could have come back after some other, more recent status (a real
     // recognition error, a sync result) already replaced it.
     if (ocrStatus?.textContent === OFFLINE_MESSAGE) ocrStatus.textContent = '';
     if (syncStatus?.textContent === OFFLINE_MESSAGE) syncStatus.textContent = '';
+    if (nlEditStatus?.textContent === OFFLINE_MESSAGE) nlEditStatus.textContent = '';
   }
 }
 window.addEventListener('online', applyOfflineLock);

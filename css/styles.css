@@ -1400,6 +1400,7 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
    underlying action directly, same belt-and-suspenders reasoning as
    saveEditor(). */
 .transfer-sheet.sync-viewer-locked #ocr-import-box,
+.transfer-sheet.sync-viewer-locked #nl-edit-box,
 .transfer-sheet.sync-viewer-locked #settings-import-btn{
   pointer-events:none;
   opacity:.5;
@@ -1413,6 +1414,7 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
    and manual export/import are pure local operations and stay enabled
    either way. */
 .transfer-sheet.is-offline #ocr-import-box,
+.transfer-sheet.is-offline #nl-edit-box,
 .transfer-sheet.is-offline #sync-setup-box{
   pointer-events:none;
   opacity:.5;
@@ -1482,6 +1484,17 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
 .ocr-import-result[hidden]{display:none}
 .ocr-import-preview-title{font-size:13px;font-weight:800;color:var(--accent)}
 .ocr-import-preview-meta,.ocr-import-preview-note{font-size:11px;line-height:1.4;color:var(--sub)}
+/* Content-anomaly warnings (see gemini-ocr.js's detectScheduleAnomalies) -
+   always informational, never a reason the confirm button is hidden (that's
+   DataValidator.validate's job) - so this gets --warn's amber tone rather
+   than the hard error red used elsewhere, and [hidden] removes the whole
+   box rather than leaving an empty warning card when there's nothing to
+   flag. */
+.ocr-import-warnings{margin:2px 0;padding:9px 11px;border-radius:12px;background:color-mix(in srgb,var(--warn) 16%,transparent);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);font-size:11.5px;line-height:1.5;color:#fff}
+.ocr-import-warnings[hidden]{display:none}
+.ocr-import-warnings-title{font-weight:800;margin-bottom:3px}
+.ocr-import-warnings ul{margin:0;padding-left:18px}
+.ocr-import-warnings li{margin:2px 0}
 .ocr-import-class-card{width:100%;padding:10px 12px}
 .ocr-import-class-card .tc-subject{flex:1;min-width:0}
 .editor-sheet.is-layered #ocr-import-result .editor-fold{display:block;margin-bottom:10px}

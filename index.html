@@ -408,6 +408,17 @@
     </div>
     <div id="ocr-import-result" class="ocr-import-result" hidden></div>
   </div>
+  <div class="ocr-import-box" id="nl-edit-box">
+    <div class="transfer-section-heading">AI 課表編輯<span class="transfer-section-tag">單次修改，套用前會先確認</span></div>
+    <div class="editor-hint-body">用一句話描述想修改的課表內容，例如「把我週二第三節改成物理」，AI 會提出修改建議，確認後才會套用。</div>
+    <div class="settings-transfer-actions">
+      <input id="nl-edit-input" class="settings-transfer-text sync-input" type="text" maxlength="120" placeholder="例如：把我週二第三節改成物理" autocomplete="off">
+    </div>
+    <div class="settings-transfer-actions">
+      <button type="button" id="nl-edit-submit" class="settings-transfer-btn primary">送出</button>
+    </div>
+    <div id="nl-edit-status" class="settings-transfer-status" role="status"></div>
+  </div>
   <details class="legacy-fold" id="legacy-transfer-fold">
     <summary class="legacy-fold-summary">手動備份（舊版，不需要同步也能用）</summary>
     <div class="legacy-fold-body">
@@ -442,6 +453,10 @@
 <template id="ocr-preview-template">
   <div class="ocr-import-preview-title">辨識結果與匯入預覽</div>
   <div class="ocr-import-preview-meta" data-ocr-preview-meta></div>
+  <div class="ocr-import-warnings" data-ocr-warnings hidden>
+    <div class="ocr-import-warnings-title">可能需要注意</div>
+    <ul data-ocr-warnings-list></ul>
+  </div>
   <details class="editor-fold" data-ocr-bell-fold open>
     <summary class="editor-fold-summary">節次時間</summary>
     <div class="editor-fold-body"><div class="bell-list" data-ocr-bell-list></div></div>

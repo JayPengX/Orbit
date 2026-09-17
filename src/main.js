@@ -13,5 +13,6 @@ import './editor-teachers.js';
 import './editor-schedule.js';
 import './dashboard-render.js';
 import './gemini-ocr.js';
+import './editor-nl-edit.js';
 import './bootstrap.js';
 import './testsim-runtime.js';
