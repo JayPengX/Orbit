@@ -69,12 +69,15 @@ function isAllowedOrigin(origin) {
 
 // X-Worker-Colo carries the IATA code of the Cloudflare colo that actually
 // executed this request (request.cf.colo) on every response, successful or
-// not. Diagnostic only - lets a "User location is not supported" report be
-// tied to a specific colo instead of staying a guess, since Smart Placement
-// can stick a given caller's traffic to the same (possibly Google-blocked)
-// colo indefinitely, which plain retries can't route around. Needs to be
-// both set AND exposed - CORS hides all response headers from browser JS by
-// default unless explicitly listed here.
+// not. Diagnostic only - this is what confirmed wrangler.toml's old
+// [placement] mode = "smart" was consistently landing this Worker's traffic
+// on Hong Kong (a colo Google's Gemini API refuses outright, unlike a
+// merely-unlucky one - see that file's own comment on why [placement] now
+// pins to an explicit region instead), and stays useful for the same reason
+// going forward: ties a future "User location is not supported" report to a
+// specific colo instead of leaving it a guess. Needs to be both set AND
+// exposed - CORS hides all response headers from browser JS by default
+// unless explicitly listed here.
 function corsHeaders(origin, colo) {
   return {
     'Access-Control-Allow-Origin': isAllowedOrigin(origin) ? origin : 'null',

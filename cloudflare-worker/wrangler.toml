@@ -33,25 +33,44 @@ name = "orbit-workers-proxy"
 main = "orbit-worker.js"
 compatibility_date = "2025-01-01"
 
-# Smart Placement: without this, Cloudflare runs each request's Worker
-# isolate at whichever edge colo is nearest the calling browser, so /gemini's
-# one outbound fetch (to generativelanguage.googleapis.com) also originates
-# from that colo's egress IP. Some of Cloudflare's colos geolocate to
-# countries/territories Google's Gemini API refuses outright ("User location
-# is not supported for the API use", a plain 400 - see
-# AIVisionProcessor.callGemini's handling of it in src/gemini-ocr.js), so a
-# user whose traffic happens to route through one of those colos hits this
-# error even though their own real location is fully supported. "smart" asks
-# Cloudflare to instead place the isolate near wherever the Worker's own
-# subrequests actually go (here, effectively a stable region close to
-# Google's endpoint) - it does not name a specific region, but it aims this
-# Worker at the backend it talks to instead of the client that happened to
-# call it, which is exactly what this route needs since talking to Gemini is
-# its only real work. Dashboard-only deploys (no wrangler) get the same
-# effect from that Worker's Settings -> Placement -> "Smart" toggle - this
-# comment is the reason to turn it on there.
+# Without this, Cloudflare runs each request's Worker isolate at whichever
+# edge colo is nearest the calling browser, so /gemini's one outbound fetch
+# (to generativelanguage.googleapis.com) also originates from that colo's
+# egress IP. Some of Cloudflare's colos geolocate to countries/territories
+# Google's Gemini API refuses outright ("User location is not supported for
+# the API use", a plain 400 - see AIVisionProcessor.callGemini's handling of
+# it in src/gemini-ocr.js), so a user whose traffic happens to route through
+# one of those colos hits this error even though their own real location is
+# fully supported.
+#
+# This used to be `mode = "smart"` instead, which asks Cloudflare to place
+# the isolate near wherever the Worker's own subrequests actually go, based
+# on observed traffic patterns - and for this app's actual traffic (heavily
+# Taiwan-based), that consistently converged on Cloudflare's Hong Kong colo
+# (confirmed via the X-Worker-Colo response header - see orbit-worker.js's
+# corsHeaders): Hong Kong is one of Cloudflare's biggest Asia-Pacific hubs,
+# so it's a very plausible "closest to Google's Asia-Pacific presence" pick -
+# except Google's Gemini API is not available in Hong Kong or mainland China
+# AT ALL, by explicit policy, not as one blocked colo among many. Smart
+# Placement's latency-only heuristic has no way to know that, so it kept
+# landing on the one colo guaranteed to fail every time, and a client-side
+# retry against the same Worker deployment couldn't route around it either
+# (retrying doesn't change which colo Smart Placement judges "optimal").
+#
+# `region` instead pins the target explicitly: Cloudflare runs the Worker in
+# whichever of its own data centers has the lowest latency to the NAMED
+# cloud region below, rather than empirically guessing from traffic. Chosen
+# to match `us-east4` (Ashburn, Virginia) specifically because that's the
+# exact region live-tested (15/15 successful /nl-edit calls, see git log)
+# against this same Gemini API - a known-good target, not a guess. Available
+# on every Workers plan (this is not an Enterprise-only feature - that would
+# be Cloudflare's separate "Regional Services", a compliance/data-residency
+# product covering broad jurisdictions, not a fit for "avoid this one
+# specific blocked place"). Dashboard-only deploys (no wrangler) only expose
+# the "Smart" toggle, not a region field - deploying via Wrangler/CI (see the
+# CLI path above) is what actually applies this.
 [placement]
-mode = "smart"
+region = "gcp:us-east4"
 
 # Only needed for the /sync path (see orbit-worker.js's handleSyncRequest).
 # Not a secret on its own - it's already public today in the no-proxy
