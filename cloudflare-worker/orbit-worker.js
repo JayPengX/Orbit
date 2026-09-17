@@ -5,11 +5,6 @@
 //   POST      /gemini     - AI schedule-photo import (see src/gemini-ocr.js).
 //                            Holds the real Gemini API key server-side so
 //                            end users never need one of their own.
-//   POST      /nl-edit    - Natural-language schedule edits (see
-//                            src/editor-nl-edit.js). Reuses /gemini's own
-//                            GEMINI_API_KEY and model list - same
-//                            underlying Gemini access, a different fixed
-//                            prompt/schema pair.
 //   GET/PATCH/DELETE /sync - Orbit's own cross-device schedule sync (see
 //                            src/sync.js).
 //   GET/PATCH/DELETE /vocab-sync - Orbit Vocab's cross-device
@@ -22,6 +17,13 @@
 //                            rate-limit tuning just to give that app the
 //                            same kind of sync. See "==== /vocab-sync"
 //                            below for how it differs from /sync.
+//   POST      /vocab-ai   - Orbit Vocab's live, per-learner AI features
+//                            (personalized mnemonics + memory-palace
+//                            stories - see that repo's vocab-ai.js). Same
+//                            reuse reasoning as /vocab-sync, but shares
+//                            /gemini's GEMINI_API_KEY secret instead of
+//                            /vocab-sync's Firebase ones - see "==== /vocab-ai"
+//                            below.
 //
 // /sync and /vocab-sync both hold a Firebase service-account key
 // server-side and proxy Firestore, so the pairing code isn't the only thing
@@ -610,7 +612,6 @@ async function handleGeminiRequest(request, env, headers, ip) {
     return json({ error: { message: error.message || 'Upstream request failed' } }, 502, headers);
   }
 }
-
 // ==== /nl-edit - natural-language schedule edits ============================
 //
 // Same discipline as /gemini above: the client (src/editor-nl-edit.js) only
@@ -804,6 +805,207 @@ async function handleNlEditRequest(request, env, headers, ip) {
       status: upstream.status,
       headers: { ...headers, 'Content-Type': 'application/json' }
     });
+  } catch (error) {
+    return json({ error: { message: error.message || 'Upstream request failed' } }, 502, headers);
+  }
+}
+
+// ==== /vocab-ai - Orbit Vocab's live, per-learner AI features ===============
+//
+// Two on-demand features from the sibling repo Orbit Vocab (see that repo's
+// README/vocab-ai.js), both genuinely needing a LIVE, per-request Gemini
+// call rather than that repo's offline batch script
+// (scripts/generate_ai_signals.py, which pre-generates one static
+// confusedWith/mnemonic/priorDifficulty per word into data/ai_signals.json
+// at build time): each request here depends on THIS learner's own data -
+// their actual recorded wrong-answer history for one word, or which
+// specific handful of words they're reviewing right now - which a
+// build-time batch job run once for every word in the vocabulary has no
+// way to know.
+//   - kind: "mnemonic" - one memory hook targeted at a specific word's
+//     recorded wrong-answer pattern for THIS learner, not the generic
+//     one-per-word hook data/ai_signals.json already ships offline.
+//   - kind: "story" - one short story weaving together a handful of this
+//     learner's current 答錯待複習/學習中 words as a memory-palace-style
+//     group mnemonic, reviewed together instead of word-by-word.
+// No passcode/identity check here (unlike /vocab-sync) - this isn't tied to
+// any one learner's sync pairing, so it uses the same trust model /gemini
+// already does: rate-limited by IP and gated by GEMINI_API_KEY, callable by
+// anyone who knows the URL (CORS only stops a browser from a disallowed
+// origin reading the response, not a direct request from reaching this
+// far - see readGeminiFiles/cleanVocabAiText's own comments for why every
+// field is still treated as untrusted input regardless). Its own rate-limit
+// bucket ('vocab-ai', see isRateLimited's `feature` keying) means abuse here
+// can never eat into /gemini's or /vocab-sync's own quota, and vice versa -
+// same reasoning as every other route in this file.
+
+// Reuses /gemini's own GEMINI_API_KEY secret (see handleGeminiRequest) -
+// nothing new to configure once AI 辨識課表照片 is already set up. Not
+// client-selectable (unlike /gemini's own `model` field): both features here
+// are small, fixed-shape, low-stakes generation tasks with no multi-model
+// fallback chain worth maintaining, so this just picks the fastest verified
+// model from GEMINI_ALLOWED_MODELS above rather than exposing a second knob.
+const VOCAB_AI_MODEL = 'gemini-3.5-flash-lite';
+// Tighter than GEMINI_RATE_LIMIT (20/hour is for a whole schedule-photo
+// import session; this is for a single learner's own occasional taps on
+// "產生記憶法"/"產生故事" while reviewing) - generous for real use, still
+// bounded per IP.
+const VOCAB_AI_RATE_LIMIT = 30;
+// Bounds on every piece of client-submitted text below - see
+// cleanVocabAiText's own comment on why these are enforced here rather than
+// trusted from the client.
+const VOCAB_AI_MAX_WORD_LEN = 40;
+const VOCAB_AI_MAX_POS_LEN = 20;
+const VOCAB_AI_MAX_MEANING_LEN = 200;
+const VOCAB_AI_MAX_WRONG_ANSWERS = 5;
+const VOCAB_AI_MAX_WRONG_ANSWER_LEN = 40;
+const VOCAB_AI_MIN_STORY_WORDS = 2;
+const VOCAB_AI_MAX_STORY_WORDS = 6;
+
+const VOCAB_MNEMONIC_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: { mnemonic: { type: 'string' } },
+  required: ['mnemonic']
+};
+const VOCAB_STORY_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: { story: { type: 'string' } },
+  required: ['story']
+};
+
+// Bounds and normalizes one piece of client-submitted text (a word, a POS
+// tag, a Chinese meaning, a past wrong answer) before it ever reaches a
+// prompt. This path has no passcode gating the way /vocab-sync does (see
+// that section's own comment) - a POST here is reachable by anyone who
+// knows the URL, not just this app's own frontend - so every field is
+// treated as untrusted input, same posture as /gemini's own
+// readGeminiFiles, even though in normal use it's always this app's own
+// vocab.json words and the learner's own typed spelling attempts. Returns
+// null (never a silently truncated value) for anything that doesn't look
+// like real short text, so the caller 400s outright rather than forwarding
+// garbage into a prompt.
+function cleanVocabAiText(value, maxLen) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > maxLen) return null;
+  return trimmed;
+}
+
+// Deliberately asks the model to diagnose the mistake PATTERN (a swapped
+// letter pair, a dropped double letter, a missing silent letter) rather than
+// just "here's a mnemonic for this word" - a hook that targets the specific
+// way this learner keeps getting it wrong is the entire reason this needs a
+// live per-user call instead of reusing data/ai_signals.json's one static
+// mnemonic every learner already sees.
+function buildVocabMnemonicPrompt(word, pos, meaning, wrongAnswers) {
+  const mistakesLine = wrongAnswers.length
+    ? `This learner has previously typed these WRONG spellings for this exact word: ${wrongAnswers
+        .map((w) => `"${w}"`)
+        .join(', ')}. Look for a real pattern across these mistakes (e.g. a swapped letter pair, a dropped double letter, a missing silent letter, a common homophone mix-up) and target the mnemonic at THAT pattern specifically.`
+    : `No specific past misspelling was recorded for this word - address the most likely spelling risk in the word itself instead.`;
+  return `You are helping a Taiwanese high school student remember how to correctly spell an English vocabulary word they keep getting wrong.
+
+Word: "${word}" (${pos || 'unknown part of speech'})
+Chinese meaning: ${meaning || '(none given)'}
+${mistakesLine}
+
+Write ONE short, specific mnemonic (under 30 words, in Traditional Chinese, weaving in the English word/letters where useful) that would actually help THIS learner stop making THIS mistake. Do not just restate the correct spelling - give a genuinely memorable hook tied to the mistake pattern above.`;
+}
+
+// Lists every target word explicitly (not just "5 words") and demands they
+// all appear, spelled exactly as given - the client-side validation this
+// feeds (see Orbit Vocab's vocab-ai.js) re-checks that demand was actually
+// met rather than trusting the model's own compliance, same defensive
+// posture as generate_ai_signals.py's clean_item().
+function buildVocabStoryPrompt(words) {
+  const rows = words.map((w) => `- "${w.word}"${w.meaning ? ` (${w.meaning})` : ''}`).join('\n');
+  return `You are creating a memory-palace-style mnemonic story for a Taiwanese high school student studying English vocabulary.
+
+Below are ${words.length} target English words with their Chinese meanings:
+${rows}
+
+Write ONE short, vivid, memorable story in Traditional Chinese (under 150 words) that uses EVERY one of these target words at least once, spelled exactly as given, in Latin letters (never translate them into Chinese, never split them up with spaces or punctuation in the middle) - the story itself is what should help the student recall all of them together as one group, not word by word.`;
+}
+
+async function callVocabAiGemini(prompt, schema, env) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(VOCAB_AI_MODEL)}:generateContent?key=${env.GEMINI_API_KEY}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: buildGenerationConfig(VOCAB_AI_MODEL, schema)
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Gemini API error ${response.status}: ${(await response.text()).slice(0, 500)}`);
+  }
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (typeof text !== 'string') throw new Error('Gemini response missing text');
+  return JSON.parse(text);
+}
+
+async function handleVocabAiRequest(request, env, headers, ip) {
+  if (request.method !== 'POST') return json({ error: { message: 'POST only' } }, 405, headers);
+
+  const rateLimit = await isRateLimited(env, ip, 'vocab-ai', VOCAB_AI_RATE_LIMIT);
+  headers['X-RateLimit-Backend'] = rateLimit.backend;
+  if (rateLimit.limited) {
+    return json({ error: { message: '請求過於頻繁，請稍後再試。' } }, 429, headers);
+  }
+  if (!env.GEMINI_API_KEY) {
+    return json({ error: { message: 'Worker 尚未設定 GEMINI_API_KEY。' } }, 500, headers);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: { message: 'Invalid JSON body' } }, 400, headers);
+  }
+
+  try {
+    if (body?.kind === 'mnemonic') {
+      const word = cleanVocabAiText(body.word, VOCAB_AI_MAX_WORD_LEN);
+      if (!word) return json({ error: { message: 'Missing or invalid word' } }, 400, headers);
+      const pos = typeof body.pos === 'string' ? body.pos.trim().slice(0, VOCAB_AI_MAX_POS_LEN) : '';
+      const meaning = typeof body.meaning === 'string' ? body.meaning.trim().slice(0, VOCAB_AI_MAX_MEANING_LEN) : '';
+      const wrongAnswers = (Array.isArray(body.wrongAnswers) ? body.wrongAnswers : [])
+        .filter((w) => typeof w === 'string' && w.trim())
+        .slice(0, VOCAB_AI_MAX_WRONG_ANSWERS)
+        .map((w) => w.trim().slice(0, VOCAB_AI_MAX_WRONG_ANSWER_LEN));
+
+      const result = await callVocabAiGemini(buildVocabMnemonicPrompt(word, pos, meaning, wrongAnswers), VOCAB_MNEMONIC_RESPONSE_SCHEMA, env);
+      const mnemonic = typeof result.mnemonic === 'string' ? result.mnemonic.trim() : '';
+      if (!mnemonic) return json({ error: { message: 'AI 沒有回傳有效的記憶法。' } }, 502, headers);
+      return json({ mnemonic }, 200, headers);
+    }
+
+    if (body?.kind === 'story') {
+      const words = (Array.isArray(body.words) ? body.words : [])
+        .slice(0, VOCAB_AI_MAX_STORY_WORDS)
+        .map((w) => ({
+          word: cleanVocabAiText(w && w.word, VOCAB_AI_MAX_WORD_LEN),
+          meaning: w && typeof w.meaning === 'string' ? w.meaning.trim().slice(0, VOCAB_AI_MAX_MEANING_LEN) : ''
+        }))
+        .filter((w) => w.word);
+      if (words.length < VOCAB_AI_MIN_STORY_WORDS) {
+        return json({ error: { message: `至少需要 ${VOCAB_AI_MIN_STORY_WORDS} 個單字才能產生故事` } }, 400, headers);
+      }
+
+      const result = await callVocabAiGemini(buildVocabStoryPrompt(words), VOCAB_STORY_RESPONSE_SCHEMA, env);
+      const story = typeof result.story === 'string' ? result.story.trim() : '';
+      if (!story) return json({ error: { message: 'AI 沒有回傳有效的故事。' } }, 502, headers);
+      // Echoes back the exact word list actually sent to the model (after
+      // this function's own filtering above) - not the client's original,
+      // unfiltered request array - so the client's own "did it really use
+      // every word" check (see Orbit Vocab's vocab-ai.js) validates against
+      // what was actually sent to the model.
+      return json({ story, words: words.map((w) => w.word) }, 200, headers);
+    }
+
+    return json({ error: { message: 'Missing or invalid kind' } }, 400, headers);
   } catch (error) {
     return json({ error: { message: error.message || 'Upstream request failed' } }, 502, headers);
   }
@@ -1497,6 +1699,7 @@ export default {
     if (path === '/nl-edit') return handleNlEditRequest(request, env, headers, ip);
     if (path === '/sync') return handleSyncRequest(request, env, headers, ip, ORBIT_SYNC_APP);
     if (path === '/vocab-sync') return handleSyncRequest(request, env, headers, ip, VOCAB_SYNC_APP);
+    if (path === '/vocab-ai') return handleVocabAiRequest(request, env, headers, ip);
     return json({ error: { message: 'Not found' } }, 404, headers);
   }
 };
