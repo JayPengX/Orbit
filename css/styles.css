@@ -1389,33 +1389,33 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
 
 /* A viewer device (see src/sync.js's isSyncViewer/applyEditorRoleLock) is
    locked out of the schedule editor entirely now (#btn-edit itself is
-   disabled - see .top-action-btn.is-disabled), so there's no whole-sheet
-   dimming left to do here. The transfer sheet stays reachable either way -
-   its own sync create/join/unlink controls must always stay usable - but
-   the AI photo-import box and the legacy manual-backup fold's *import*
-   button are still real ways to overwrite the local schedule, so they get
-   locked individually. Manual *export* stays enabled: reading out the
-   currently-synced schedule isn't editing it. gemini-ocr.js's click handler
-   and requestTransferAction() (editor-backup.js) both also refuse the
-   underlying action directly, same belt-and-suspenders reasoning as
-   saveEditor(). */
+   disabled - see .top-action-btn.is-disabled) - #nl-edit-box lives there
+   now too (see index.html), so it's covered by that same whole-sheet block
+   and needs no lock rule of its own here any more. The transfer sheet stays
+   reachable either way - its own sync create/join/unlink controls must
+   always stay usable - but the AI photo-import box and the legacy
+   manual-backup fold's *import* button are still real ways to overwrite the
+   local schedule, so they get locked individually. Manual *export* stays
+   enabled: reading out the currently-synced schedule isn't editing it.
+   gemini-ocr.js's click handler and requestTransferAction()
+   (editor-backup.js) both also refuse the underlying action directly, same
+   belt-and-suspenders reasoning as saveEditor(). */
 .transfer-sheet.sync-viewer-locked #ocr-import-box,
-.transfer-sheet.sync-viewer-locked #nl-edit-box,
 .transfer-sheet.sync-viewer-locked #settings-import-btn{
   pointer-events:none;
   opacity:.5;
 }
 
 /* No network at all (navigator.onLine, checked on opening the transfer
-   sheet and kept live via the online/offline listeners - see
-   editor-core.js's applyOfflineLock): AI import and setting up sync
-   (create/join) both need a real request the moment they're used, so
-   there's no point leaving them looking usable. Unlinking an existing sync
-   and manual export/import are pure local operations and stay enabled
-   either way. */
+   sheet/schedule editor and kept live via the online/offline listeners -
+   see editor-core.js's applyOfflineLock, which toggles .is-offline on both
+   sheets): AI import, AI schedule edits, and setting up sync (create/join)
+   all need a real request the moment they're used, so there's no point
+   leaving them looking usable. Unlinking an existing sync and manual
+   export/import are pure local operations and stay enabled either way. */
 .transfer-sheet.is-offline #ocr-import-box,
-.transfer-sheet.is-offline #nl-edit-box,
-.transfer-sheet.is-offline #sync-setup-box{
+.transfer-sheet.is-offline #sync-setup-box,
+.editor-sheet.is-offline #nl-edit-box{
   pointer-events:none;
   opacity:.5;
 }

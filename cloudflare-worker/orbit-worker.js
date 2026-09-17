@@ -641,22 +641,27 @@ const MAX_NL_EDIT_TEXT_LENGTH = 200;
 // ever reaches Gemini.
 const MAX_NL_EDIT_CONTEXT_LENGTH = 20000;
 const NL_EDIT_RATE_LIMIT = 20;
+// A generous ceiling on how many distinct edits one instruction can request
+// - guidance for the model (see buildNlEditPrompt), re-enforced for real
+// client-side in editor-nl-edit.js's applyNlEditOps (the Worker never
+// parses the structured content itself, only proxies it - see
+// handleNlEditRequest's own comment). Mentioned here mainly so the number
+// only has to be kept in sync with the prompt in one place.
+const MAX_NL_EDIT_OPS = 8;
 
-// The exact shape src/editor-nl-edit.js's validateNlEditResult() reads back.
-// One flat, always-fully-populated object discriminated by "status"/"op" -
-// same reasoning as GEMINI_RESPONSE_SCHEMA above: Gemini's response_schema
-// has no way to express "this field only when that one has this value", so
-// every field is always present and the unused ones sit at their nullable/
-// empty default instead. `day`/`period`/`fromDay`/`fromPeriod`/`toDay`/
-// `toPeriod` are nullable integers rather than a sentinel like -1, mirroring
+// One item in the "ops" array below - the exact shape src/editor-nl-edit.js's
+// applyNlEditOps() reads back for each edit. Same reasoning as
+// GEMINI_RESPONSE_SCHEMA above: Gemini's response_schema has no way to
+// express "this field only when that one has this value", so every field is
+// always present and the unused ones sit at their nullable/empty default
+// instead. `day`/`period`/`fromDay`/`fromPeriod`/`toDay`/`toPeriod` are
+// nullable integers rather than a sentinel like -1, mirroring
 // GEMINI_DAY_SCHEMA's own use of `nullable` for exactly this "not
 // applicable" case.
-const NL_EDIT_RESPONSE_SCHEMA = {
+const NL_EDIT_OP_SCHEMA = {
   type: 'object',
   properties: {
-    status: { type: 'string', enum: ['ok', 'unclear', 'not_found'] },
-    reason: { type: 'string' },
-    op: { type: 'string', enum: ['setSlot', 'moveSlot', 'none'] },
+    op: { type: 'string', enum: ['setSlot', 'moveSlot', 'swapSlot', 'clearSlot'] },
     day: { type: 'integer', nullable: true },
     period: { type: 'integer', nullable: true },
     subject: { type: 'string' },
@@ -668,8 +673,6 @@ const NL_EDIT_RESPONSE_SCHEMA = {
     toPeriod: { type: 'integer', nullable: true }
   },
   required: [
-    'status',
-    'reason',
     'op',
     'day',
     'period',
@@ -683,26 +686,45 @@ const NL_EDIT_RESPONSE_SCHEMA = {
   ]
 };
 
+// "ops" replaces the single flat op/day/period/... this schema used to have
+// at the top level - one instruction can now describe several edits at
+// once (see buildNlEditPrompt), applied by the client in array order. A
+// single-edit instruction (still the common case) is simply an array with
+// one item; "unclear"/"not_found" leave it empty.
+const NL_EDIT_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    status: { type: 'string', enum: ['ok', 'unclear', 'not_found'] },
+    reason: { type: 'string' },
+    ops: { type: 'array', items: NL_EDIT_OP_SCHEMA }
+  },
+  required: ['status', 'reason', 'ops']
+};
+
 // The fixed, server-owned prompt - the client never sends prompt text of
 // its own (see the top-of-section comment). `context` is embedded directly
 // rather than sent as a separate structured turn: a single-turn
 // generateContent call has nowhere else to put it, and it's already small
 // (see MAX_NL_EDIT_CONTEXT_LENGTH).
 function buildNlEditPrompt(text, context) {
-  return `You translate one Traditional Chinese natural-language instruction about editing a weekly class schedule into exactly one structured edit operation. Return a single JSON object matching this exact schema:
+  return `You translate one Traditional Chinese natural-language instruction about editing a weekly class schedule into a short, ordered list of structured edit operations. Return a single JSON object matching this exact schema:
 {
   "status": "ok",
   "reason": "",
-  "op": "setSlot",
-  "day": 2,
-  "period": 2,
-  "subject": "物理",
-  "teacher": "",
-  "location": "",
-  "fromDay": null,
-  "fromPeriod": null,
-  "toDay": null,
-  "toPeriod": null
+  "ops": [
+    {
+      "op": "setSlot",
+      "day": 2,
+      "period": 2,
+      "subject": "物理",
+      "teacher": "",
+      "location": "",
+      "fromDay": null,
+      "fromPeriod": null,
+      "toDay": null,
+      "toPeriod": null
+    }
+  ]
 }
 
 The current schedule, given as read-only context (never invent a day, period, or class that isn't consistent with it):
@@ -715,17 +737,20 @@ Period numbering: 0-based, matching the index into weeklySchedule's arrays and b
 
 The instruction to translate: "${text}"
 
-Decide "op":
+"ops" is an ORDERED list of edits, applied one after another. Most instructions describe exactly one edit, so "ops" almost always has exactly one item - but when the instruction clearly lists several distinct edits (e.g. joined by "而且"/"然後"/"，"/"、", or a numbered/bulleted list), include one item per edit, in the same order the instruction gives them, up to at most ${MAX_NL_EDIT_OPS} items. Never split one single edit into several items, and never merge two distinct edits into one item. Each op is evaluated against the schedule AS IT WOULD STAND after every earlier op in this same list has already been applied - e.g. moving a class out of a slot and then putting a different class into that now-empty slot is two valid, ordinary ops in order, not a conflict.
+
+Decide each op's "op":
 - "setSlot": set or replace what one specific day+period contains. Fill "day", "period", and "subject" (required - the Chinese subject name). Fill "teacher"/"location" only when the instruction gives them, or when an existing entry in "classes" already names that exact subject (reuse that entry's teacher/location rather than guessing); otherwise leave "teacher"/"location" as empty strings. Leave every "from*"/"to*" field null.
-- "moveSlot": move whatever currently occupies one day+period to a different day+period, without changing what class it is. Fill "fromDay", "fromPeriod", "toDay", "toPeriod". Leave "subject"/"teacher"/"location" as empty strings and "day"/"period" null.
-- "none": use this whenever "status" is not "ok" (see below). Leave every other field at its empty/null default.
+- "moveSlot": move whatever currently occupies one day+period to a different (currently empty, or about to be emptied by an earlier op in this list) day+period, without changing what class it is. Fill "fromDay", "fromPeriod", "toDay", "toPeriod". Leave "subject"/"teacher"/"location" as empty strings and "day"/"period" null.
+- "swapSlot": exchange whatever occupies two day+period slots with each other in one step - use this instead of two "moveSlot" ops whenever the instruction describes trading/swapping/exchanging two slots' contents for each other. Either or both slots may currently be empty (swapping with an empty slot is just a move in disguise, still valid). Fill "fromDay"/"fromPeriod" for one slot and "toDay"/"toPeriod" for the other - which one is "from" vs "to" doesn't matter, the effect is symmetric. Leave "subject"/"teacher"/"location" as empty strings and "day"/"period" null.
+- "clearSlot": empty out one day+period slot entirely, removing whatever class is currently there without putting anything else in its place - use this whenever the instruction asks to cancel/clear/remove a class from a slot rather than replace it with a different one. Fill "day", "period". Leave "subject"/"teacher"/"location" as empty strings and every "from*"/"to*" field null.
 
 Decide "status":
-- "ok": the instruction maps cleanly to exactly one of the operations above, using only days/periods/classes that make sense against the given context.
-- "unclear": the instruction is ambiguous, contradictory, does not describe a schedule edit at all, or cannot be confidently reduced to exactly one of the operations above. Briefly explain why in "reason" (Traditional Chinese, one short sentence).
-- "not_found": the instruction is clear about what kind of edit it wants, but names a day, period, or existing class that does not exist in the given context (e.g. a period number beyond how many periods exist, or moving from a day+period that is currently empty). Briefly explain in "reason" (Traditional Chinese, one short sentence).
+- "ok": every part of the instruction maps cleanly onto the operations above, using only days/periods/classes that make sense against the given context (accounting for any earlier op in the same list, as above).
+- "unclear": the instruction (or any one part of it, if it lists several) is ambiguous, contradictory, does not describe a schedule edit at all, or cannot be confidently reduced to the operations above. Leave "ops" empty. Briefly explain why in "reason" (Traditional Chinese, one short sentence).
+- "not_found": the instruction is clear about what kind of edit(s) it wants, but names a day, period, or existing class that does not exist in the given context at the point it's referenced (e.g. a period number beyond how many periods exist, or moving/swapping/clearing a day+period that is currently empty and wasn't just filled by an earlier op in this same list). Leave "ops" empty. Briefly explain in "reason" (Traditional Chinese, one short sentence).
 
-Never describe more than one edit. Never invent a day, period, subject, teacher, or location the instruction does not give you or that "classes"/"weeklySchedule" does not already support. When in doubt, prefer "unclear" over guessing.
+Never invent a day, period, subject, teacher, or location the instruction does not give you or that "classes"/"weeklySchedule" does not already support. When any part of the instruction is in doubt, prefer "unclear" over guessing - a partially-correct multi-edit instruction should not silently drop the part that didn't make sense.
 Return ONLY the raw JSON object — no markdown fences, no comments, no extra text.`;
 }
 

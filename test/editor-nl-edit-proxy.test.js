@@ -33,22 +33,28 @@ function fakeNlEditResponse(json) {
   };
 }
 
+// `overrides` patches the single op's own fields (e.g. okSetSlot({ day: 9 })
+// for an out-of-range test) - see okOps below for a response with several
+// distinct ops instead of one.
 function okSetSlot(overrides = {}) {
-  return {
-    status: 'ok',
-    reason: '',
-    op: 'setSlot',
-    day: 2,
-    period: 0,
-    subject: '物理',
-    teacher: '',
-    location: '',
-    fromDay: null,
-    fromPeriod: null,
-    toDay: null,
-    toPeriod: null,
-    ...overrides
-  };
+  return okOps([
+    {
+      op: 'setSlot',
+      day: 2,
+      period: 0,
+      subject: '物理',
+      teacher: '',
+      location: '',
+      fromDay: null,
+      fromPeriod: null,
+      toDay: null,
+      toPeriod: null,
+      ...overrides
+    }
+  ]);
+}
+function okOps(ops) {
+  return { status: 'ok', reason: '', ops };
 }
 
 function statusRecorder() {
@@ -133,20 +139,7 @@ describe('submitNlEdit - request shape', () => {
 describe('submitNlEdit - first-class failure states', () => {
   it('shows a dismissable info dialog, not a crash, when the AI cannot understand the instruction', async () => {
     const fetchMock = vi.fn(async () =>
-      fakeNlEditResponse({
-        status: 'unclear',
-        reason: '不確定你想改哪一節',
-        op: 'none',
-        day: null,
-        period: null,
-        subject: '',
-        teacher: '',
-        location: '',
-        fromDay: null,
-        fromPeriod: null,
-        toDay: null,
-        toPeriod: null
-      })
+      fakeNlEditResponse({ status: 'unclear', reason: '不確定你想改哪一節', ops: [] })
     );
     vi.stubGlobal('fetch', fetchMock);
     const { status } = statusRecorder();
@@ -161,20 +154,7 @@ describe('submitNlEdit - first-class failure states', () => {
 
   it('shows a dismissable info dialog when the instruction names something that does not exist', async () => {
     const fetchMock = vi.fn(async () =>
-      fakeNlEditResponse({
-        status: 'not_found',
-        reason: '課表沒有第九節',
-        op: 'none',
-        day: null,
-        period: null,
-        subject: '',
-        teacher: '',
-        location: '',
-        fromDay: null,
-        fromPeriod: null,
-        toDay: null,
-        toPeriod: null
-      })
+      fakeNlEditResponse({ status: 'not_found', reason: '課表沒有第九節', ops: [] })
     );
     vi.stubGlobal('fetch', fetchMock);
     const { status } = statusRecorder();
@@ -236,6 +216,48 @@ describe('submitNlEdit - confirm-before-apply', () => {
     expect(confirmSheetVisible()).toBe(true);
     expect(document.getElementById('editor-confirm-title').textContent).toBe('沒有變更');
     clickConfirm();
+    vi.unstubAllGlobals();
+  });
+
+  // These two run last in this describe block on purpose: both mutate
+  // day 1's slots (清空/對調), which the "no change" test above depends on
+  // staying at the fixture's original 數學/王老師 - see that test's own
+  // comment.
+  it('applies every op from a multi-edit instruction, in order, on confirm', async () => {
+    // "把週二第一節改成物理，然後把週一第一節清空" - two distinct edits in
+    // one instruction, exactly the "wider support" this response shape
+    // exists for.
+    const fetchMock = vi.fn(async () =>
+      fakeNlEditResponse(
+        okOps([
+          { op: 'setSlot', day: 2, period: 0, subject: '物理', teacher: '', location: '' },
+          { op: 'clearSlot', day: 1, period: 0 }
+        ])
+      )
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { status } = statusRecorder();
+    await submitNlEdit('把週二第一節改成物理，然後把週一第一節清空', { status });
+    clickConfirm();
+    const key = state.applicationData.weeklySchedule[2][0];
+    expect(key).toBeTruthy();
+    expect(state.applicationData.teacherDB[key][0]).toBe('物理');
+    expect(state.applicationData.weeklySchedule[1][0]).toBeFalsy();
+    vi.unstubAllGlobals();
+  });
+
+  it('applies a swapSlot op, exchanging both slots at once, on confirm', async () => {
+    // Fixture: day 1 = [A, B, C]. Swap period 0 and period 2 on the same day.
+    const fetchMock = vi.fn(async () =>
+      fakeNlEditResponse(okOps([{ op: 'swapSlot', fromDay: 1, fromPeriod: 0, toDay: 1, toPeriod: 2 }]))
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { status } = statusRecorder();
+    const before = [...state.applicationData.weeklySchedule[1]];
+    await submitNlEdit('把週一第一節跟第三節對調', { status });
+    clickConfirm();
+    expect(state.applicationData.weeklySchedule[1][0]).toBe(before[2]);
+    expect(state.applicationData.weeklySchedule[1][2]).toBe(before[0]);
     vi.unstubAllGlobals();
   });
 });

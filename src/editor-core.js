@@ -195,6 +195,7 @@ function openEditor() {
   document.querySelector('.top-actions')?.classList.remove('open');
 
   setOverlayVisible('editor-sheet-overlay', 'editor-sheet', true, 'editor-open');
+  applyOfflineLock();
 
   try {
     renderEditorTeachers();
@@ -254,12 +255,19 @@ function openTransferSheet() {
 // Unlinking an existing sync (pure local state) and manual export/import
 // (also pure local) are deliberately left alone - neither needs a network.
 const OFFLINE_MESSAGE = '目前沒有網路連線，AI 匯入與跨裝置同步暫時無法使用。';
+// Toggles .is-offline on both sheets that can host a network-dependent AI
+// box - the transfer sheet (AI import, sync) and the schedule editor
+// (#nl-edit-box, see index.html) - rather than just whichever one happens
+// to be open right now, so either one is already in the right state the
+// moment it's opened instead of needing its own separate call site.
 function applyOfflineLock() {
-  const sheet = document.getElementById('transfer-sheet');
-  if (!sheet) return;
+  const transferSheet = document.getElementById('transfer-sheet');
+  const editorSheet = document.getElementById('editor-sheet');
+  if (!transferSheet && !editorSheet) return;
   const offline = !navigator.onLine;
-  const wasOffline = sheet.classList.contains('is-offline');
-  sheet.classList.toggle('is-offline', offline);
+  const wasOffline = !!transferSheet?.classList.contains('is-offline') || !!editorSheet?.classList.contains('is-offline');
+  transferSheet?.classList.toggle('is-offline', offline);
+  editorSheet?.classList.toggle('is-offline', offline);
   const ocrStatus = document.getElementById('ocr-import-status');
   const syncStatus = document.getElementById('sync-status');
   const nlEditStatus = document.getElementById('nl-edit-status');

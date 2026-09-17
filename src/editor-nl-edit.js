@@ -32,6 +32,12 @@ import { proxyPath } from './proxy-config.js';
 // failure, same fallback shape as AIVisionProcessor.callGemini below).
 const NL_EDIT_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.7-flash'];
 
+// Mirrors the Worker's own MAX_NL_EDIT_OPS (cloudflare-worker/orbit-worker.js)
+// - the Worker never parses the structured response itself (see
+// callNlEditProxy), so this is the real enforcement point, not just a
+// display hint.
+const MAX_NL_EDIT_OPS = 8;
+
 // Same shared PROXY_URL as gemini-ocr.js and sync.js (see proxy-config.js) -
 // a fork that hasn't deployed the Worker simply doesn't get this feature
 // (see isNlEditConfigured's callers), no bring-your-own-key fallback. The
@@ -132,40 +138,96 @@ function isValidPeriod(value, periodCount) {
   return Number.isInteger(value) && value >= 0 && value < periodCount;
 }
 
+// A plain {day: [key, ...]} map, deep-cloned from context.weeklySchedule -
+// just enough state for validateNlEditResult to track slot occupancy AS IT
+// WOULD STAND after each earlier op in the same list, without needing the
+// full settingsData shape (teacherDB, locationDB, ...) applyNlEditOps below
+// works with. Kept in sync with that function's own moveSlot/swapSlot/
+// clearSlot bookkeeping by hand - there are only three slot-shaped
+// operations to mirror, so this stays a small, easy-to-eyeball duplication
+// rather than something worth a shared abstraction over.
+function cloneWeeklySchedule(weeklySchedule) {
+  const next = {};
+  for (const [day, row] of Object.entries(weeklySchedule || {})) next[day] = [...(row || [])];
+  return next;
+}
+function scheduleSlot(weeklySchedule, day, period) {
+  return (weeklySchedule[day] || [])[period] || '';
+}
+function setScheduleSlot(weeklySchedule, day, period, value) {
+  const row = [...(weeklySchedule[day] || [])];
+  while (row.length <= period) row.push('');
+  row[period] = value;
+  weeklySchedule[day] = row;
+}
+
 // Never trusts the model's answer blindly - same discipline as
-// gemini-ocr.js's DataValidator: every field is re-checked against the
-// actual schedule this ran against (the same `context` that was sent),
-// not just against the response_schema's shape, which only guarantees the
-// JSON parses and each field has the right type, not that a day/period
-// number is actually in range.
+// gemini-ocr.js's DataValidator: every op is re-checked against the actual
+// schedule this ran against (the same `context` that was sent), not just
+// against the response_schema's shape, which only guarantees the JSON
+// parses and each field has the right type, not that a day/period number is
+// actually in range or that a slot an op reads from is actually occupied.
+//
+// `result.ops` is validated IN ORDER against a running simulated schedule
+// (see cloneWeeklySchedule above) so a later op can legally reference a
+// slot an earlier op in the same list just emptied or filled - see
+// buildNlEditPrompt's own explanation of this sequencing on the Worker
+// side. The first invalid op stops validation there (errors are prefixed
+// with "第 N 項：" once there's more than one op, so a multi-edit
+// instruction's failure clearly points at which part of it didn't work).
 function validateNlEditResult(result, context) {
   if (!result || typeof result !== 'object') return { valid: false, errors: [t('nlEdit.badResponse')] };
   if (!['ok', 'unclear', 'not_found'].includes(result.status)) {
     return { valid: false, errors: [t('nlEdit.badResponse')] };
   }
   if (result.status !== 'ok') return { valid: true, errors: [] };
-  const errors = [];
+  if (!Array.isArray(result.ops) || !result.ops.length) return { valid: false, errors: [t('nlEdit.badResponse')] };
+  if (result.ops.length > MAX_NL_EDIT_OPS) return { valid: false, errors: [t('nlEdit.tooManyOps')] };
+
   const periodCount = (context.bellTimes || []).length;
-  if (result.op === 'setSlot') {
-    if (!isValidDay(result.day) || !isValidPeriod(result.period, periodCount)) {
-      errors.push(t('nlEdit.outOfRange'));
+  const schedule = cloneWeeklySchedule(context.weeklySchedule);
+  for (let i = 0; i < result.ops.length; i++) {
+    const op = result.ops[i];
+    // t() takes no interpolation params (see strings.js) - substituted by
+    // hand here rather than teaching it a templating syntax for this one
+    // call site.
+    const prefix = result.ops.length > 1 ? t('nlEdit.opPrefix').replace('{n}', String(i + 1)) : '';
+    if (!op || typeof op !== 'object') return { valid: false, errors: [prefix + t('nlEdit.badResponse')] };
+    if (op.op === 'setSlot') {
+      if (!isValidDay(op.day) || !isValidPeriod(op.period, periodCount)) {
+        return { valid: false, errors: [prefix + t('nlEdit.outOfRange')] };
+      }
+      if (!String(op.subject || '').trim()) return { valid: false, errors: [prefix + t('nlEdit.missingSubject')] };
+      setScheduleSlot(schedule, op.day, op.period, '#'); // placeholder key - only occupancy matters here
+    } else if (op.op === 'moveSlot' || op.op === 'swapSlot') {
+      if (
+        !isValidDay(op.fromDay) ||
+        !isValidDay(op.toDay) ||
+        !isValidPeriod(op.fromPeriod, periodCount) ||
+        !isValidPeriod(op.toPeriod, periodCount)
+      ) {
+        return { valid: false, errors: [prefix + t('nlEdit.outOfRange')] };
+      }
+      const fromValue = scheduleSlot(schedule, op.fromDay, op.fromPeriod);
+      const toValue = scheduleSlot(schedule, op.toDay, op.toPeriod);
+      if (op.op === 'moveSlot' && !fromValue) {
+        return { valid: false, errors: [prefix + t('nlEdit.emptySource')] };
+      }
+      if (op.op === 'swapSlot' && !fromValue && !toValue) {
+        return { valid: false, errors: [prefix + t('nlEdit.emptySource')] };
+      }
+      setScheduleSlot(schedule, op.toDay, op.toPeriod, fromValue);
+      setScheduleSlot(schedule, op.fromDay, op.fromPeriod, op.op === 'swapSlot' ? toValue : '');
+    } else if (op.op === 'clearSlot') {
+      if (!isValidDay(op.day) || !isValidPeriod(op.period, periodCount)) {
+        return { valid: false, errors: [prefix + t('nlEdit.outOfRange')] };
+      }
+      setScheduleSlot(schedule, op.day, op.period, '');
+    } else {
+      return { valid: false, errors: [prefix + t('nlEdit.badResponse')] };
     }
-    if (!String(result.subject || '').trim()) errors.push(t('nlEdit.missingSubject'));
-  } else if (result.op === 'moveSlot') {
-    if (
-      !isValidDay(result.fromDay) ||
-      !isValidDay(result.toDay) ||
-      !isValidPeriod(result.fromPeriod, periodCount) ||
-      !isValidPeriod(result.toPeriod, periodCount)
-    ) {
-      errors.push(t('nlEdit.outOfRange'));
-    } else if (!(context.weeklySchedule[result.fromDay] || [])[result.fromPeriod]) {
-      errors.push(t('nlEdit.emptySource'));
-    }
-  } else {
-    errors.push(t('nlEdit.badResponse'));
   }
-  return { valid: errors.length === 0, errors };
+  return { valid: true, errors: [] };
 }
 
 function nextNlClassKey(teacherDB) {
@@ -201,40 +263,56 @@ function resolveClassKey(teacherDB, subject, teacher, location) {
     teacherDB: { ...(teacherDB || {}), [key]: [cleanSubject, cleanTeacher, cleanLocation] }
   };
 }
+// One op's worth of the same row-splicing setScheduleSlot above does for
+// validation's lighter-weight simulation - kept separate because this one
+// mutates the full settingsData shape (weeklySchedule lives one level
+// deeper, under `next.weeklySchedule`) rather than a bare {day: [key,...]}
+// map.
+function setNextScheduleSlot(next, day, period, value) {
+  const row = [...(next.weeklySchedule[day] || [])];
+  while (row.length <= period) row.push('');
+  row[period] = value;
+  next.weeklySchedule = { ...next.weeklySchedule, [day]: row };
+}
+function nextScheduleSlot(next, day, period) {
+  return (next.weeklySchedule[day] || [])[period] || '';
+}
+
+// Applies one already-validated op (see validateNlEditResult) onto `next`
+// in place (reassigning its own properties, same mutation style as
+// setNextScheduleSlot) - called once per op, in order, by applyNlEditOps
+// below.
+function applyOneNlEditOp(next, op) {
+  if (op.op === 'setSlot') {
+    const { key, teacherDB } = resolveClassKey(next.teacherDB, op.subject, op.teacher, op.location);
+    next.teacherDB = teacherDB;
+    next.locationDB = { ...next.locationDB, [key]: teacherDB[key][2] };
+    if (!next.teacherOrder.includes(key)) next.teacherOrder = [...next.teacherOrder, key];
+    setNextScheduleSlot(next, op.day, op.period, key);
+  } else if (op.op === 'clearSlot') {
+    setNextScheduleSlot(next, op.day, op.period, '');
+  } else {
+    // moveSlot / swapSlot: both are "put whatever's in slot A into slot B",
+    // differing only in whether slot A also receives what used to be in B
+    // (swapSlot) or is simply left empty (moveSlot).
+    const fromValue = nextScheduleSlot(next, op.fromDay, op.fromPeriod);
+    const toValue = nextScheduleSlot(next, op.toDay, op.toPeriod);
+    setNextScheduleSlot(next, op.toDay, op.toPeriod, fromValue);
+    setNextScheduleSlot(next, op.fromDay, op.fromPeriod, op.op === 'swapSlot' ? toValue : '');
+  }
+}
+
 // Turns an already-validated `result` (see validateNlEditResult) into a
 // full next settings-data object, built on top of `current` (as
 // settingsDataForExport() sees it) - pure data rearrangement, no DOM, so
 // the caller can diff it with describeSettingsDiff before ever touching the
-// real schedule.
-function applyNlEditOp(current, result) {
+// real schedule. Applies every op in result.ops in order, each one seeing
+// the effect of every op before it - same sequencing validateNlEditResult
+// already checked against, just now actually mutating the full settings
+// shape (teacherDB/locationDB/teacherOrder too, not just weeklySchedule).
+function applyNlEditOps(current, result) {
   const next = cloneSettingsData(current);
-  if (result.op === 'setSlot') {
-    const { key, teacherDB } = resolveClassKey(
-      next.teacherDB,
-      result.subject,
-      result.teacher,
-      result.location
-    );
-    next.teacherDB = teacherDB;
-    next.locationDB = { ...next.locationDB, [key]: teacherDB[key][2] };
-    if (!next.teacherOrder.includes(key)) next.teacherOrder = [...next.teacherOrder, key];
-    const row = [...(next.weeklySchedule[result.day] || [])];
-    while (row.length <= result.period) row.push('');
-    row[result.period] = key;
-    next.weeklySchedule = { ...next.weeklySchedule, [result.day]: row };
-  } else {
-    const fromRow = [...(next.weeklySchedule[result.fromDay] || [])];
-    const movedKey = fromRow[result.fromPeriod] || '';
-    fromRow[result.fromPeriod] = '';
-    const toRow = [...(next.weeklySchedule[result.toDay] || [])];
-    while (toRow.length <= result.toPeriod) toRow.push('');
-    toRow[result.toPeriod] = movedKey;
-    next.weeklySchedule = {
-      ...next.weeklySchedule,
-      [result.fromDay]: fromRow,
-      [result.toDay]: toRow
-    };
-  }
+  for (const op of result.ops) applyOneNlEditOp(next, op);
   return normalizeSettingsData(next);
 }
 
@@ -319,7 +397,7 @@ async function submitNlEdit(rawText, { status, onDone } = {}) {
       );
       return;
     }
-    const next = applyNlEditOp(current, result);
+    const next = applyNlEditOps(current, result);
     status?.(t('nlEdit.ready'));
     showNlEditConfirm(current, next);
   } catch (error) {
@@ -329,10 +407,11 @@ async function submitNlEdit(rawText, { status, onDone } = {}) {
   }
 }
 
-// Wires the transfer sheet's always-present "AI 課表編輯" box (see
-// index.html) - unlike gemini-ocr.js's OCR importer, there's no lazy
-// mount here: no image canvas/preview plumbing to defer, just one text
-// input and one button.
+// Wires the schedule editor's always-present "AI 課表編輯" box (see
+// index.html - it lives at the top of #editor-sheet-body, not the transfer
+// sheet, since it edits the schedule directly) - unlike gemini-ocr.js's OCR
+// importer, there's no lazy mount here: no image canvas/preview plumbing to
+// defer, just one text input and one button.
 function mountNlEditor() {
   const input = document.getElementById('nl-edit-input');
   const button = document.getElementById('nl-edit-submit');
@@ -363,7 +442,7 @@ function mountNlEditor() {
 mountNlEditor();
 
 export {
-  applyNlEditOp,
+  applyNlEditOps,
   buildNlEditContext,
   isNlEditConfigured,
   resolveClassKey,
