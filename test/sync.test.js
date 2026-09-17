@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { loadApp } from './helpers/loadApp.js';
 import { seedLocalStorage } from './helpers/fixtureData.js';
 
-// No VITE_ORBIT_SYNC_PROXY_URL stub in this file - it exercises sync.js's
+// No VITE_PROXY_URL stub in this file - it exercises sync.js's
 // behavior when the feature simply isn't configured (the default for a
 // fork, or before the app's owner has deployed the Worker). See
 // sync-proxy.test.js for the same module with the proxy configured, which

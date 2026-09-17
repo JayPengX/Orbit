@@ -12,6 +12,7 @@ import {
 import { editorTimeToMinutes, formatClassLabel } from './editor-core.js';
 import { updateTeacherCardAvatar } from './editor-teachers.js';
 import { isSyncViewer } from './sync.js';
+import { proxyPath } from './proxy-config.js';
 
 // ---- js/gemini-ocr.js ----
 // What one submitted file may be. The three "decodable" image types are the
@@ -163,12 +164,9 @@ async function encodeSourceForUpload(source) {
 // the client) and forwards the request, so users never need a Gemini key of their
 // own. A fork built from source without the proxy deployed just leaves the feature
 // unavailable (see isGeminiProxyConfigured's callers) rather than asking for a key.
-// `?.` matters here: import.meta.env only exists once Vite has processed this
-// module - if these unbuilt source files ever get served directly (e.g. a
-// Pages misconfiguration bypassing the build), a plain `.env.X` throws at
-// module-evaluation time and silently aborts the whole boot chain before it
-// reaches the code that clears the boot spinner.
-const GEMINI_PROXY_URL = (import.meta.env?.VITE_ORBIT_GEMINI_PROXY_URL || '').trim();
+// The `/gemini` path is hardcoded here, not part of the env var - see
+// proxy-config.js, which is what actually reads PROXY_URL.
+const GEMINI_PROXY_URL = proxyPath('/gemini');
 function isGeminiProxyConfigured() {
   return !!GEMINI_PROXY_URL;
 }

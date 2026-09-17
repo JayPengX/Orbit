@@ -23,6 +23,7 @@ import {
   setEditorConfirmContent,
   showEditorConfirmSheet
 } from './editor-core.js';
+import { proxyPath } from './proxy-config.js';
 
 // Must match GEMINI_ALLOWED_MODELS in cloudflare-worker/orbit-worker.js -
 // the Worker's /nl-edit path reuses the exact same vetted model list as
@@ -31,13 +32,11 @@ import {
 // failure, same fallback shape as AIVisionProcessor.callGemini below).
 const NL_EDIT_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.7-flash'];
 
-// Build-time env var, same pattern as gemini-ocr.js's GEMINI_PROXY_URL - a
-// fork that hasn't deployed/configured the Worker's /nl-edit path simply
-// doesn't get this feature (see isNlEditConfigured's callers), no
-// bring-your-own-key fallback. `?.` matters here for the same reason it
-// does in gemini-ocr.js: import.meta.env only exists once Vite has
-// processed this module.
-const NL_EDIT_PROXY_URL = (import.meta.env?.VITE_ORBIT_NL_EDIT_PROXY_URL || '').trim();
+// Same shared PROXY_URL as gemini-ocr.js and sync.js (see proxy-config.js) -
+// a fork that hasn't deployed the Worker simply doesn't get this feature
+// (see isNlEditConfigured's callers), no bring-your-own-key fallback. The
+// `/nl-edit` path is hardcoded here, not part of the env var.
+const NL_EDIT_PROXY_URL = proxyPath('/nl-edit');
 function isNlEditConfigured() {
   return !!NL_EDIT_PROXY_URL;
 }

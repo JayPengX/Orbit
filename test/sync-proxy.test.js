@@ -3,18 +3,19 @@ import { loadApp } from './helpers/loadApp.js';
 import { seedLocalStorage } from './helpers/fixtureData.js';
 
 // A separate file (its own module registry, per Vitest's per-file isolation
-// - see loadApp.js's comment) so sync.js's module-scope
-// `import.meta.env.VITE_ORBIT_SYNC_PROXY_URL` read picks up this stub: it's
-// only read once, at import time, so it must be set before loadApp() first
-// pulls sync.js in via main.js -> bootstrap.js. Every push/pull/join/create
-// test lives here, since none of that can run without the proxy configured
-// - see sync.test.js for the "not configured" gate itself.
+// - see loadApp.js's comment) so proxy-config.js's module-scope
+// `import.meta.env.VITE_PROXY_URL` read picks up this stub: it's only read
+// once, at import time, so it must be set before loadApp() first pulls
+// sync.js in via main.js -> bootstrap.js. Every push/pull/join/create test
+// lives here, since none of that can run without the proxy configured - see
+// sync.test.js for the "not configured" gate itself.
 let sync;
 let state;
-const PROXY_URL = 'https://sync-proxy.example.workers.dev/sync';
+const BASE_URL = 'https://sync-proxy.example.workers.dev';
+const PROXY_URL = `${BASE_URL}/sync`;
 
 beforeAll(async () => {
-  vi.stubEnv('VITE_ORBIT_SYNC_PROXY_URL', PROXY_URL);
+  vi.stubEnv('VITE_PROXY_URL', BASE_URL);
   seedLocalStorage();
   await loadApp();
   sync = await import('../src/sync.js');

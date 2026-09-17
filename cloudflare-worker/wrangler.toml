@@ -27,9 +27,9 @@ name = "orbit-workers-proxy"
 # ^ Must match the Worker's actual name in the Cloudflare dashboard exactly -
 # `wrangler deploy` targets whatever's named here, and a mismatch silently
 # creates/updates an unrelated second Worker instead of erroring. Confirmed
-# against the real deployed URL (see VITE_ORBIT_SYNC_PROXY_URL) rather than
-# assumed from the filename - orbit-worker.js is just this repo's source
-# file name, not necessarily the deployed Worker's name.
+# against the real deployed URL (see PROXY_URL) rather than assumed from the
+# filename - orbit-worker.js is just this repo's source file name, not
+# necessarily the deployed Worker's name.
 main = "orbit-worker.js"
 compatibility_date = "2025-01-01"
 

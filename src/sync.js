@@ -8,7 +8,8 @@
 //
 // No server of Orbit's own, in the sense that end users never run or pay
 // for anything: every read/write goes through a Cloudflare Worker (see
-// cloudflare-worker/orbit-worker.js's /sync path, VITE_ORBIT_SYNC_PROXY_URL)
+// cloudflare-worker/orbit-worker.js's /sync path, backed by the same shared
+// PROXY_URL as gemini-ocr.js and editor-nl-edit.js - see proxy-config.js)
 // that the app's owner - not each user - deploys once. The Worker holds its
 // own Firebase service-account credentials server-side and applies real,
 // cross-request rate limiting, then proxies to Firestore - the same
@@ -23,12 +24,12 @@
 // the correct passcode - the Worker checks it against the hash it stored at
 // creation time, so this isn't just a client-side convention any more.
 //
-// This feature simply doesn't work without VITE_ORBIT_SYNC_PROXY_URL set
-// (see isSyncProxyConfigured) - same as gemini-ocr.js's AI import without
-// its own proxy URL. There's no fallback to talking to Firestore directly
-// from the browser any more: that path had no real rate limiting (Firestore
-// rules can validate a request's shape but can't count requests), so it
-// only ever made sense as a stopgap before this Worker existed.
+// This feature simply doesn't work without PROXY_URL set (see
+// isSyncProxyConfigured) - same as gemini-ocr.js's AI import without its own
+// proxy URL. There's no fallback to talking to Firestore directly from the
+// browser any more: that path had no real rate limiting (Firestore rules
+// can validate a request's shape but can't count requests), so it only ever
+// made sense as a stopgap before this Worker existed.
 import { state } from './state.js';
 import {
   applyEditorSettingsData,
@@ -45,10 +46,11 @@ import {
   setStatusText,
   showEditorConfirmSheet
 } from './editor-core.js';
+import { proxyPath } from './proxy-config.js';
 
-// `?.` guards against import.meta.env itself being undefined (unbuilt source
-// served directly, bypassing Vite) - see the matching note in gemini-ocr.js.
-const SYNC_PROXY_URL = (import.meta.env?.VITE_ORBIT_SYNC_PROXY_URL || '').trim();
+// The `/sync` path is hardcoded here, not part of the env var - see
+// proxy-config.js, which is what actually reads PROXY_URL.
+const SYNC_PROXY_URL = proxyPath('/sync');
 const CODE_KEY = 'orbitSyncCode';
 // Empty/absent means this device is a viewer; a non-empty value is the
 // actual manager passcode, kept in plaintext (there's nothing else it could

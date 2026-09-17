@@ -38,9 +38,7 @@ jobs:
         run: npm test
       - name: Build
         env:
-          VITE_ORBIT_GEMINI_PROXY_URL: ${{ vars.VITE_ORBIT_GEMINI_PROXY_URL }}
-          VITE_ORBIT_NL_EDIT_PROXY_URL: ${{ vars.VITE_ORBIT_NL_EDIT_PROXY_URL }}
-          VITE_ORBIT_SYNC_PROXY_URL: ${{ vars.VITE_ORBIT_SYNC_PROXY_URL }}
+          VITE_PROXY_URL: ${{ vars.PROXY_URL }}
         run: npm run build
       - name: Setup Pages
         uses: actions/configure-pages@v5

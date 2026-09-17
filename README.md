@@ -146,7 +146,7 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 
 真正不可能被繞過的硬性防線是 **Cloudflare Workers 免費方案本身的每日請求上限**：超過額度就是失敗到隔天重置，不需要額外設定，也不可能產生帳單（除非有人自行把 Gemini 金鑰接上付費帳單，見〈限制〉）。
 
-沒有網路無法辨識，沒有代理則整個功能直接不可用（`VITE_ORBIT_GEMINI_PROXY_URL` 留空），不會退回成使用者自備 Key 的舊流程——課表其他功能完全不受影響。
+沒有網路無法辨識，沒有代理則整個功能直接不可用（`PROXY_URL` 留空或整個 Worker 沒部署），不會退回成使用者自備 Key 的舊流程——課表其他功能完全不受影響。
 
 ### 部署者一次性設定
 
@@ -156,8 +156,8 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 2. Workers & Pages → Create → Create Worker，取個名字 → Deploy。
 3. 「Edit code」貼上 `cloudflare-worker/orbit-worker.js` 全部內容，儲存並部署。這支檔案同時服務 AI 匯入（`/gemini`）跟跨裝置同步（`/sync`，見下方），只設定其中一個功能的 Secret 也沒問題，另一個路徑會回報「尚未設定」但不影響已設定的那個。
 4. Settings → Variables and Secrets → 新增 `GEMINI_API_KEY`（[到這裡申請](https://aistudio.google.com/apikey)），類型選 **Secret** → 儲存並部署。
-5. 複製 Worker 網址（`https://<worker 名稱>.<子網域>.workers.dev`），**加上 `/gemini`**。
-6. GitHub 專案 Settings → Secrets and variables → Actions → **Variables**（不是 Secrets，這個值本來就會進公開前端程式碼），新增 `VITE_ORBIT_GEMINI_PROXY_URL`，值是上一步含 `/gemini` 的完整網址。下次推送到 `main`，站台就會改用代理。
+5. 複製 Worker 網址（`https://<worker 名稱>.<子網域>.workers.dev`）——**不要加路徑**。這一支 Worker 同時服務 AI 匯入（`/gemini`）、AI 課表編輯（`/nl-edit`，見下方）、跨裝置同步（`/sync`，見下方）三個功能，路徑是前端程式碼自己寫死補上的（見 `src/proxy-config.js`），設定值只需要 Worker 本身的網址。
+6. GitHub 專案 Settings → Secrets and variables → Actions → **Variables**（不是 Secrets，這個值本來就會進公開前端程式碼），新增 `PROXY_URL`，值就是上一步複製的 Worker 網址。下次推送到 `main`，站台就會改用代理——同時開通這三個功能（後兩個功能是否真的可用，還要看有沒有另外設定它們各自需要的 Secret，見下方各自的〈部署者一次性設定〉）。
 7. **建議但非必要**：Cloudflare 左側選單 Workers & Pages → KV → Create namespace（名稱隨意）；回到這個 Worker 的 Settings → Bindings → Add → KV Namespace，變數名稱填 `RATE_LIMIT_KV`，選剛建立的命名空間 → Deploy。這一步讓每小時請求限制變成跨邊緣節點的真計數器（見上方安全性小節），跳過的話功能一樣能用，只是這層限制比較弱。如果下方跨裝置同步的進階設定也會用到，同一個 KV 命名空間可以兩邊共用（兩個功能的計數器鍵值前綴不同，不會互相干擾）。
 8. **建議**：這個 Worker 的 Settings → Placement，打開 **Smart Placement**。沒開的話 Cloudflare 預設會挑離「打這個 Worker 網址的瀏覽器」最近的邊緣節點執行，`/gemini` 對 Google 的那一次呼叫也就從那個節點的對外 IP 送出——Cloudflare 偶爾會挑到一個 Google 直接判定「地區不支援」的節點，即使使用者自己所在的地區完全合法，也會在該次請求收到 AI 匯入失敗、`AI 辨識請求失敗（400）：User location is not supported for the API use.`（見 `src/gemini-ocr.js`）。Smart Placement 改成看 Worker 自己的對外呼叫落在哪裡，讓執行位置貼近它實際在講話的對象（這裡就是 Google 的 API），而不是貼近剛好呼叫到它的瀏覽器，能明顯降低（但不保證完全消除，畢竟不是使用者自己能挑節點）這種間歇性失敗的機率。用 Wrangler CLI 部署的話這個設定已經寫在 `cloudflare-worker/wrangler.toml` 的 `[placement]` 區塊裡，不用手動到後台開。
 
@@ -176,7 +176,7 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 
 ## AI 課表編輯（自然語言指令）
 
-選用功能，跟 AI 辨識課表照片是兩個獨立的功能（各自看 `VITE_ORBIT_GEMINI_PROXY_URL`／`VITE_ORBIT_NL_EDIT_PROXY_URL` 是否有值，沒設定其中一個不影響另一個），但共用同一支部署好的 Worker 與同一把 `GEMINI_API_KEY`。
+跟 AI 辨識課表照片是兩個獨立的功能（各自的請求、驗證、失敗處理互不相干），但共用同一個 `PROXY_URL`、同一支部署好的 Worker，與同一把 `GEMINI_API_KEY`——`PROXY_URL` 一旦設定，`/gemini` 與 `/nl-edit` 兩個路徑會**一起**開通，沒有辦法只開一個、關掉另一個（Worker 本身有沒有實作該路徑才是真正的開關，見下方部署設定）。
 
 「同步 / 匯入匯出」面板的 AI 匯入區塊下面多一個「AI 課表編輯」輸入框：打一句話描述想改的課表內容，例如「把我週二第三節改成物理」或「把週三第一節搬到週四第一節」，按送出後 AI 會把這句話翻成一個結構化的修改動作，套用前一定會先跳出差異預覽讓你確認——跟 AI 匯入的預覽/確認流程是同一套（`describeSettingsDiff()`／`showEditorSaveConfirm` 的同一條路徑），不會有「送出就直接改到課表」這種事。
 
@@ -184,16 +184,13 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 - **送出的內容只有這句話，加上目前課表的最小必要片段**（每天每節目前排的課程代碼、課程清單的科目/教師/教室、每節鐘聲時間——不含樣式、倒數活動、同步設定等其他資料），讓 AI 能解析「我週二第三節」「物理老師那堂課」這類指稱，同時把 payload 壓在最小範圍。
 - **看不懂或指稱不存在都是清楚的失敗狀態，不是當機**：AI 回傳「看不懂這個指令」時會用一句話說明原因（例如指令模糊、講的不是課表修改）；回傳「指的東西不存在」時同樣會說明（例如課表根本沒有第九節、要搬移的節次目前是空的）。兩者都跳出可關閉的提示視窗，不會拋出錯誤畫面，也不會有任何資料變動。
 - **伺服器回傳的內容一律視為不可信、要重新驗證**：客戶端拿到結果後會照著送出時的那份課表資料，重新檢查星期/節次是否真的在範圍內、要修改的科目是否真的有填、要搬移的來源節次是否真的有課——跟 `gemini-ocr.js` 的 `DataValidator` 對 AI 匯入結果的態度一樣，任何一項不合理就直接顯示錯誤，不會把不合理的建議送進確認畫面。
-- **這是可選功能，未部署/未設定時直接不可用**：`VITE_ORBIT_NL_EDIT_PROXY_URL` 留空的話，輸入框顯示「AI 課表編輯功能尚未設定，請聯絡課表管理者。」，不會有退回模式；跟 AI 匯入、跨裝置同步一致。同步為僅接收身份的裝置也用不了這個功能（跟 AI 匯入、手動匯入同一道鎖）。
+- **這是可選功能，未部署/未設定時直接不可用**：`PROXY_URL` 留空的話，輸入框顯示「AI 課表編輯功能尚未設定，請聯絡課表管理者。」，不會有退回模式；跟 AI 匯入、跨裝置同步一致。同步為僅接收身份的裝置也用不了這個功能（跟 AI 匯入、手動匯入同一道鎖）。
 
 ### 部署者一次性設定
 
-跟 AI 匯入用的是**同一支** `cloudflare-worker/orbit-worker.js`、**同一把** `GEMINI_API_KEY`（見上方〈AI 辨識課表照片〉的部署設定）——已經因為 AI 匯入部署過這支 Worker、設定過 `GEMINI_API_KEY` 的話，不需要再申請或設定任何 Secret，只差一個步驟：
+跟 AI 匯入用的是**同一支** `cloudflare-worker/orbit-worker.js`、**同一把** `GEMINI_API_KEY`、**同一個** `PROXY_URL`（見上方〈AI 辨識課表照片〉的部署設定）——已經照那一節設定過的話，這裡不需要再做任何事，`/nl-edit` 路徑已經寫在 `orbit-worker.js` 裡，`PROXY_URL` 一設定就會一起生效。
 
-1. 複製 Worker 網址，**加上 `/nl-edit`**（跟 `/gemini` 是同一個 Worker 網址，只是路徑不同）。
-2. GitHub 專案 Settings → Secrets and variables → Actions → **Variables**（不是 Secrets——這個值本來就會進公開前端程式碼），新增 `VITE_ORBIT_NL_EDIT_PROXY_URL`，值是上一步含 `/nl-edit` 的完整網址。下次推送到 `main`，站台就會啟用這個功能。
-
-沒有部署這個 Worker、或 `VITE_ORBIT_NL_EDIT_PROXY_URL` 留空的話，這個功能直接不可用，不影響 AI 匯入、跨裝置同步或課表其他功能。
+沒有部署這個 Worker、或 `PROXY_URL` 留空的話，這個功能直接不可用，不影響 AI 匯入、跨裝置同步或課表其他功能。
 
 ---
 
@@ -209,7 +206,7 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 
 一般使用者**完全不需要**自己申請或設定任何東西。部署站台已設定好伺服器端代理（`cloudflare-worker/orbit-worker.js` 的 `/sync` 路徑——這支 Worker 同時也服務 AI 匯入的 `/gemini` 路徑，見上方〈AI 辨識課表照片〉），瀏覽器不直接碰 Firestore，全部讀寫都先經過這個會計數、擋格式錯誤代碼的 Worker，Worker 才用自己的 Firebase 服務帳戶去存取共用的 Firestore 專案。裝置數量沒有上限，拿到同一組配對代碼就會加入同一份共享文件。
 
-沒有部署這個 Worker（`VITE_ORBIT_SYNC_PROXY_URL` 留空，例如自建 fork）的話，跨裝置同步整個功能不可用——編輯器會顯示「跨裝置同步功能尚未設定」，不會退回成直連 Firestore 的舊流程，課表其他功能完全不受影響。
+沒有部署這個 Worker（`PROXY_URL` 留空，例如自建 fork）的話，跨裝置同步整個功能不可用——編輯器會顯示「跨裝置同步功能尚未設定」，不會退回成直連 Firestore 的舊流程，課表其他功能完全不受影響。
 
 **一般使用者**：裝置 A 按「建立新同步」——按下去不會立刻建立，會先跳出一次確認，說明這會在共用伺服器上建立一份新文件、用掉這個功能有限的建立額度，避免手滑或純粹好奇點一下就真的建立一份用不到的同步——確認後才會一次拿到一組「同步代碼」跟一組「管理者密碼」。同步代碼可以自由分享——任何裝置拿到都能加入接收更新，只是這組代碼本身不能拿來編輯課表；管理者密碼才是編輯課表的唯一憑證，只給想讓它也能編輯的裝置。裝置 B 貼上同步代碼按「加入同步」，預設就是僅接收；想讓它也能編輯的話，另外展開「我有管理者密碼，也想要能編輯課表」這個收合區塊、填入管理者密碼，伺服器驗證正確才會以管理者身份加入——這組密碼不填、填錯都只會是僅接收，不會有中間狀態。配對/解除配對後畫面立刻切換，不用重新整理。按下「加入同步」時系統會先確認代碼真的存在（以及密碼是否正確，如果有填）：代碼打錯、對方根本沒建立過，或管理者密碼不對，都會直接顯示錯誤並中止，不會誤報成功；確認沒問題後才會跳出警告——加入會立刻用該代碼下的課表取代這台裝置目前的課表且無法復原（建立同步的裝置不受影響）。
 
@@ -276,9 +273,9 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
    }
    ```
    服務帳戶的存取本來就不受 Firestore 規則限制（跟 Admin SDK 一樣），所以這條規則只影響「繞過 Worker、直接打 Firestore」的請求——把它整個關掉，才是這個 Worker 真正的意義：不是多一層檢查，是拿掉原本永遠開著的那道門。用萬用字元 `{document=**}` 涵蓋整個資料庫，而不是只列 `orbit-schedules`，是因為同一個 Firebase 專案、同一組服務帳戶也同時服務 `/vocab-sync`（見下方），寫成萬用字元就不用每多一個共用同步功能都回來改一次規則。
-7. 複製 Worker 網址，**加上 `/sync`**。GitHub 專案 Settings → Secrets and variables → Actions → **Variables**，新增 `VITE_ORBIT_SYNC_PROXY_URL`，值是這個含 `/sync` 的完整網址。推送到 `main` 後站台建置時內建進去。
+7. 如果上方〈AI 辨識課表照片〉那節已經設定過 `PROXY_URL`，這裡不用再設一次——`/sync` 路徑跟 `/gemini`、`/nl-edit` 共用同一個值，直接跳過這步。只想單獨開通跨裝置同步、還沒設定過 `PROXY_URL` 的話：複製 Worker 網址（**不要加路徑**）到 GitHub 專案 Settings → Secrets and variables → Actions → **Variables**，新增 `PROXY_URL`。推送到 `main` 後站台建置時內建進去。
 
-沒做這套設定（`VITE_ORBIT_SYNC_PROXY_URL` 留空，例如自建 fork）的話，跨裝置同步這整個功能就不可用——不會退回成直連 Firestore 的舊模式（那個模式已經移除：Firestore 規則沒辦法計數請求次數，等於形同虛設的流量限制）。
+沒做這套設定（`PROXY_URL` 留空，例如自建 fork）的話，跨裝置同步這整個功能就不可用——不會退回成直連 Firestore 的舊模式（那個模式已經移除：Firestore 規則沒辦法計數請求次數，等於形同虛設的流量限制）。
 
 ### 這支 Worker 同時也服務 Orbit Vocab 的同步功能
 
@@ -287,7 +284,7 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 - 用**同一個** Firebase 專案、**同一組**服務帳戶密鑰（`FIREBASE_PROJECT_ID`／`FIREBASE_CLIENT_EMAIL`／`FIREBASE_PRIVATE_KEY`）——完成上方〈跨裝置同步〉的設定後，`/vocab-sync` 不需要任何額外的 Secret。
 - 存進不同的 Firestore collection（`vocab-progress-sync`，而不是 Orbit 自己用的 `orbit-schedules`），並且用獨立的流量計數器（`vocab-sync:*`，見 `orbit-worker.js` 裡的 `VOCAB_SYNC_*` 常數），彼此互不影響——`/vocab-sync` 被濫用不會吃掉 `/sync` 或 `/gemini` 的額度，反之亦然。
 - 配對機制跟 `/sync` **不一樣**：`/vocab-sync` 沒有「僅接收」角色，也沒有另一組同步代碼——只有**一組密碼**，同時當識別碼與唯一憑證，讀取（`GET`）跟寫入一樣都需要它才能成功，不像 `/sync` 讀取本身不設防；因為英文單字工具的同步情境是「同一個學習者自己的多台裝置」，不是「一位老師的課表廣播給很多學生唯讀」，沒有必要留一個誰都能讀的公開讀取權限，也沒必要為此多維護一組不需要的代碼。伺服器端只存這組密碼的雜湊值（`docIdForPasscode` 把它雜湊成 Firestore 文件 ID，而不是直接拿明文密碼當 ID），密碼本身也拉長到 16 碼（見 `orbit-worker.js` 裡 `VOCAB_SYNC_APP` 與 `VOCAB_PASSCODE_LENGTH` 旁的註解）。
-- 部署者只要照上方〈AI 辨識課表照片〉與〈跨裝置同步〉的步驟部署過這一支 Worker、且完成 Firestore 服務帳戶設定，`/vocab-sync` 就自動可用；把 Worker 網址**加上 `/vocab-sync`**，設進 Orbit Vocab 那個 repo 對應的 GitHub Actions 變數即可（細節見該 repo 的 README）。
+- 部署者只要照上方〈AI 辨識課表照片〉與〈跨裝置同步〉的步驟部署過這一支 Worker、且完成 Firestore 服務帳戶設定，`/vocab-sync` 就自動可用；把 Worker 網址（**不要加路徑**——路徑一樣是 Orbit Vocab 自己的前端程式碼寫死補上的）設進 Orbit Vocab 那個 repo 的 Settings → Secrets and variables → Actions → Variables 的 `PROXY_URL` 即可（這是 Orbit Vocab repo 自己的變數，值跟這裡的 `PROXY_URL` 相同，因為是同一支 Worker——細節見該 repo 的 README）。
 - 這是單向依賴：Orbit 完全不需要知道 Orbit Vocab 的存在也能正常運作，`/vocab-sync` 只是這支 Worker 多服務的一個路徑，不會出現在 Orbit 自己的網頁或程式碼裡。
 
 ### 這支 Worker 同時也服務 Orbit Vocab 的個人化 AI 功能（`/vocab-ai`）
@@ -302,7 +299,7 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 - **沿用 `/gemini` 的 `GEMINI_API_KEY`**，不需要另外申請或設定：完成上方〈AI 辨識課表照片〉的部署設定後，`/vocab-ai` 就自動可用，不需要 Firebase 相關的任何 Secret（跟 `/vocab-sync` 不一樣，這個路徑完全不碰 Firestore）。
 - **沒有密碼或身分驗證**，信任模型跟 `/gemini` 一樣——單純用 IP 做流量限制（見 `orbit-worker.js` 裡的 `VOCAB_AI_RATE_LIMIT`），不綁定任何一個學習者的同步配對；因為這兩個功能本來就跟「這台裝置是誰的同步」無關，只是把目前畫面上看得到的單字／錯誤紀錄送出去問一次。
 - **獨立的流量計數器**（`vocab-ai:*`），不會跟 `/gemini` 或 `/vocab-sync` 互搶額度，反之亦然。
-- 部署者不需要任何額外步驟——已經照上方設定過 `GEMINI_API_KEY` 的話，`/vocab-ai` 立刻可用；把 Worker 網址**加上 `/vocab-ai`**，設進 Orbit Vocab 那個 repo 對應的 GitHub Actions 變數即可（細節見該 repo 的 README）。
+- 部署者不需要任何額外步驟——已經照上方設定過 `GEMINI_API_KEY` 的話，`/vocab-ai` 立刻可用；只要 Orbit Vocab 那個 repo 已經照上一節設定過 `PROXY_URL`（同一支 Worker 網址，不加路徑），`/vocab-ai` 會跟 `/vocab-sync` 一起自動開通，不用再多設定什麼（細節見該 repo 的 README）。
 - 同樣是單向依賴：Orbit 自己完全不使用、也不知道 `/vocab-ai` 的存在。
 
 ---

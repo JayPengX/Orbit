@@ -2,18 +2,19 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { loadApp } from './helpers/loadApp.js';
 import { seedLocalStorage } from './helpers/fixtureData.js';
 
-// A separate file (own module registry) so gemini-ocr.js's module-scope
-// `import.meta.env.VITE_ORBIT_GEMINI_PROXY_URL` read - evaluated once, at
-// import time - picks up this stub. See sync-default-project.test.js for
-// the same pattern applied to the sync module.
-const PROXY_URL = 'https://example-region-demo-project.cloudfunctions.net/geminiProxy';
+// A separate file (own module registry) so proxy-config.js's module-scope
+// `import.meta.env.VITE_PROXY_URL` read - evaluated once, at import time -
+// picks up this stub. See sync-default-project.test.js for the same pattern
+// applied to the sync module.
+const BASE_URL = 'https://example-region-demo-project.cloudfunctions.net';
+const PROXY_URL = `${BASE_URL}/gemini`;
 
 let AIVisionProcessor;
 let isGeminiProxyConfigured;
 let warmUpGeminiProxy;
 
 beforeAll(async () => {
-  vi.stubEnv('VITE_ORBIT_GEMINI_PROXY_URL', PROXY_URL);
+  vi.stubEnv('VITE_PROXY_URL', BASE_URL);
   seedLocalStorage();
   await loadApp();
   ({ AIVisionProcessor, isGeminiProxyConfigured, warmUpGeminiProxy } =
