@@ -354,6 +354,7 @@ function fitNowTitleText(force = false) {
         title.style.display = 'block';
         title.style.overflow = 'visible';
         title.style.textOverflow = 'clip';
+        title.style.textWrap = 'balance';
         title.style.fontSize = Math.floor(wrapSize) + 'px';
       } else {
         // Wrapping didn't buy enough to be worth it (or couldn't fit the
@@ -361,6 +362,7 @@ function fitNowTitleText(force = false) {
         // applied while probing and keep the one-line fit instead.
         title.style.whiteSpace = 'nowrap';
         title.style.wordBreak = 'keep-all';
+        title.style.textWrap = '';
         title.style.display = 'block';
         title.style.overflow = 'visible';
         title.style.textOverflow = 'clip';
@@ -400,6 +402,7 @@ function fitTwoLineTitle(el, availableHeight, minSize, maxSize) {
   el.style.wordBreak = 'normal';
   el.style.display = 'block';
   el.style.overflow = 'visible';
+  el.style.textWrap = 'balance';
   const lineHeightRatio = 1.02;
   const geometryMax = availableHeight / (2 * lineHeightRatio);
   let lo = minSize,
