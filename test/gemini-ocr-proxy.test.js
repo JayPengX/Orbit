@@ -181,6 +181,7 @@ describe('AIVisionProcessor.recognizeSchedule with a configured proxy', () => {
       ok: false,
       status: 400,
       statusText: 'Bad Request',
+      headers: { get: name => (name === 'X-Worker-Colo' ? 'IAD' : null) },
       json: async () => ({
         error: { message: 'User location is not supported for the API use.' }
       })
@@ -194,6 +195,11 @@ describe('AIVisionProcessor.recognizeSchedule with a configured proxy', () => {
     }
     expect(caught?.message).toMatch(/地區限制|稍後再試/);
     expect(caught?.message).not.toMatch(/User location/);
+    // The colo that actually got blocked (X-Worker-Colo, set by
+    // orbit-worker.js from request.cf.colo) - Smart Placement can stick a
+    // given caller to the same colo indefinitely, so this needs to be
+    // reportable, not just "somewhere, sometime".
+    expect(caught?.message).toContain('IAD');
     // One fetch call per whole pass (never more than one model tried within
     // a blocked pass), 3 passes total: the first attempt plus 2 retries.
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -210,6 +216,7 @@ describe('AIVisionProcessor.recognizeSchedule with a configured proxy', () => {
           ok: false,
           status: 400,
           statusText: 'Bad Request',
+          headers: { get: name => (name === 'X-Worker-Colo' ? 'IAD' : null) },
           json: async () => ({ error: { message: 'User location is not supported for the API use.' } })
         };
       }

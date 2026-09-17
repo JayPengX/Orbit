@@ -166,6 +166,7 @@ describe('submitNlEdit - request shape', () => {
       ok: false,
       status: 400,
       statusText: 'Bad Request',
+      headers: { get: name => (name === 'X-Worker-Colo' ? 'IAD' : null) },
       json: async () => ({ error: { message: 'User location is not supported for the API use.' } })
     }));
     vi.stubGlobal('fetch', fetchMock);
@@ -173,6 +174,11 @@ describe('submitNlEdit - request shape', () => {
     await submitNlEdit('把我週二第一節改成物理', { status });
     expect(calls.some(call => call.isError && /地區限制|稍後再試/.test(call.message))).toBe(true);
     expect(calls.some(call => /User location/.test(call.message))).toBe(false);
+    // The colo that actually got blocked (X-Worker-Colo, set by
+    // orbit-worker.js from request.cf.colo) - Smart Placement can stick a
+    // given caller to the same colo indefinitely, so this needs to be
+    // reportable, not just "somewhere, sometime".
+    expect(calls.some(call => call.isError && call.message.includes('IAD'))).toBe(true);
     // One fetch call per whole pass (never more than one model tried within
     // a blocked pass), 3 passes total: the first attempt plus 2 retries.
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -188,6 +194,7 @@ describe('submitNlEdit - request shape', () => {
           ok: false,
           status: 400,
           statusText: 'Bad Request',
+          headers: { get: name => (name === 'X-Worker-Colo' ? 'IAD' : null) },
           json: async () => ({ error: { message: 'User location is not supported for the API use.' } })
         };
       }

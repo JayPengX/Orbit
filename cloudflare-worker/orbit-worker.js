@@ -67,11 +67,21 @@ function isAllowedOrigin(origin) {
   return ALLOWED_ORIGINS.includes(origin) || /^http:\/\/localhost:\d+$/.test(origin || '');
 }
 
-function corsHeaders(origin) {
+// X-Worker-Colo carries the IATA code of the Cloudflare colo that actually
+// executed this request (request.cf.colo) on every response, successful or
+// not. Diagnostic only - lets a "User location is not supported" report be
+// tied to a specific colo instead of staying a guess, since Smart Placement
+// can stick a given caller's traffic to the same (possibly Google-blocked)
+// colo indefinitely, which plain retries can't route around. Needs to be
+// both set AND exposed - CORS hides all response headers from browser JS by
+// default unless explicitly listed here.
+function corsHeaders(origin, colo) {
   return {
     'Access-Control-Allow-Origin': isAllowedOrigin(origin) ? origin : 'null',
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Expose-Headers': 'X-Worker-Colo',
+    'X-Worker-Colo': colo || 'unknown',
     Vary: 'Origin'
   };
 }
@@ -1700,7 +1710,7 @@ const VOCAB_SYNC_APP = {
 export default {
   async fetch(request, env) {
     const origin = request.headers.get('Origin') || '';
-    const headers = corsHeaders(origin);
+    const headers = corsHeaders(origin, request.cf?.colo);
 
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
 

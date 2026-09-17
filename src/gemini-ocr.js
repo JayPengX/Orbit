@@ -376,7 +376,9 @@ class AIVisionProcessor {
       const result = await this.tryGeminiModels(parts, report, callId, validate);
       if (result.ok) return result.value;
       if (!result.locationBlocked || locationAttempt >= LOCATION_BLOCK_RETRY_LIMIT) throw result.error;
-      report(`AI 服務因伺服器所在地區限制暫時無法使用，正在自動重試（第 ${locationAttempt + 2} 次）…`);
+      report(
+        `AI 服務因伺服器所在地區限制暫時無法使用（節點：${result.colo}），正在自動重試（第 ${locationAttempt + 2} 次）…`
+      );
       await new Promise(resolve => setTimeout(resolve, LOCATION_BLOCK_RETRY_DELAY_MS));
     }
   }
@@ -454,11 +456,18 @@ class AIVisionProcessor {
       // decide whether to retry a fresh pass (see its own comment on why
       // that has a real chance of landing on a different edge colo).
       if (response.status === 400 && /User location is not supported/i.test(message)) {
+        // Surfaces the Cloudflare colo (X-Worker-Colo, set by orbit-worker.js
+        // from request.cf.colo) that actually got blocked, so a user hitting
+        // this repeatedly can report which one it is - Smart Placement can
+        // keep sticking a given caller to the same colo indefinitely, which
+        // this pass's own retry can't detect or route around by itself.
+        const colo = response.headers.get('X-Worker-Colo') || '未知';
         return {
           ok: false,
           locationBlocked: true,
+          colo,
           error: new Error(
-            'AI 服務暫時因伺服器所在地區限制而無法使用，這通常只是暫時性的網路路由問題，請稍後再試一次。'
+            `AI 服務暫時因伺服器所在地區限制而無法使用（節點：${colo}），這通常只是暫時性的網路路由問題，請稍後再試一次。`
           )
         };
       }

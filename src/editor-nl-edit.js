@@ -139,11 +139,17 @@ async function tryNlEditModels(text, context) {
     // through the whole model list - callNlEditProxy decides whether a
     // fresh pass is worth retrying.
     if (response.status === 400 && /User location is not supported/i.test(message)) {
+      // Surfaces the Cloudflare colo (X-Worker-Colo, set by orbit-worker.js
+      // from request.cf.colo) that actually got blocked - see
+      // gemini-ocr.js's matching comment for why this pass's own retry can't
+      // detect or route around a colo Smart Placement keeps reusing.
+      const colo = response.headers.get('X-Worker-Colo') || '未知';
       return {
         ok: false,
         locationBlocked: true,
+        colo,
         error: new Error(
-          'AI 服務暫時因伺服器所在地區限制而無法使用，這通常只是暫時性的網路路由問題，請稍後再試一次。'
+          `AI 服務暫時因伺服器所在地區限制而無法使用（節點：${colo}），這通常只是暫時性的網路路由問題，請稍後再試一次。`
         )
       };
     }
@@ -168,7 +174,7 @@ async function tryNlEditModels(text, context) {
 // just got blocked, so it's worth retrying a couple of whole passes (with a
 // short delay) before finally giving up, rather than surfacing the error on
 // the very first hit.
-async function callNlEditProxy(text, context) {
+async function callNlEditProxy(text, context, status) {
   if (!NL_EDIT_PROXY_URL) throw new Error(t('nlEdit.notConfigured'));
   if (!navigator.onLine) throw new Error(t('nlEdit.offline'));
   const LOCATION_BLOCK_RETRY_LIMIT = 2;
@@ -177,6 +183,9 @@ async function callNlEditProxy(text, context) {
     const result = await tryNlEditModels(text, context);
     if (result.ok) return result.value;
     if (!result.locationBlocked || locationAttempt >= LOCATION_BLOCK_RETRY_LIMIT) throw result.error;
+    status?.(
+      `AI 服務因伺服器所在地區限制暫時無法使用（節點：${result.colo}），正在自動重試（第 ${locationAttempt + 2} 次）…`
+    );
     await new Promise(resolve => setTimeout(resolve, LOCATION_BLOCK_RETRY_DELAY_MS));
   }
 }
@@ -307,7 +316,7 @@ async function submitNlEdit(rawText, { status, onDone } = {}) {
     status?.(t('nlEdit.working'));
     const current = settingsDataForExport();
     const context = buildNlEditContext();
-    const result = await callNlEditProxy(text, context);
+    const result = await callNlEditProxy(text, context, status);
     const validation = validateNlEditResult(result);
     if (!validation.valid) {
       status?.(validation.errors.join('') || t('nlEdit.badResponse'), true);
