@@ -541,7 +541,14 @@ const MAX_FILE_BASE64_LENGTH = 10_000_000;
 const MAX_TOTAL_BASE64_LENGTH = 18_000_000;
 const MAX_FILES_PER_REQUEST = 6;
 
-const GEMINI_RATE_LIMIT = 20;
+// One legitimate user action (one photo import, one NL-edit submission) can
+// now cost up to 3 real requests against this same counter when it hits a
+// location block - the initial attempt plus the 2 location-block retries in
+// src/gemini-ocr.js/editor-nl-edit.js - so this stays roughly 3x what a
+// "one request per action" budget would be, rather than leaving a run of
+// bad luck (or a couple of manual retries on top of it) burn through a
+// tighter limit for reasons that have nothing to do with actual abuse.
+const GEMINI_RATE_LIMIT = 30;
 
 // Reads either the current `files: [{mime_type, data}, ...]` body or the
 // older single-`image` one, so a client still running from a stale service
@@ -678,7 +685,9 @@ const MAX_NL_EDIT_TEXT_LENGTH = 200;
 // that's clearly not this shape (a client bug, or a request built by hand
 // that skipped the real client entirely) before it ever reaches Gemini.
 const MAX_NL_EDIT_CONTEXT_LENGTH = 40000;
-const NL_EDIT_RATE_LIMIT = 20;
+// See GEMINI_RATE_LIMIT's own comment - same reasoning, same 3x headroom for
+// the location-block retry's own worst case.
+const NL_EDIT_RATE_LIMIT = 30;
 
 // Full-state, not fixed verbs: earlier revisions of this feature had the
 // model pick from a small set of named operations (setSlot/moveSlot/...),

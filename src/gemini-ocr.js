@@ -12,7 +12,7 @@ import {
 import { editorTimeToMinutes, formatClassLabel } from './editor-core.js';
 import { updateTeacherCardAvatar } from './editor-teachers.js';
 import { isSyncViewer } from './sync.js';
-import { proxyPath } from './proxy-config.js';
+import { proxyPath, proxyFallbackPath } from './proxy-config.js';
 
 // ---- js/gemini-ocr.js ----
 // What one submitted file may be. The three "decodable" image types are the
@@ -167,6 +167,11 @@ async function encodeSourceForUpload(source) {
 // The `/gemini` path is hardcoded here, not part of the env var - see
 // proxy-config.js, which is what actually reads PROXY_URL.
 const GEMINI_PROXY_URL = proxyPath('/gemini');
+// See proxy-config.js's own comment on proxyFallbackPath - a second, Smart
+// Placement-off Worker deployment a location-blocked retry can fall back to
+// instead of hitting the exact same stuck colo again. Empty string (falsy)
+// when PROXY_URL_FALLBACK isn't configured, same as GEMINI_PROXY_URL itself.
+const GEMINI_FALLBACK_PROXY_URL = proxyFallbackPath('/gemini');
 function isGeminiProxyConfigured() {
   return !!GEMINI_PROXY_URL;
 }
@@ -364,16 +369,21 @@ class AIVisionProcessor {
     //
     // The "User location is not supported" 400 (see below) is keyed to
     // whichever Cloudflare edge colo happened to serve THIS request, not
-    // anything about the request itself - a brand new request has a real
-    // chance of landing on a different colo entirely, so it's worth retrying
-    // the whole model loop from scratch a couple of times (with a short
-    // delay, so a genuinely bad run of luck isn't hammered back-to-back)
-    // before finally giving up, rather than surfacing the error on the very
-    // first hit the way this used to.
+    // anything about the request itself. Smart Placement (see wrangler.toml)
+    // sticks a given caller to whichever colo it judged optimal for reaching
+    // Google though - it is NOT a per-request lottery - so a plain retry
+    // against the SAME Worker deployment tends to land on that exact same
+    // stuck colo again for a caller whose "optimal" colo happens to be a
+    // blocked one. Retrying against GEMINI_FALLBACK_PROXY_URL when it's
+    // configured (a second Worker deployment with Smart Placement off, see
+    // wrangler.toml's [env.fallback]) gives those retries a real *different*
+    // colo to land on instead; falling back to the same URL when no fallback
+    // is configured keeps the old (weaker, still non-zero) mitigation.
     const LOCATION_BLOCK_RETRY_LIMIT = 2;
     const LOCATION_BLOCK_RETRY_DELAY_MS = 500;
     for (let locationAttempt = 0; ; locationAttempt++) {
-      const result = await this.tryGeminiModels(parts, report, callId, validate);
+      const proxyUrl = (locationAttempt === 0 ? GEMINI_PROXY_URL : GEMINI_FALLBACK_PROXY_URL) || GEMINI_PROXY_URL;
+      const result = await this.tryGeminiModels(parts, report, callId, validate, proxyUrl);
       if (result.ok) return result.value;
       if (!result.locationBlocked || locationAttempt >= LOCATION_BLOCK_RETRY_LIMIT) throw result.error;
       report(
@@ -392,7 +402,7 @@ class AIVisionProcessor {
   // never asked to retry (see the `!retryableStatus` branch below), since
   // that's not something another whole pass over the model list would fix
   // either.
-  async tryGeminiModels(parts, report, callId, validate) {
+  async tryGeminiModels(parts, report, callId, validate, proxyUrl) {
     let lastError = null;
     let lastRejected = null;
     for (const model of this.geminiModels) {
@@ -406,7 +416,7 @@ class AIVisionProcessor {
       const callLabel = `GeminiCall:${callId}:${model}`;
       console.time(callLabel);
       try {
-        response = await fetch(GEMINI_PROXY_URL, {
+        response = await fetch(proxyUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: requestBody

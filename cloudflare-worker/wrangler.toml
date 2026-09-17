@@ -82,3 +82,33 @@ FIREBASE_PROJECT_ID = "orbit-project-76897"
 [[kv_namespaces]]
 binding = "RATE_LIMIT_KV"
 id = "8b24d75fbe0a4a69aef0f35cb7a8d847"
+
+# Optional second deployment of the SAME orbit-worker.js, with Smart
+# Placement deliberately left OFF (no [placement] block here - Cloudflare's
+# default nearest-to-caller routing). Exists purely so the location-block
+# retry in gemini-ocr.js/editor-nl-edit.js has a genuinely different colo to
+# try: Smart Placement above sticks a given caller to whichever colo it
+# judged optimal for reaching Google, so a plain retry against the primary
+# Worker tends to land on that same stuck colo again if THAT'S the one
+# Google blocks for this caller (see [placement]'s own comment above, and
+# src/proxy-config.js's proxyFallbackPath). `wrangler deploy --env fallback`
+# deploys this as its own separate Worker (its name below), independent of
+# the primary one - it needs its OWN secrets too:
+#   npx wrangler secret put GEMINI_API_KEY --env fallback
+# (only GEMINI_API_KEY - this env only ever serves /gemini and /nl-edit
+# retries, never /sync, so the Firebase secrets aren't needed here).
+# Entirely optional: with PROXY_URL_FALLBACK left unset in GitHub Actions
+# Variables, callers just retry the primary Worker again instead - a real
+# but weaker mitigation, not a broken one - so skipping this whole section
+# is a legitimate choice, not a half-finished setup.
+[env.fallback]
+name = "orbit-workers-proxy-fallback"
+main = "orbit-worker.js"
+compatibility_date = "2025-01-01"
+
+[env.fallback.vars]
+FIREBASE_PROJECT_ID = "orbit-project-76897"
+
+[[env.fallback.kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "8b24d75fbe0a4a69aef0f35cb7a8d847"
