@@ -361,6 +361,36 @@ class AIVisionProcessor {
     // own fixed, hardcoded prompt against submitted files, never as a
     // generic pass-through for arbitrary prompts - see README's security
     // notes on the AI proxy.
+    //
+    // The "User location is not supported" 400 (see below) is keyed to
+    // whichever Cloudflare edge colo happened to serve THIS request, not
+    // anything about the request itself - a brand new request has a real
+    // chance of landing on a different colo entirely, so it's worth retrying
+    // the whole model loop from scratch a couple of times (with a short
+    // delay, so a genuinely bad run of luck isn't hammered back-to-back)
+    // before finally giving up, rather than surfacing the error on the very
+    // first hit the way this used to.
+    const LOCATION_BLOCK_RETRY_LIMIT = 2;
+    const LOCATION_BLOCK_RETRY_DELAY_MS = 500;
+    for (let locationAttempt = 0; ; locationAttempt++) {
+      const result = await this.tryGeminiModels(parts, report, callId, validate);
+      if (result.ok) return result.value;
+      if (!result.locationBlocked || locationAttempt >= LOCATION_BLOCK_RETRY_LIMIT) throw result.error;
+      report(`AI 服務因伺服器所在地區限制暫時無法使用，正在自動重試（第 ${locationAttempt + 2} 次）…`);
+      await new Promise(resolve => setTimeout(resolve, LOCATION_BLOCK_RETRY_DELAY_MS));
+    }
+  }
+
+  // One full pass over this.geminiModels, fastest-first - factored out of
+  // callGemini so the location-block retry above can cleanly re-run it from
+  // scratch without duplicating the loop. Returns a discriminated result
+  // instead of throwing directly, since callGemini needs to inspect WHY a
+  // pass failed (a location block gets retried; everything else doesn't) -
+  // still throws for a genuinely non-retryable per-model failure your caller
+  // never asked to retry (see the `!retryableStatus` branch below), since
+  // that's not something another whole pass over the model list would fix
+  // either.
+  async tryGeminiModels(parts, report, callId, validate) {
     let lastError = null;
     let lastRejected = null;
     for (const model of this.geminiModels) {
@@ -397,7 +427,7 @@ class AIVisionProcessor {
           console.timeEnd(parseLabel);
         }
         const verdict = validate ? validate(candidate) : { valid: true };
-        if (verdict.valid) return { candidate, modelUsed: model };
+        if (verdict.valid) return { ok: true, value: { candidate, modelUsed: model } };
         // Structurally unusable rather than merely imperfect - worth one
         // more round trip against a stronger model, but the result is kept
         // so the last model's attempt is still what the user sees (with its
@@ -417,14 +447,20 @@ class AIVisionProcessor {
       // end user's. Cloudflare can route the Worker's outbound call through
       // any of its edge colos, and some of those colos geolocate to a
       // country Google blocks outright, so this can surface even for a user
-      // whose real location is fully supported. Every model in the fallback
-      // list shares that same outbound path, so escalating to the next one
-      // would just fail the same way - this throws immediately instead of
-      // burning through the whole list first.
+      // whose real location is fully supported. Every model in THIS pass
+      // shares that same outbound path, so escalating to the next one would
+      // just fail the same way - stop this pass immediately (rather than
+      // burning through the whole model list first) and let callGemini
+      // decide whether to retry a fresh pass (see its own comment on why
+      // that has a real chance of landing on a different edge colo).
       if (response.status === 400 && /User location is not supported/i.test(message)) {
-        throw new Error(
-          'AI 服務暫時因伺服器所在地區限制而無法使用，這通常只是暫時性的網路路由問題，請稍後再試一次。'
-        );
+        return {
+          ok: false,
+          locationBlocked: true,
+          error: new Error(
+            'AI 服務暫時因伺服器所在地區限制而無法使用，這通常只是暫時性的網路路由問題，請稍後再試一次。'
+          )
+        };
       }
       if (response.status === 429 && /請求過於頻繁/.test(message)) {
         throw new Error(message);
@@ -440,7 +476,7 @@ class AIVisionProcessor {
       report(`模型（${model}）暫時無法使用（${response.status}：${message}），準備改用下一個模型…`);
     }
 
-    if (lastRejected) return lastRejected;
+    if (lastRejected) return { ok: true, value: lastRejected };
     throw lastError || new Error('AI 辨識請求失敗：沒有可用的模型。');
   }
 

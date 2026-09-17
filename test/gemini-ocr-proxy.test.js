@@ -166,11 +166,16 @@ describe('AIVisionProcessor.recognizeSchedule with a configured proxy', () => {
   // request based on the *proxy's* egress IP, not the end user's real
   // location - so this can surface for a user whose own location is fully
   // supported, whenever Cloudflare happens to route the Worker's outbound
-  // call through a colo Google blocks. Every model shares that same
-  // outbound path, so it must not burn through the whole fallback list
-  // first, and the raw English upstream message must not leak into the
-  // otherwise-Chinese error shown to the user.
-  it('gives a clear Chinese message for a Gemini-side location block, without trying other models', async () => {
+  // call through a colo Google blocks. Every model in one pass shares that
+  // same outbound path, so a pass must not burn through the whole fallback
+  // list first (one fetch call per pass, not one per model) - but a FRESH
+  // pass (a new top-level request) has a real chance of landing on a
+  // different edge colo, so callGemini retries a bounded number of whole
+  // passes before finally giving up (see its own LOCATION_BLOCK_RETRY_LIMIT
+  // comment) rather than surfacing the error on the very first hit. The raw
+  // English upstream message must not leak into the otherwise-Chinese error
+  // shown to the user either way.
+  it('retries a few whole passes before giving up on a persistent Gemini-side location block', async () => {
     const processor = new AIVisionProcessor();
     const fetchMock = vi.fn(async () => ({
       ok: false,
@@ -189,9 +194,33 @@ describe('AIVisionProcessor.recognizeSchedule with a configured proxy', () => {
     }
     expect(caught?.message).toMatch(/地區限制|稍後再試/);
     expect(caught?.message).not.toMatch(/User location/);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // One fetch call per whole pass (never more than one model tried within
+    // a blocked pass), 3 passes total: the first attempt plus 2 retries.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     vi.unstubAllGlobals();
-  });
+  }, 10000);
+
+  it('recovers on a later retry once a pass lands on a colo Gemini accepts', async () => {
+    const processor = new AIVisionProcessor();
+    let call = 0;
+    const fetchMock = vi.fn(async () => {
+      call += 1;
+      if (call < 3) {
+        return {
+          ok: false,
+          status: 400,
+          statusText: 'Bad Request',
+          json: async () => ({ error: { message: 'User location is not supported for the API use.' } })
+        };
+      }
+      return fakeGeminiResponse({ documentKind: 'timetable', teacherDB: {}, weeklySchedule: {} });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await processor.recognizeSchedule(fakeFiles(), () => {});
+    expect(result.candidate).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    vi.unstubAllGlobals();
+  }, 10000);
 
   it('refuses to run while offline, without making any network request', async () => {
     Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });

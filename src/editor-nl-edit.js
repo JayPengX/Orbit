@@ -1,13 +1,28 @@
 // ---- src/editor-nl-edit.js ----
 // Natural-language schedule edits: turns a short Traditional Chinese
-// instruction ("把我週二第三節改成物理") into one structured edit against
-// teacherDB/weeklySchedule, previewed as a diff and only ever applied after
-// an explicit confirm - never silently. Same server-owns-the-prompt
+// instruction ("把我週二第三節改成物理") into a proposed new state for the
+// schedule - classes, weeklySchedule, bellTimes, breakTimes,
+// countdownEvents, reverseWeek - previewed as a diff and only ever applied
+// after an explicit confirm - never silently. Same server-owns-the-prompt
 // discipline as src/gemini-ocr.js's AI photo import: this module only ever
 // sends {model, text, context} to the proxy; the Worker's /nl-edit path
 // (see cloudflare-worker/orbit-worker.js) owns the actual prompt and
 // response_schema, so the deployed proxy URL can never be used to run an
 // arbitrary free-form prompt.
+//
+// Full-state, not fixed verbs: the model reads everything editable via this
+// feature and returns the COMPLETE new version of it, echoing back anything
+// the instruction didn't ask to change - rather than picking from a small
+// set of named operations that could only ever describe "move one class"
+// shaped edits. See NL_EDIT_RESPONSE_SCHEMA's own comment in
+// orbit-worker.js for why that earlier design was too narrow (it had no way
+// to add a bell period, a break time, or a countdown event, and sometimes
+// forced a wrong answer through the nearest verb it did have rather than
+// cleanly saying it couldn't). applyNlEditResult below is the real safety
+// net once a result comes back - the same normalizeSettingsData() every
+// other write path (manual save, AI photo import, backup import) already
+// runs through, never trusting a class key, day/period reference, or time
+// blindly.
 import { state } from './state.js';
 import { t } from './strings.js';
 import { isSyncViewer } from './sync.js';
@@ -32,12 +47,6 @@ import { proxyPath } from './proxy-config.js';
 // failure, same fallback shape as AIVisionProcessor.callGemini below).
 const NL_EDIT_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.7-flash'];
 
-// Mirrors the Worker's own MAX_NL_EDIT_OPS (cloudflare-worker/orbit-worker.js)
-// - the Worker never parses the structured response itself (see
-// callNlEditProxy), so this is the real enforcement point, not just a
-// display hint.
-const MAX_NL_EDIT_OPS = 8;
-
 // Same shared PROXY_URL as gemini-ocr.js and sync.js (see proxy-config.js) -
 // a fork that hasn't deployed the Worker simply doesn't get this feature
 // (see isNlEditConfigured's callers), no bring-your-own-key fallback. The
@@ -47,11 +56,11 @@ function isNlEditConfigured() {
   return !!NL_EDIT_PROXY_URL;
 }
 
-// The small, fixed shape sent as `context` - just enough for the Worker's
-// prompt to resolve "my Tuesday period 3" or "the physics class" against
-// the caller's real schedule, never the whole app data blob (no style,
-// countdown events, sync state, etc - see README's payload-size notes on
-// gemini-ocr.js for the same discipline applied there).
+// Everything this feature can read and rewrite - the AI can now genuinely
+// add a bell period, a break time, or a countdown event, not just move
+// classes around within weeklySchedule (see the Worker's own comment on why
+// that used to be too narrow). Still never the whole app data blob - no
+// style/sync state, same payload-size discipline as gemini-ocr.js.
 function buildNlEditContext() {
   const data = settingsDataForExport();
   const classes = Object.entries(data.teacherDB || {}).map(([key, value]) => ({
@@ -60,14 +69,21 @@ function buildNlEditContext() {
     teacher: value[1] || '',
     location: data.locationDB?.[key] || ''
   }));
-  return { weeklySchedule: data.weeklySchedule, classes, bellTimes: data.bellTimes };
+  return {
+    weeklySchedule: data.weeklySchedule,
+    classes,
+    bellTimes: data.bellTimes,
+    breakTimes: data.breakTimes,
+    countdownEvents: data.countdownEvents,
+    reverseWeek: data.reverseWeek
+  };
 }
 
 // Same fence-stripping/brace-hunting salvage as gemini-ocr.js's
 // parseResponse - the Worker's response_schema should already guarantee
 // clean JSON, but this stays defensive rather than trusting that blindly
-// (see validateNlEditResult below for the same discipline applied to the
-// parsed object's actual field values).
+// (see validateNlEditResult/applyNlEditResult below for the same discipline
+// applied to the parsed object's actual field values).
 function extractJsonObject(rawText) {
   if (!rawText) throw new Error(t('nlEdit.badResponse'));
   const fenceStripped = rawText
@@ -87,16 +103,14 @@ function extractJsonObject(rawText) {
   }
 }
 
-// Low-level call: the same fastest-first/escalate-on-transient-failure
-// shape as gemini-ocr.js's AIVisionProcessor.callGemini, just without that
-// one's image-specific ETA/console-timing plumbing - a short text
-// instruction is small and fast enough not to need it. The prompt and
-// generation config are NOT sent from here, same reasoning as
-// AIVisionProcessor.callGemini: the proxy owns both and builds the full
-// Gemini request itself from just {model, text, context}.
-async function callNlEditProxy(text, context) {
-  if (!NL_EDIT_PROXY_URL) throw new Error(t('nlEdit.notConfigured'));
-  if (!navigator.onLine) throw new Error(t('nlEdit.offline'));
+// One full pass over NL_EDIT_MODELS, fastest-first - factored out of
+// callNlEditProxy so the location-block retry there can cleanly re-run it
+// from scratch without duplicating the loop (see that function's own
+// comment on why a fresh pass is worth retrying). Returns a discriminated
+// result instead of throwing directly for the location-block case
+// specifically, since callNlEditProxy needs to tell that one apart from
+// every other failure (which isn't worth retrying a whole pass over).
+async function tryNlEditModels(text, context) {
   let lastError = null;
   for (const model of NL_EDIT_MODELS) {
     let response;
@@ -112,11 +126,27 @@ async function callNlEditProxy(text, context) {
     }
     if (response.ok) {
       const responseData = await response.json();
-      return extractJsonObject(responseData.candidates?.[0]?.content?.parts?.[0]?.text);
+      return { ok: true, value: extractJsonObject(responseData.candidates?.[0]?.content?.parts?.[0]?.text) };
     }
     const errorJson = await response.json().catch(() => ({}));
     const message = errorJson.error?.message || response.statusText;
     if (response.status === 429 && /請求過於頻繁/.test(message)) throw new Error(message);
+    // Google's Gemini API rejects the request based on the calling IP's
+    // geolocation - here, the Cloudflare Worker's own egress IP, not the
+    // end user's (see gemini-ocr.js's matching comment on AIVisionProcessor
+    // for the full explanation). Every model in THIS pass shares that same
+    // outbound path, so stop this pass immediately rather than burning
+    // through the whole model list - callNlEditProxy decides whether a
+    // fresh pass is worth retrying.
+    if (response.status === 400 && /User location is not supported/i.test(message)) {
+      return {
+        ok: false,
+        locationBlocked: true,
+        error: new Error(
+          'AI 服務暫時因伺服器所在地區限制而無法使用，這通常只是暫時性的網路路由問題，請稍後再試一次。'
+        )
+      };
+    }
     // Retryable on the next model: retired/unknown model (404), overloaded
     // (503), rate-limited (429), or transient server errors (5xx) - same
     // set AIVisionProcessor.callGemini treats as retryable.
@@ -131,188 +161,87 @@ async function callNlEditProxy(text, context) {
   throw lastError || new Error('AI 指令解析失敗：沒有可用的模型。');
 }
 
-function isValidDay(value) {
-  return Number.isInteger(value) && value >= 0 && value <= 6;
-}
-function isValidPeriod(value, periodCount) {
-  return Number.isInteger(value) && value >= 0 && value < periodCount;
-}
-
-// A plain {day: [key, ...]} map, deep-cloned from context.weeklySchedule -
-// just enough state for validateNlEditResult to track slot occupancy AS IT
-// WOULD STAND after each earlier op in the same list, without needing the
-// full settingsData shape (teacherDB, locationDB, ...) applyNlEditOps below
-// works with. Kept in sync with that function's own moveSlot/swapSlot/
-// clearSlot bookkeeping by hand - there are only three slot-shaped
-// operations to mirror, so this stays a small, easy-to-eyeball duplication
-// rather than something worth a shared abstraction over.
-function cloneWeeklySchedule(weeklySchedule) {
-  const next = {};
-  for (const [day, row] of Object.entries(weeklySchedule || {})) next[day] = [...(row || [])];
-  return next;
-}
-function scheduleSlot(weeklySchedule, day, period) {
-  return (weeklySchedule[day] || [])[period] || '';
-}
-function setScheduleSlot(weeklySchedule, day, period, value) {
-  const row = [...(weeklySchedule[day] || [])];
-  while (row.length <= period) row.push('');
-  row[period] = value;
-  weeklySchedule[day] = row;
+// Low-level call: same fastest-first-model/escalate-on-transient-failure
+// shape as gemini-ocr.js's AIVisionProcessor.callGemini, PLUS the same
+// location-block retry that function has - a brand new request has a real
+// chance of landing on a different Cloudflare edge colo than the one that
+// just got blocked, so it's worth retrying a couple of whole passes (with a
+// short delay) before finally giving up, rather than surfacing the error on
+// the very first hit.
+async function callNlEditProxy(text, context) {
+  if (!NL_EDIT_PROXY_URL) throw new Error(t('nlEdit.notConfigured'));
+  if (!navigator.onLine) throw new Error(t('nlEdit.offline'));
+  const LOCATION_BLOCK_RETRY_LIMIT = 2;
+  const LOCATION_BLOCK_RETRY_DELAY_MS = 500;
+  for (let locationAttempt = 0; ; locationAttempt++) {
+    const result = await tryNlEditModels(text, context);
+    if (result.ok) return result.value;
+    if (!result.locationBlocked || locationAttempt >= LOCATION_BLOCK_RETRY_LIMIT) throw result.error;
+    await new Promise(resolve => setTimeout(resolve, LOCATION_BLOCK_RETRY_DELAY_MS));
+  }
 }
 
-// Never trusts the model's answer blindly - same discipline as
-// gemini-ocr.js's DataValidator: every op is re-checked against the actual
-// schedule this ran against (the same `context` that was sent), not just
-// against the response_schema's shape, which only guarantees the JSON
-// parses and each field has the right type, not that a day/period number is
-// actually in range or that a slot an op reads from is actually occupied.
-//
-// `result.ops` is validated IN ORDER against a running simulated schedule
-// (see cloneWeeklySchedule above) so a later op can legally reference a
-// slot an earlier op in the same list just emptied or filled - see
-// buildNlEditPrompt's own explanation of this sequencing on the Worker
-// side. The first invalid op stops validation there (errors are prefixed
-// with "第 N 項：" once there's more than one op, so a multi-edit
-// instruction's failure clearly points at which part of it didn't work).
-function validateNlEditResult(result, context) {
+// Cheap shape check only - is every field the right JS type at all? This
+// can't fail on CONTENT (a bad class key, an out-of-range day, a malformed
+// time) since it has no context to judge that against; applyNlEditResult
+// below is what actually re-checks the content, by running it through the
+// exact same normalizeSettingsData() every other write path in this app
+// already trusts for that job.
+function validateNlEditResult(result) {
   if (!result || typeof result !== 'object') return { valid: false, errors: [t('nlEdit.badResponse')] };
   if (!['ok', 'unclear', 'not_found'].includes(result.status)) {
     return { valid: false, errors: [t('nlEdit.badResponse')] };
   }
   if (result.status !== 'ok') return { valid: true, errors: [] };
-  if (!Array.isArray(result.ops) || !result.ops.length) return { valid: false, errors: [t('nlEdit.badResponse')] };
-  if (result.ops.length > MAX_NL_EDIT_OPS) return { valid: false, errors: [t('nlEdit.tooManyOps')] };
-
-  const periodCount = (context.bellTimes || []).length;
-  const schedule = cloneWeeklySchedule(context.weeklySchedule);
-  for (let i = 0; i < result.ops.length; i++) {
-    const op = result.ops[i];
-    // t() takes no interpolation params (see strings.js) - substituted by
-    // hand here rather than teaching it a templating syntax for this one
-    // call site.
-    const prefix = result.ops.length > 1 ? t('nlEdit.opPrefix').replace('{n}', String(i + 1)) : '';
-    if (!op || typeof op !== 'object') return { valid: false, errors: [prefix + t('nlEdit.badResponse')] };
-    if (op.op === 'setSlot') {
-      if (!isValidDay(op.day) || !isValidPeriod(op.period, periodCount)) {
-        return { valid: false, errors: [prefix + t('nlEdit.outOfRange')] };
-      }
-      if (!String(op.subject || '').trim()) return { valid: false, errors: [prefix + t('nlEdit.missingSubject')] };
-      setScheduleSlot(schedule, op.day, op.period, '#'); // placeholder key - only occupancy matters here
-    } else if (op.op === 'moveSlot' || op.op === 'swapSlot') {
-      if (
-        !isValidDay(op.fromDay) ||
-        !isValidDay(op.toDay) ||
-        !isValidPeriod(op.fromPeriod, periodCount) ||
-        !isValidPeriod(op.toPeriod, periodCount)
-      ) {
-        return { valid: false, errors: [prefix + t('nlEdit.outOfRange')] };
-      }
-      const fromValue = scheduleSlot(schedule, op.fromDay, op.fromPeriod);
-      const toValue = scheduleSlot(schedule, op.toDay, op.toPeriod);
-      if (op.op === 'moveSlot' && !fromValue) {
-        return { valid: false, errors: [prefix + t('nlEdit.emptySource')] };
-      }
-      if (op.op === 'swapSlot' && !fromValue && !toValue) {
-        return { valid: false, errors: [prefix + t('nlEdit.emptySource')] };
-      }
-      setScheduleSlot(schedule, op.toDay, op.toPeriod, fromValue);
-      setScheduleSlot(schedule, op.fromDay, op.fromPeriod, op.op === 'swapSlot' ? toValue : '');
-    } else if (op.op === 'clearSlot') {
-      if (!isValidDay(op.day) || !isValidPeriod(op.period, periodCount)) {
-        return { valid: false, errors: [prefix + t('nlEdit.outOfRange')] };
-      }
-      setScheduleSlot(schedule, op.day, op.period, '');
-    } else {
-      return { valid: false, errors: [prefix + t('nlEdit.badResponse')] };
-    }
-  }
+  const shapeOk =
+    Array.isArray(result.classes) &&
+    result.weeklySchedule &&
+    typeof result.weeklySchedule === 'object' &&
+    Array.isArray(result.bellTimes) &&
+    Array.isArray(result.breakTimes) &&
+    Array.isArray(result.countdownEvents) &&
+    typeof result.reverseWeek === 'boolean';
+  if (!shapeOk) return { valid: false, errors: [t('nlEdit.badResponse')] };
   return { valid: true, errors: [] };
 }
 
-function nextNlClassKey(teacherDB) {
-  let n = 1;
-  while (teacherDB[`nl${n}`]) n++;
-  return `nl${n}`;
-}
-// Reuses an existing class when the instruction's subject (and teacher, if
-// given) already matches one - the same "don't create a visible duplicate
-// row for the same course" reasoning as gemini-ocr.js's addClass - and
-// otherwise creates a new one rather than guessing at fields the model
-// wasn't given.
-function resolveClassKey(teacherDB, subject, teacher, location) {
-  const cleanSubject = String(subject || '').trim();
-  const cleanTeacher = String(teacher || '').trim();
-  const cleanLocation = String(location || '').trim();
-  const entries = Object.entries(teacherDB || {});
-  let match = entries.find(([, value]) => value[0] === cleanSubject && value[1] === cleanTeacher);
-  if (!match && !cleanTeacher) match = entries.find(([, value]) => value[0] === cleanSubject);
-  if (match) {
-    const [key, value] = match;
-    return {
-      key,
-      teacherDB: {
-        ...teacherDB,
-        [key]: [cleanSubject, cleanTeacher || value[1] || '', cleanLocation || value[2] || '']
-      }
-    };
-  }
-  const key = nextNlClassKey(teacherDB || {});
-  return {
-    key,
-    teacherDB: { ...(teacherDB || {}), [key]: [cleanSubject, cleanTeacher, cleanLocation] }
-  };
-}
-// One op's worth of the same row-splicing setScheduleSlot above does for
-// validation's lighter-weight simulation - kept separate because this one
-// mutates the full settingsData shape (weeklySchedule lives one level
-// deeper, under `next.weeklySchedule`) rather than a bare {day: [key,...]}
-// map.
-function setNextScheduleSlot(next, day, period, value) {
-  const row = [...(next.weeklySchedule[day] || [])];
-  while (row.length <= period) row.push('');
-  row[period] = value;
-  next.weeklySchedule = { ...next.weeklySchedule, [day]: row };
-}
-function nextScheduleSlot(next, day, period) {
-  return (next.weeklySchedule[day] || [])[period] || '';
-}
-
-// Applies one already-validated op (see validateNlEditResult) onto `next`
-// in place (reassigning its own properties, same mutation style as
-// setNextScheduleSlot) - called once per op, in order, by applyNlEditOps
-// below.
-function applyOneNlEditOp(next, op) {
-  if (op.op === 'setSlot') {
-    const { key, teacherDB } = resolveClassKey(next.teacherDB, op.subject, op.teacher, op.location);
-    next.teacherDB = teacherDB;
-    next.locationDB = { ...next.locationDB, [key]: teacherDB[key][2] };
-    if (!next.teacherOrder.includes(key)) next.teacherOrder = [...next.teacherOrder, key];
-    setNextScheduleSlot(next, op.day, op.period, key);
-  } else if (op.op === 'clearSlot') {
-    setNextScheduleSlot(next, op.day, op.period, '');
-  } else {
-    // moveSlot / swapSlot: both are "put whatever's in slot A into slot B",
-    // differing only in whether slot A also receives what used to be in B
-    // (swapSlot) or is simply left empty (moveSlot).
-    const fromValue = nextScheduleSlot(next, op.fromDay, op.fromPeriod);
-    const toValue = nextScheduleSlot(next, op.toDay, op.toPeriod);
-    setNextScheduleSlot(next, op.toDay, op.toPeriod, fromValue);
-    setNextScheduleSlot(next, op.fromDay, op.fromPeriod, op.op === 'swapSlot' ? toValue : '');
-  }
-}
-
-// Turns an already-validated `result` (see validateNlEditResult) into a
+// Turns an already-shape-checked `result` (see validateNlEditResult) into a
 // full next settings-data object, built on top of `current` (as
-// settingsDataForExport() sees it) - pure data rearrangement, no DOM, so
-// the caller can diff it with describeSettingsDiff before ever touching the
-// real schedule. Applies every op in result.ops in order, each one seeing
-// the effect of every op before it - same sequencing validateNlEditResult
-// already checked against, just now actually mutating the full settings
-// shape (teacherDB/locationDB/teacherOrder too, not just weeklySchedule).
-function applyNlEditOps(current, result) {
+// settingsDataForExport() sees it) - pure data rearrangement, no DOM, so the
+// caller can diff it with describeSettingsDiff before ever touching the
+// real schedule. Overlays only the fields this feature is allowed to touch
+// (classes -> teacherDB+locationDB, weeklySchedule, bellTimes, breakTimes,
+// countdownEvents, reverseWeek) onto a clone of `current` - style, sync
+// state, and teacherOrder's own existing order all pass through untouched
+// (normalizeSettingsData below preserves teacherOrder's current order for
+// still-existing keys and appends any new ones, rather than reordering
+// everything to match "classes"' own array order).
+//
+// The AI manages class keys itself now (see buildNlEditPrompt's own
+// explanation: reuse an existing key, invent a short new one for a
+// genuinely new class) - there's no subject-matching reconciliation to do
+// here any more the way the old fixed-verb design needed. Throws (a clear
+// Chinese message) if normalizeSettingsData rejects the result as
+// structurally unsound - the same defensive check AI photo import and
+// manual backup import already run every result through, never trusting a
+// day/period reference, bell time, or class key blindly.
+function applyNlEditResult(current, result) {
   const next = cloneSettingsData(current);
-  for (const op of result.ops) applyOneNlEditOp(next, op);
+  const teacherDB = {};
+  const locationDB = {};
+  (result.classes || []).forEach(entry => {
+    const key = String(entry?.key || '').trim();
+    if (!key) return;
+    teacherDB[key] = [String(entry.subject || ''), String(entry.teacher || ''), String(entry.location || '')];
+    locationDB[key] = String(entry.location || '');
+  });
+  next.teacherDB = teacherDB;
+  next.locationDB = locationDB;
+  next.weeklySchedule = result.weeklySchedule;
+  next.bellTimes = result.bellTimes;
+  next.breakTimes = result.breakTimes;
+  next.countdownEvents = result.countdownEvents;
+  next.reverseWeek = result.reverseWeek;
   return normalizeSettingsData(next);
 }
 
@@ -379,7 +308,7 @@ async function submitNlEdit(rawText, { status, onDone } = {}) {
     const current = settingsDataForExport();
     const context = buildNlEditContext();
     const result = await callNlEditProxy(text, context);
-    const validation = validateNlEditResult(result, context);
+    const validation = validateNlEditResult(result);
     if (!validation.valid) {
       status?.(validation.errors.join('') || t('nlEdit.badResponse'), true);
       return;
@@ -397,7 +326,13 @@ async function submitNlEdit(rawText, { status, onDone } = {}) {
       );
       return;
     }
-    const next = applyNlEditOps(current, result);
+    let next;
+    try {
+      next = applyNlEditResult(current, result);
+    } catch (error) {
+      status?.(error.message || t('nlEdit.badResponse'), true);
+      return;
+    }
     status?.(t('nlEdit.ready'));
     showNlEditConfirm(current, next);
   } catch (error) {
@@ -442,10 +377,9 @@ function mountNlEditor() {
 mountNlEditor();
 
 export {
-  applyNlEditOps,
+  applyNlEditResult,
   buildNlEditContext,
   isNlEditConfigured,
-  resolveClassKey,
   submitNlEdit,
   validateNlEditResult
 };

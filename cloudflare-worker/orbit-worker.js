@@ -355,6 +355,43 @@ const GEMINI_TIME_RANGE_SCHEMA = {
   required: ['start', 'end']
 };
 const GEMINI_DAY_SCHEMA = { type: 'array', items: { type: 'string', nullable: true } };
+// Shared by GEMINI_RESPONSE_SCHEMA (/gemini, photo import) and
+// NL_EDIT_RESPONSE_SCHEMA (/nl-edit, natural-language edits) below - both
+// describe the exact same weeklySchedule/classes/breakTimes shapes
+// src/editor-backup.js's normalizeSettingsData expects, so there's one
+// definition of each instead of two that could quietly drift apart.
+const GEMINI_CLASS_SCHEMA = {
+  type: 'object',
+  properties: {
+    key: { type: 'string' },
+    subject: { type: 'string' },
+    teacher: { type: 'string' },
+    location: { type: 'string' }
+  },
+  required: ['key', 'subject']
+};
+const GEMINI_BREAK_TIME_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string' },
+    start: { type: 'string' },
+    end: { type: 'string' }
+  },
+  required: ['name', 'start', 'end']
+};
+const GEMINI_WEEKLY_SCHEDULE_SCHEMA = {
+  type: 'object',
+  properties: {
+    0: GEMINI_DAY_SCHEMA,
+    1: GEMINI_DAY_SCHEMA,
+    2: GEMINI_DAY_SCHEMA,
+    3: GEMINI_DAY_SCHEMA,
+    4: GEMINI_DAY_SCHEMA,
+    5: GEMINI_DAY_SCHEMA,
+    6: GEMINI_DAY_SCHEMA
+  },
+  required: ['1', '2', '3', '4', '5']
+};
 const GEMINI_COUNTDOWN_EVENTS_SCHEMA = {
   type: 'array',
   items: {
@@ -379,44 +416,9 @@ const GEMINI_RESPONSE_SCHEMA = {
   properties: {
     documentKind: { type: 'string', enum: ['timetable', 'registration', 'other'] },
     bellTimes: { type: 'array', items: GEMINI_TIME_RANGE_SCHEMA },
-    breakTimes: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' },
-          start: { type: 'string' },
-          end: { type: 'string' }
-        },
-        required: ['name', 'start', 'end']
-      }
-    },
-    classes: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          key: { type: 'string' },
-          subject: { type: 'string' },
-          teacher: { type: 'string' },
-          location: { type: 'string' }
-        },
-        required: ['key', 'subject']
-      }
-    },
-    weeklySchedule: {
-      type: 'object',
-      properties: {
-        0: GEMINI_DAY_SCHEMA,
-        1: GEMINI_DAY_SCHEMA,
-        2: GEMINI_DAY_SCHEMA,
-        3: GEMINI_DAY_SCHEMA,
-        4: GEMINI_DAY_SCHEMA,
-        5: GEMINI_DAY_SCHEMA,
-        6: GEMINI_DAY_SCHEMA
-      },
-      required: ['1', '2', '3', '4', '5']
-    },
+    breakTimes: { type: 'array', items: GEMINI_BREAK_TIME_SCHEMA },
+    classes: { type: 'array', items: GEMINI_CLASS_SCHEMA },
+    weeklySchedule: GEMINI_WEEKLY_SCHEDULE_SCHEMA,
     reverseWeek: { type: 'boolean' },
     // "day"/"periods" as plain integers (not the source document's own
     // notation) is what lets src/gemini-ocr.js's
@@ -633,72 +635,59 @@ async function handleGeminiRequest(request, env, headers, ip) {
 // here keeps a misuse attempt cheap to reject instead of costing a Gemini
 // call.
 const MAX_NL_EDIT_TEXT_LENGTH = 200;
-// The context is just the caller's own weeklySchedule/classes/bellTimes
-// (see buildNlEditContext in src/editor-nl-edit.js) - a real schedule is a
-// few KB of JSON at most. This stays generous above that while still
-// refusing something that's clearly not this shape (a client bug, or a
-// request built by hand that skipped the real client entirely) before it
-// ever reaches Gemini.
-const MAX_NL_EDIT_CONTEXT_LENGTH = 20000;
+// The context now includes everything editable via this feature - see
+// buildNlEditContext in src/editor-nl-edit.js and NL_EDIT_RESPONSE_SCHEMA's
+// own comment on why. Still just one school's own data (a few KB of JSON at
+// most); this stays generous above that while still refusing something
+// that's clearly not this shape (a client bug, or a request built by hand
+// that skipped the real client entirely) before it ever reaches Gemini.
+const MAX_NL_EDIT_CONTEXT_LENGTH = 40000;
 const NL_EDIT_RATE_LIMIT = 20;
-// A generous ceiling on how many distinct edits one instruction can request
-// - guidance for the model (see buildNlEditPrompt), re-enforced for real
-// client-side in editor-nl-edit.js's applyNlEditOps (the Worker never
-// parses the structured content itself, only proxies it - see
-// handleNlEditRequest's own comment). Mentioned here mainly so the number
-// only has to be kept in sync with the prompt in one place.
-const MAX_NL_EDIT_OPS = 8;
 
-// One item in the "ops" array below - the exact shape src/editor-nl-edit.js's
-// applyNlEditOps() reads back for each edit. Same reasoning as
-// GEMINI_RESPONSE_SCHEMA above: Gemini's response_schema has no way to
-// express "this field only when that one has this value", so every field is
-// always present and the unused ones sit at their nullable/empty default
-// instead. `day`/`period`/`fromDay`/`fromPeriod`/`toDay`/`toPeriod` are
-// nullable integers rather than a sentinel like -1, mirroring
-// GEMINI_DAY_SCHEMA's own use of `nullable` for exactly this "not
-// applicable" case.
-const NL_EDIT_OP_SCHEMA = {
-  type: 'object',
-  properties: {
-    op: { type: 'string', enum: ['setSlot', 'moveSlot', 'swapSlot', 'clearSlot'] },
-    day: { type: 'integer', nullable: true },
-    period: { type: 'integer', nullable: true },
-    subject: { type: 'string' },
-    teacher: { type: 'string' },
-    location: { type: 'string' },
-    fromDay: { type: 'integer', nullable: true },
-    fromPeriod: { type: 'integer', nullable: true },
-    toDay: { type: 'integer', nullable: true },
-    toPeriod: { type: 'integer', nullable: true }
-  },
-  required: [
-    'op',
-    'day',
-    'period',
-    'subject',
-    'teacher',
-    'location',
-    'fromDay',
-    'fromPeriod',
-    'toDay',
-    'toPeriod'
-  ]
-};
-
-// "ops" replaces the single flat op/day/period/... this schema used to have
-// at the top level - one instruction can now describe several edits at
-// once (see buildNlEditPrompt), applied by the client in array order. A
-// single-edit instruction (still the common case) is simply an array with
-// one item; "unclear"/"not_found" leave it empty.
+// Full-state, not fixed verbs: earlier revisions of this feature had the
+// model pick from a small set of named operations (setSlot/moveSlot/...),
+// each only able to touch weeklySchedule. That meant any request outside
+// that narrow vocabulary - adding a bell period, a break time, a countdown
+// event, anything not shaped like "move one class" - had nothing valid to
+// map onto, and in practice the model sometimes forced a plausible-looking
+// but wrong answer through the nearest verb it did have (e.g. inventing a
+// period index that doesn't exist) rather than cleanly saying so. This
+// schema instead lets the model read and directly rewrite every editable
+// field at once - classes, weeklySchedule, bellTimes, breakTimes,
+// countdownEvents, reverseWeek - echoing back anything the instruction
+// didn't ask to change exactly as given (see buildNlEditPrompt's own
+// instructions on this). Every field mirrors GEMINI_RESPONSE_SCHEMA's own
+// shapes (see GEMINI_CLASS_SCHEMA/GEMINI_BREAK_TIME_SCHEMA/
+// GEMINI_WEEKLY_SCHEDULE_SCHEMA above) - both ultimately have to produce
+// something src/editor-backup.js's normalizeSettingsData accepts, so there
+// is one definition of each shape, not two that could drift apart. That
+// function is also the real safety net on the client side once this comes
+// back - same as it already is for AI photo import and manual backup
+// import - so this Worker still never has to parse or judge the content
+// itself, only shape-check what's about to be embedded in the prompt (see
+// readNlEditContext below).
 const NL_EDIT_RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
     status: { type: 'string', enum: ['ok', 'unclear', 'not_found'] },
     reason: { type: 'string' },
-    ops: { type: 'array', items: NL_EDIT_OP_SCHEMA }
+    classes: { type: 'array', items: GEMINI_CLASS_SCHEMA },
+    weeklySchedule: GEMINI_WEEKLY_SCHEDULE_SCHEMA,
+    bellTimes: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
+    breakTimes: { type: 'array', items: GEMINI_BREAK_TIME_SCHEMA },
+    countdownEvents: GEMINI_COUNTDOWN_EVENTS_SCHEMA,
+    reverseWeek: { type: 'boolean' }
   },
-  required: ['status', 'reason', 'ops']
+  required: [
+    'status',
+    'reason',
+    'classes',
+    'weeklySchedule',
+    'bellTimes',
+    'breakTimes',
+    'countdownEvents',
+    'reverseWeek'
+  ]
 };
 
 // The fixed, server-owned prompt - the client never sends prompt text of
@@ -707,64 +696,60 @@ const NL_EDIT_RESPONSE_SCHEMA = {
 // generateContent call has nowhere else to put it, and it's already small
 // (see MAX_NL_EDIT_CONTEXT_LENGTH).
 function buildNlEditPrompt(text, context) {
-  return `You translate one Traditional Chinese natural-language instruction about editing a weekly class schedule into a short, ordered list of structured edit operations. Return a single JSON object matching this exact schema:
+  return `You read a Traditional Chinese natural-language instruction about a weekly class schedule and return the COMPLETE new state of every editable field, with only what the instruction actually asks for changed. Return a single JSON object matching this exact schema:
 {
   "status": "ok",
   "reason": "",
-  "ops": [
-    {
-      "op": "setSlot",
-      "day": 2,
-      "period": 2,
-      "subject": "物理",
-      "teacher": "",
-      "location": "",
-      "fromDay": null,
-      "fromPeriod": null,
-      "toDay": null,
-      "toPeriod": null
-    }
-  ]
+  "classes": [{"key": "A", "subject": "物理", "teacher": "", "location": ""}],
+  "weeklySchedule": {"1": ["A", "", ""]},
+  "bellTimes": [["08:00", "08:50"]],
+  "breakTimes": [{"name": "打掃時間", "start": "08:50", "end": "09:10"}],
+  "countdownEvents": [{"name": "期末考", "startDate": "2026-01-10", "endDate": "2026-01-12"}],
+  "reverseWeek": false
 }
 
-The current schedule, given as read-only context (never invent a day, period, or class that isn't consistent with it):
+The current data, given as read-only context - this is the exact shape "classes"/"weeklySchedule"/"bellTimes"/"breakTimes"/"countdownEvents"/"reverseWeek" below must also be returned in:
 ${JSON.stringify(context)}
 
-"classes" above is every currently defined course ({key, subject, teacher, location}). "weeklySchedule" maps a day number to an array of class keys, one per period (an empty string means that period is free that day). "bellTimes" is the list of [start, end] 24-hour times, one per period, in the same order/index as weeklySchedule's arrays.
+Field shapes and meaning (identical between the context you're given and the result you return):
+- "classes": every currently defined course, as {key, subject, teacher, location}. "key" is an internal id, not shown to the user - reuse a class's EXISTING key unchanged whenever you keep referring to the same course (even if you rename its subject/teacher/location), so weeklySchedule references to it stay valid. For a genuinely NEW course the instruction adds, invent a short new key not already used by any class in "classes" (e.g. "new1", "new2", ...). A course no longer needed anywhere can simply be left out of the returned "classes" - just make sure "weeklySchedule" no longer references its key anywhere either.
+- "weeklySchedule": maps a day number (see day numbering below) to an array of class keys, one per period in bellTimes' order - an empty string means that period is free that day. A day's array may be shorter than "bellTimes" (a missing trailing entry means free, same as an explicit "") - it never needs padding just to reach full length.
+- "bellTimes": the list of [start, end] 24-hour time strings ("HH:MM"), one per period, in the same order/index every "weeklySchedule" day array uses. Adding a period means appending a new [start, end] pair (and giving it something to contain in "weeklySchedule" wherever relevant); removing a period means deleting its pair AND removing/shifting every "weeklySchedule" reference to it and to every later period, so indices still line up correctly afterward; editing a period's time in place doesn't change any index.
+- "breakTimes": named special/break times (e.g. 午休, 打掃時間, 就寢時間) as {name, start, end} ("HH:MM" each) - independent of "bellTimes"/"weeklySchedule", not tied to a period index at all. Add, edit, or remove entries directly.
+- "countdownEvents": named date-range events (e.g. 段考, 校慶) as {name, startDate, endDate} ("YYYY-MM-DD" each, the same day for a single-day event). Add, edit, or remove entries directly.
+- "reverseWeek": whether this week is treated as the "reversed" one of the 單/雙週 (odd/even week) split some courses use - true or false.
 
 Day numbering: 0 = 週日, 1 = 週一, 2 = 週二, 3 = 週三, 4 = 週四, 5 = 週五, 6 = 週六 (matches JavaScript's Date.getDay(), the same numbering weeklySchedule's own keys already use).
-Period numbering: 0-based, matching the index into weeklySchedule's arrays and bellTimes (period 0 is 第一節, period 1 is 第二節, and so on).
+Period numbering: 0-based, matching the index into a weeklySchedule day array and into bellTimes (period 0 is 第一節, period 1 is 第二節, and so on).
 
 The instruction to translate: "${text}"
 
-"ops" is an ORDERED list of edits, applied one after another. Most instructions describe exactly one edit, so "ops" almost always has exactly one item - but when the instruction clearly lists several distinct edits (e.g. joined by "而且"/"然後"/"，"/"、", or a numbered/bulleted list), include one item per edit, in the same order the instruction gives them, up to at most ${MAX_NL_EDIT_OPS} items. Never split one single edit into several items, and never merge two distinct edits into one item. Each op is evaluated against the schedule AS IT WOULD STAND after every earlier op in this same list has already been applied - e.g. moving a class out of a slot and then putting a different class into that now-empty slot is two valid, ordinary ops in order, not a conflict.
-
-Decide each op's "op":
-- "setSlot": set or replace what one specific day+period contains. Fill "day", "period", and "subject" (required - the Chinese subject name). Fill "teacher"/"location" only when the instruction gives them, or when an existing entry in "classes" already names that exact subject (reuse that entry's teacher/location rather than guessing); otherwise leave "teacher"/"location" as empty strings. Leave every "from*"/"to*" field null.
-- "moveSlot": move whatever currently occupies one day+period to a different (currently empty, or about to be emptied by an earlier op in this list) day+period, without changing what class it is. Fill "fromDay", "fromPeriod", "toDay", "toPeriod". Leave "subject"/"teacher"/"location" as empty strings and "day"/"period" null.
-- "swapSlot": exchange whatever occupies two day+period slots with each other in one step - use this instead of two "moveSlot" ops whenever the instruction describes trading/swapping/exchanging two slots' contents for each other. Either or both slots may currently be empty (swapping with an empty slot is just a move in disguise, still valid). Fill "fromDay"/"fromPeriod" for one slot and "toDay"/"toPeriod" for the other - which one is "from" vs "to" doesn't matter, the effect is symmetric. Leave "subject"/"teacher"/"location" as empty strings and "day"/"period" null.
-- "clearSlot": empty out one day+period slot entirely, removing whatever class is currently there without putting anything else in its place - use this whenever the instruction asks to cancel/clear/remove a class from a slot rather than replace it with a different one. Fill "day", "period". Leave "subject"/"teacher"/"location" as empty strings and every "from*"/"to*" field null.
+THE SINGLE MOST IMPORTANT RULE: only change what the instruction actually asks for. Every field, and everything inside every field, that the instruction doesn't mention must come back EXACTLY as given in the context above - same keys, same order, same values, byte-for-byte. Do not reformat, reorder, rename, "clean up", or fill in anything the instruction didn't ask about. The result is shown to the user as a diff against the given context before anything is saved, so an unrelated change here shows up as a confusing, unwanted line in that diff.
 
 Decide "status":
-- "ok": every part of the instruction maps cleanly onto the operations above, using only days/periods/classes that make sense against the given context (accounting for any earlier op in the same list, as above).
-- "unclear": the instruction (or any one part of it, if it lists several) is ambiguous, contradictory, does not describe a schedule edit at all, or cannot be confidently reduced to the operations above. Leave "ops" empty. Briefly explain why in "reason" (Traditional Chinese, one short sentence).
-- "not_found": the instruction is clear about what kind of edit(s) it wants, but names a day, period, or existing class that does not exist in the given context at the point it's referenced (e.g. a period number beyond how many periods exist, or moving/swapping/clearing a day+period that is currently empty and wasn't just filled by an earlier op in this same list). Leave "ops" empty. Briefly explain in "reason" (Traditional Chinese, one short sentence).
+- "ok": the instruction maps cleanly onto a change (or several - see below) to the data above, using only days/periods/classes/times that make sense given the context (and, for a multi-part instruction, given the effect of any earlier part already applied - e.g. moving a class out of a slot and then putting a different class into that now-empty slot is a perfectly ordinary two-part instruction, not a conflict).
+- "unclear": the instruction (or any part of it, if it describes several changes) is ambiguous, contradictory, does not describe an edit to this data at all, or cannot be confidently reduced to a concrete change. Return every field exactly as given in the context (i.e. no actual change). Briefly explain why in "reason" (Traditional Chinese, one short sentence).
+- "not_found": the instruction is clear about what it wants, but names a day, period, class, break time, or countdown event that does not exist in the given context at the point it's referenced. Return every field exactly as given in the context. Briefly explain in "reason" (Traditional Chinese, one short sentence).
 
-Never invent a day, period, subject, teacher, or location the instruction does not give you or that "classes"/"weeklySchedule" does not already support. When any part of the instruction is in doubt, prefer "unclear" over guessing - a partially-correct multi-edit instruction should not silently drop the part that didn't make sense.
+A single instruction may describe more than one distinct change (e.g. joined by "而且"/"然後"/"，"/"、", or a numbered/bulleted list) - apply all of them together in the one result you return, same as if each had been requested separately in order. If any one part is ambiguous or refers to something that doesn't exist, treat the WHOLE instruction as "unclear"/"not_found" rather than silently applying only the parts that made sense.
+
+Never invent a day, period, subject, teacher, location, time, or event the instruction does not give you or that the context does not already support. When in doubt, prefer "unclear" over guessing.
 Return ONLY the raw JSON object — no markdown fences, no comments, no extra text.`;
 }
 
 // Structural shape check only (mirrors readGeminiFiles' own level of
-// strictness) - src/editor-nl-edit.js's validateNlEditResult() is what
-// actually re-checks the *response* against this same context once Gemini
-// answers; this just makes sure what's about to be embedded in the prompt
-// is the shape the prompt claims it is.
+// strictness) - src/editor-nl-edit.js's validateNlEditResult()/
+// applyNlEditResult() are what actually re-check and normalize the
+// *response* once Gemini answers; this just makes sure what's about to be
+// embedded in the prompt is the shape the prompt claims it is.
 function readNlEditContext(context) {
   if (!context || typeof context !== 'object') return null;
-  const { weeklySchedule, classes, bellTimes } = context;
+  const { weeklySchedule, classes, bellTimes, breakTimes, countdownEvents, reverseWeek } = context;
   if (!weeklySchedule || typeof weeklySchedule !== 'object' || Array.isArray(weeklySchedule))
     return null;
   if (!Array.isArray(classes) || !Array.isArray(bellTimes)) return null;
+  if (!Array.isArray(breakTimes) || !Array.isArray(countdownEvents)) return null;
+  if (typeof reverseWeek !== 'boolean') return null;
   if (Object.values(weeklySchedule).some(day => !Array.isArray(day))) return null;
   if (
     classes.some(
@@ -778,7 +763,9 @@ function readNlEditContext(context) {
     )
   )
     return null;
-  return { weeklySchedule, classes, bellTimes };
+  if (breakTimes.some(entry => !entry || typeof entry !== 'object')) return null;
+  if (countdownEvents.some(entry => !entry || typeof entry !== 'object')) return null;
+  return { weeklySchedule, classes, bellTimes, breakTimes, countdownEvents, reverseWeek };
 }
 
 async function handleNlEditRequest(request, env, headers, ip) {
