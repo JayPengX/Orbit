@@ -367,9 +367,11 @@ const GEMINI_TIME_RANGE_SCHEMA = {
 const GEMINI_DAY_SCHEMA = { type: 'array', items: { type: 'string', nullable: true } };
 // Shared by GEMINI_RESPONSE_SCHEMA (/gemini, photo import) and
 // NL_EDIT_RESPONSE_SCHEMA (/nl-edit, natural-language edits) below - both
-// describe the exact same weeklySchedule/classes/breakTimes shapes
+// describe the exact same weeklySchedule/breakTimes shapes
 // src/editor-backup.js's normalizeSettingsData expects, so there's one
-// definition of each instead of two that could quietly drift apart.
+// definition of each instead of two that could quietly drift apart. classes
+// is the one exception (see NL_EDIT_CLASS_SCHEMA below) - the two endpoints
+// need different `required` lists for the same fields.
 const GEMINI_CLASS_SCHEMA = {
   type: 'object',
   properties: {
@@ -378,7 +380,31 @@ const GEMINI_CLASS_SCHEMA = {
     teacher: { type: 'string' },
     location: { type: 'string' }
   },
+  // teacher/location genuinely are optional here: a freshly scanned photo
+  // legitimately may not show a room number or a name at all.
   required: ['key', 'subject']
+};
+// /nl-edit's own classes schema, deliberately NOT the same object as
+// GEMINI_CLASS_SCHEMA above despite having identical properties: unlike photo
+// import, /nl-edit's prompt requires the model to echo every class it isn't
+// touching back byte-for-byte from the given context, and under a schema
+// where teacher/location are optional, Gemini would sometimes just omit
+// them for an unmodified class instead of copying the value across -
+// src/editor-nl-edit.js's applyNlEditResult then reads a missing field as
+// "" and silently wipes that class's teacher/room, even though nothing
+// about it was ever supposed to change. Marking all four fields required
+// closes that loophole: the model has to put some value there, and with the
+// unmodified value already sitting right there in context, it reliably
+// copies it rather than inventing one.
+const NL_EDIT_CLASS_SCHEMA = {
+  type: 'object',
+  properties: {
+    key: { type: 'string' },
+    subject: { type: 'string' },
+    teacher: { type: 'string' },
+    location: { type: 'string' }
+  },
+  required: ['key', 'subject', 'teacher', 'location']
 };
 const GEMINI_BREAK_TIME_SCHEMA = {
   type: 'object',
@@ -667,11 +693,13 @@ const NL_EDIT_RATE_LIMIT = 20;
 // countdownEvents, reverseWeek - echoing back anything the instruction
 // didn't ask to change exactly as given (see buildNlEditPrompt's own
 // instructions on this). Every field mirrors GEMINI_RESPONSE_SCHEMA's own
-// shapes (see GEMINI_CLASS_SCHEMA/GEMINI_BREAK_TIME_SCHEMA/
-// GEMINI_WEEKLY_SCHEDULE_SCHEMA above) - both ultimately have to produce
-// something src/editor-backup.js's normalizeSettingsData accepts, so there
-// is one definition of each shape, not two that could drift apart. That
-// function is also the real safety net on the client side once this comes
+// shapes (see NL_EDIT_CLASS_SCHEMA/GEMINI_BREAK_TIME_SCHEMA/
+// GEMINI_WEEKLY_SCHEDULE_SCHEMA above - classes uses its own schema, not
+// GEMINI_CLASS_SCHEMA directly, see that schema's own comment on why) -
+// both ultimately have to produce something src/editor-backup.js's
+// normalizeSettingsData accepts, so there is one definition of each shape,
+// not two that could drift apart. That function is also the real safety net
+// on the client side once this comes
 // back - same as it already is for AI photo import and manual backup
 // import - so this Worker still never has to parse or judge the content
 // itself, only shape-check what's about to be embedded in the prompt (see
@@ -681,7 +709,7 @@ const NL_EDIT_RESPONSE_SCHEMA = {
   properties: {
     status: { type: 'string', enum: ['ok', 'unclear', 'not_found'] },
     reason: { type: 'string' },
-    classes: { type: 'array', items: GEMINI_CLASS_SCHEMA },
+    classes: { type: 'array', items: NL_EDIT_CLASS_SCHEMA },
     weeklySchedule: GEMINI_WEEKLY_SCHEDULE_SCHEMA,
     bellTimes: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
     breakTimes: { type: 'array', items: GEMINI_BREAK_TIME_SCHEMA },
@@ -722,7 +750,7 @@ The current data, given as read-only context - this is the exact shape "classes"
 ${JSON.stringify(context)}
 
 Field shapes and meaning (identical between the context you're given and the result you return):
-- "classes": every currently defined course, as {key, subject, teacher, location}. "key" is an internal id, not shown to the user - reuse a class's EXISTING key unchanged whenever you keep referring to the same course (even if you rename its subject/teacher/location), so weeklySchedule references to it stay valid. For a genuinely NEW course the instruction adds, invent a short new key not already used by any class in "classes" (e.g. "new1", "new2", ...). A course no longer needed anywhere can simply be left out of the returned "classes" - just make sure "weeklySchedule" no longer references its key anywhere either.
+- "classes": every currently defined course, as {key, subject, teacher, location} - all four fields are required on every entry, always. For a course the instruction doesn't touch, copy its teacher and location EXACTLY as given in the context, even if that means an empty string "" (never drop the field and never invent a value) - the same rule as every other untouched field. "key" is an internal id, not shown to the user - reuse a class's EXISTING key unchanged whenever you keep referring to the same course (even if you rename its subject/teacher/location), so weeklySchedule references to it stay valid. For a genuinely NEW course the instruction adds, invent a short new key not already used by any class in "classes" (e.g. "new1", "new2", ...); leave teacher/location as "" if the instruction didn't specify them. A course no longer needed anywhere can simply be left out of the returned "classes" - just make sure "weeklySchedule" no longer references its key anywhere either.
 - "weeklySchedule": maps a day number (see day numbering below) to an array of class keys, one per period in bellTimes' order - an empty string means that period is free that day. A day's array may be shorter than "bellTimes" (a missing trailing entry means free, same as an explicit "") - it never needs padding just to reach full length.
 - "bellTimes": the list of [start, end] 24-hour time strings ("HH:MM"), one per period, in the same order/index every "weeklySchedule" day array uses. Adding a period means appending a new [start, end] pair (and giving it something to contain in "weeklySchedule" wherever relevant); removing a period means deleting its pair AND removing/shifting every "weeklySchedule" reference to it and to every later period, so indices still line up correctly afterward; editing a period's time in place doesn't change any index.
 - "breakTimes": named special/break times (e.g. 午休, 打掃時間, 就寢時間) as {name, start, end} ("HH:MM" each) - independent of "bellTimes"/"weeklySchedule", not tied to a period index at all. Add, edit, or remove entries directly.
