@@ -955,20 +955,27 @@ function cleanVocabAiText(value, maxLen) {
 // just "here's a mnemonic for this word" - a hook that targets the specific
 // way this learner keeps getting it wrong is the entire reason this needs a
 // live per-user call instead of reusing data/ai_signals.json's one static
-// mnemonic every learner already sees.
+// mnemonic every learner already sees. The explicit "diagnose first, name
+// it" step and the banned-phrases list below were both added after real
+// generations kept landing on generic study-advice filler ("多加練習就會記
+// 住"、"多寫幾次自然會拼對") that technically answered the prompt but gave
+// the learner nothing to actually latch onto - forcing the model to commit
+// to a concrete technique up front heads that off.
 function buildVocabMnemonicPrompt(word, pos, meaning, wrongAnswers) {
   const mistakesLine = wrongAnswers.length
     ? `This learner has previously typed these WRONG spellings for this exact word: ${wrongAnswers
         .map((w) => `"${w}"`)
-        .join(', ')}. Look for a real pattern across these mistakes (e.g. a swapped letter pair, a dropped double letter, a missing silent letter, a common homophone mix-up) and target the mnemonic at THAT pattern specifically.`
-    : `No specific past misspelling was recorded for this word - address the most likely spelling risk in the word itself instead.`;
+        .join(', ')}. Diagnose the exact letter-level pattern behind these mistakes (e.g. "swapped the 'e' and 'a' in the second syllable", "dropped the second 'c'", "wrote 'ie' where it should be 'ei'") and state that pattern in one short clause before writing the mnemonic.`
+    : `No specific past misspelling was recorded for this word - pick the single most error-prone part of its spelling (a silent letter, a doubled letter, an unusual letter combination) and treat that as the target pattern.`;
   return `You are helping a Taiwanese high school student remember how to correctly spell an English vocabulary word they keep getting wrong.
 
 Word: "${word}" (${pos || 'unknown part of speech'})
 Chinese meaning: ${meaning || '(none given)'}
 ${mistakesLine}
 
-Write ONE short, specific mnemonic (under 30 words, in Traditional Chinese, weaving in the English word/letters where useful) that would actually help THIS learner stop making THIS mistake. Do not just restate the correct spelling - give a genuinely memorable hook tied to the mistake pattern above.`;
+Then write ONE short mnemonic (under 40 words, in Traditional Chinese, weaving in the actual English letters/word where useful) built around that exact pattern, using a real memory technique - a sound-alike association, a keyword/imagery hook, or a tiny made-up story about the specific letters that trip this learner up.
+
+Do NOT give generic study advice such as "多加練習"、"多寫幾次"、"多背幾次就會記住"、"注意拼法" or anything to that effect - if nothing else fits, invent a vivid image or sound association for the trickiest letters instead. Never restate the correct spelling on its own without a memory hook attached to it.`;
 }
 
 async function callVocabAiGemini(prompt, schema, env) {
