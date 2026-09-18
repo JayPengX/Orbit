@@ -1,28 +1,34 @@
 // ---- src/editor-nl-edit.js ----
 // Natural-language schedule edits: turns a short Traditional Chinese
-// instruction ("把我週二第三節改成物理") into a proposed new state for the
-// schedule - classes, weeklySchedule, bellTimes, breakTimes,
-// countdownEvents, reverseWeek - previewed as a diff and only ever applied
-// after an explicit confirm - never silently. Same server-owns-the-prompt
-// discipline as src/gemini-ocr.js's AI photo import: this module only ever
-// sends {model, text, context} to the proxy; the Worker's /nl-edit path
-// (see cloudflare-worker/orbit-worker.js) owns the actual prompt and
+// instruction ("把我週二第三節改成物理") into a proposed next state for the
+// schedule - previewed as a diff and only ever applied after an explicit
+// confirm - never silently. Same server-owns-the-prompt discipline as
+// src/gemini-ocr.js's AI photo import: this module only ever sends
+// {model, text, context} to the proxy; the Worker's /nl-edit path (see
+// cloudflare-worker/orbit-worker.js) owns the actual prompt and
 // response_schema, so the deployed proxy URL can never be used to run an
 // arbitrary free-form prompt.
 //
-// Full-state, not fixed verbs: the model reads everything editable via this
-// feature and returns the COMPLETE new version of it, echoing back anything
-// the instruction didn't ask to change - rather than picking from a small
-// set of named operations that could only ever describe "move one class"
-// shaped edits. See NL_EDIT_RESPONSE_SCHEMA's own comment in
-// orbit-worker.js for why that earlier design was too narrow (it had no way
-// to add a bell period, a break time, or a countdown event, and sometimes
-// forced a wrong answer through the nearest verb it did have rather than
-// cleanly saying it couldn't). applyNlEditResult below is the real safety
-// net once a result comes back - the same normalizeSettingsData() every
-// other write path (manual save, AI photo import, backup import) already
-// runs through, never trusting a class key, day/period reference, or time
-// blindly.
+// Sparse patch, not full-state: an earlier revision of this feature had the
+// model echo back the COMPLETE new value of every editable field - classes,
+// weeklySchedule, bellTimes, breakTimes, countdownEvents, reverseWeek -
+// including everything the instruction never asked to touch, copied back
+// verbatim. In practice that occasionally came back with an unrelated class
+// or schedule cell subtly changed - not because the instruction asked for
+// it, but because the model was asked to retype a wall of JSON it had no
+// reason to even be touching, and an LLM copying text it wasn't asked to
+// change is exactly the kind of task where it can drop or mis-type
+// something. applyNlEditResult below now takes a sparse patch instead
+// (classUpserts/deletedClassKeys/scheduleEdits, plus a handful of
+// whole-value fields the model only fills in when it actually changes
+// them - see NL_EDIT_RESPONSE_SCHEMA's own comment in orbit-worker.js) and
+// applies it on top of `current`: anything the patch doesn't mention comes
+// from the app's own existing data, never from the model, so it is
+// structurally impossible for an untouched class or cell to come back
+// different. normalizeSettingsData() is still run over the result before
+// it's ever shown or saved - the same real safety net every other write
+// path (manual save, AI photo import, backup import) already runs through,
+// never trusting a class key, day/period reference, or time blindly.
 import { state } from './state.js';
 import { t } from './strings.js';
 import { isSyncViewer } from './sync.js';
@@ -126,7 +132,10 @@ async function tryNlEditModels(text, context) {
     }
     if (response.ok) {
       const responseData = await response.json();
-      return { ok: true, value: extractJsonObject(responseData.candidates?.[0]?.content?.parts?.[0]?.text) };
+      return {
+        ok: true,
+        value: extractJsonObject(responseData.candidates?.[0]?.content?.parts?.[0]?.text)
+      };
     }
     const errorJson = await response.json().catch(() => ({}));
     const message = errorJson.error?.message || response.statusText;
@@ -182,7 +191,8 @@ async function callNlEditProxy(text, context, status) {
   for (let locationAttempt = 0; ; locationAttempt++) {
     const result = await tryNlEditModels(text, context);
     if (result.ok) return result.value;
-    if (!result.locationBlocked || locationAttempt >= LOCATION_BLOCK_RETRY_LIMIT) throw result.error;
+    if (!result.locationBlocked || locationAttempt >= LOCATION_BLOCK_RETRY_LIMIT)
+      throw result.error;
     status?.(
       `AI 服務因伺服器所在地區限制暫時無法使用（節點：${result.colo}），正在自動重試（第 ${locationAttempt + 2} 次）…`
     );
@@ -197,60 +207,99 @@ async function callNlEditProxy(text, context, status) {
 // exact same normalizeSettingsData() every other write path in this app
 // already trusts for that job.
 function validateNlEditResult(result) {
-  if (!result || typeof result !== 'object') return { valid: false, errors: [t('nlEdit.badResponse')] };
+  if (!result || typeof result !== 'object')
+    return { valid: false, errors: [t('nlEdit.badResponse')] };
   if (!['ok', 'unclear', 'not_found'].includes(result.status)) {
     return { valid: false, errors: [t('nlEdit.badResponse')] };
   }
   if (result.status !== 'ok') return { valid: true, errors: [] };
   const shapeOk =
-    Array.isArray(result.classes) &&
-    result.weeklySchedule &&
-    typeof result.weeklySchedule === 'object' &&
+    Array.isArray(result.classUpserts) &&
+    Array.isArray(result.deletedClassKeys) &&
+    Array.isArray(result.scheduleEdits) &&
+    typeof result.bellTimesChanged === 'boolean' &&
     Array.isArray(result.bellTimes) &&
+    typeof result.breakTimesChanged === 'boolean' &&
     Array.isArray(result.breakTimes) &&
+    typeof result.countdownEventsChanged === 'boolean' &&
     Array.isArray(result.countdownEvents) &&
+    typeof result.reverseWeekChanged === 'boolean' &&
     typeof result.reverseWeek === 'boolean';
   if (!shapeOk) return { valid: false, errors: [t('nlEdit.badResponse')] };
   return { valid: true, errors: [] };
 }
 
-// Turns an already-shape-checked `result` (see validateNlEditResult) into a
+// Turns an already-shape-checked `result` - now a sparse PATCH, not a full
+// next state (see this file's own top-of-file comment and
+// NL_EDIT_RESPONSE_SCHEMA's comment in orbit-worker.js for why) - into a
 // full next settings-data object, built on top of `current` (as
 // settingsDataForExport() sees it) - pure data rearrangement, no DOM, so the
 // caller can diff it with describeSettingsDiff before ever touching the
-// real schedule. Overlays only the fields this feature is allowed to touch
-// (classes -> teacherDB+locationDB, weeklySchedule, bellTimes, breakTimes,
-// countdownEvents, reverseWeek) onto a clone of `current` - style, sync
-// state, and teacherOrder's own existing order all pass through untouched
-// (normalizeSettingsData below preserves teacherOrder's current order for
-// still-existing keys and appends any new ones, rather than reordering
-// everything to match "classes"' own array order).
+// real schedule.
 //
-// The AI manages class keys itself now (see buildNlEditPrompt's own
+// Every class/cell/time/event the patch doesn't mention is carried over
+// from `current` completely untouched - cloneSettingsData deep-clones it
+// first, so nothing here ever re-derives an unmentioned value from
+// anything the model sent. Only classUpserts/deletedClassKeys/
+// scheduleEdits (classes + weeklySchedule) and the four optional
+// whole-value fields (bellTimes/breakTimes/countdownEvents/reverseWeek,
+// each gated by its own *Changed flag - see NL_EDIT_RESPONSE_SCHEMA's own
+// comment) are ever written. style, sync state, and teacherOrder's own
+// existing order all pass through untouched the same way they always did
+// (normalizeSettingsData below preserves teacherOrder's current order for
+// still-existing keys and appends any new ones).
+//
+// The AI manages class keys itself (see buildNlEditPrompt's own
 // explanation: reuse an existing key, invent a short new one for a
 // genuinely new class) - there's no subject-matching reconciliation to do
-// here any more the way the old fixed-verb design needed. Throws (a clear
-// Chinese message) if normalizeSettingsData rejects the result as
-// structurally unsound - the same defensive check AI photo import and
-// manual backup import already run every result through, never trusting a
-// day/period reference, bell time, or class key blindly.
+// here. Throws (a clear Chinese message) if normalizeSettingsData rejects
+// the result as structurally unsound - the same defensive check AI photo
+// import and manual backup import already run every result through, never
+// trusting a day/period reference, bell time, or class key blindly; it's
+// also what quietly drops any weeklySchedule cell still pointing at a
+// deleted class key that the model's own scheduleEdits didn't clear.
 function applyNlEditResult(current, result) {
   const next = cloneSettingsData(current);
-  const teacherDB = {};
-  const locationDB = {};
-  (result.classes || []).forEach(entry => {
+
+  const teacherDB = cloneSettingsData(current.teacherDB || {});
+  const locationDB = cloneSettingsData(current.locationDB || {});
+  (result.classUpserts || []).forEach(entry => {
     const key = String(entry?.key || '').trim();
     if (!key) return;
-    teacherDB[key] = [String(entry.subject || ''), String(entry.teacher || ''), String(entry.location || '')];
+    teacherDB[key] = [
+      String(entry.subject || ''),
+      String(entry.teacher || ''),
+      String(entry.location || '')
+    ];
     locationDB[key] = String(entry.location || '');
+  });
+  (result.deletedClassKeys || []).forEach(rawKey => {
+    const key = String(rawKey || '').trim();
+    if (!key) return;
+    delete teacherDB[key];
+    delete locationDB[key];
   });
   next.teacherDB = teacherDB;
   next.locationDB = locationDB;
-  next.weeklySchedule = result.weeklySchedule;
-  next.bellTimes = result.bellTimes;
-  next.breakTimes = result.breakTimes;
-  next.countdownEvents = result.countdownEvents;
-  next.reverseWeek = result.reverseWeek;
+
+  const weeklySchedule = {};
+  Object.entries(current.weeklySchedule || {}).forEach(([day, periods]) => {
+    weeklySchedule[day] = [...(periods || [])];
+  });
+  (result.scheduleEdits || []).forEach(edit => {
+    const day = String(edit?.day);
+    const period = Number(edit?.period);
+    if (!weeklySchedule[day] || !Number.isInteger(period) || period < 0) return;
+    while (weeklySchedule[day].length <= period) weeklySchedule[day].push('');
+    weeklySchedule[day][period] = String(edit.key || '');
+  });
+  next.weeklySchedule = weeklySchedule;
+
+  if (result.bellTimesChanged) next.bellTimes = result.bellTimes;
+  if (result.breakTimesChanged) next.breakTimes = result.breakTimes;
+  if (result.countdownEventsChanged) next.countdownEvents = result.countdownEvents;
+  if (result.reverseWeekChanged) next.reverseWeek = result.reverseWeek;
+
   return normalizeSettingsData(next);
 }
 

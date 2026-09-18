@@ -17,7 +17,8 @@ beforeAll(async () => {
   vi.stubEnv('VITE_PROXY_URL', BASE_URL);
   seedLocalStorage();
   await loadApp();
-  ({ buildNlEditContext, isNlEditConfigured, submitNlEdit } = await import('../src/editor-nl-edit.js'));
+  ({ buildNlEditContext, isNlEditConfigured, submitNlEdit } =
+    await import('../src/editor-nl-edit.js'));
   ({ state } = await import('../src/state.js'));
 });
 
@@ -34,29 +35,31 @@ function fakeNlEditResponse(json) {
   };
 }
 
-// Full-state, not a fixed verb - see NL_EDIT_RESPONSE_SCHEMA's own comment
-// in orbit-worker.js. `overrides` patches whichever fields a test actually
-// cares about; everything else defaults to an exact echo of the CURRENT
-// live context (buildNlEditContext(), called fresh at okState()'s own call
-// time so it reflects any earlier test in this file that already applied a
-// change) - exactly what the AI is instructed to do for anything the
-// instruction didn't ask to change.
+// Sparse patch, not full-state (see NL_EDIT_RESPONSE_SCHEMA's own comment in
+// orbit-worker.js) - a well-shaped "ok" result that touches nothing at all
+// by default: every list empty, every *Changed flag false. `overrides`
+// patches whichever fields a test actually cares about, exactly the way the
+// real AI response only ever fills in what the instruction asked to change.
 function okState(overrides = {}) {
-  const context = buildNlEditContext();
   return {
     status: 'ok',
     reason: '',
-    classes: context.classes,
-    weeklySchedule: context.weeklySchedule,
-    bellTimes: context.bellTimes,
-    breakTimes: context.breakTimes,
-    countdownEvents: context.countdownEvents,
-    reverseWeek: context.reverseWeek,
+    classUpserts: [],
+    deletedClassKeys: [],
+    scheduleEdits: [],
+    bellTimesChanged: false,
+    bellTimes: [],
+    breakTimesChanged: false,
+    breakTimes: [],
+    countdownEventsChanged: false,
+    countdownEvents: [],
+    reverseWeekChanged: false,
+    reverseWeek: false,
     ...overrides
   };
 }
 
-// okState() with no overrides is an exact echo - a genuine "no change"
+// okState() with no overrides touches nothing - a genuine "no change"
 // result, which shows the single-button info dialog instead of the
 // two-button confirm dialog (see the "reports no change" test below). Tests
 // that don't care what the change actually is, only that a real one
@@ -65,10 +68,9 @@ function okState(overrides = {}) {
 // (day 2, empty in the fixture and left alone by every other test in this
 // file except the ones that explicitly touch it).
 function okChangedState(overrides = {}) {
-  const context = buildNlEditContext();
   return okState({
-    classes: [...context.classes, { key: 'new1', subject: '物理', teacher: '', location: '' }],
-    weeklySchedule: { ...context.weeklySchedule, 2: ['new1'] },
+    classUpserts: [{ key: 'new1', subject: '物理', teacher: '', location: '' }],
+    scheduleEdits: [{ day: 2, period: 0, key: 'new1' }],
     ...overrides
   });
 }
@@ -96,7 +98,7 @@ describe('isNlEditConfigured with a configured proxy', () => {
 });
 
 describe('submitNlEdit - request shape', () => {
-  it('sends only {model, text, context} - the prompt and schema are the proxy\'s job, not the client\'s', async () => {
+  it("sends only {model, text, context} - the prompt and schema are the proxy's job, not the client's", async () => {
     const fetchMock = vi.fn(async (url, options) => {
       expect(url).toBe(PROXY_URL);
       const body = JSON.parse(options.body);
@@ -195,7 +197,9 @@ describe('submitNlEdit - request shape', () => {
           status: 400,
           statusText: 'Bad Request',
           headers: { get: name => (name === 'X-Worker-Colo' ? 'IAD' : null) },
-          json: async () => ({ error: { message: 'User location is not supported for the API use.' } })
+          json: async () => ({
+            error: { message: 'User location is not supported for the API use.' }
+          })
         };
       }
       return fakeNlEditResponse(okChangedState());
@@ -241,9 +245,9 @@ describe('submitNlEdit - first-class failure states', () => {
 
   it('rejects a response missing a required field instead of trusting it blindly', async () => {
     const fetchMock = vi.fn(async () => {
-      const state = okState();
-      delete state.bellTimes; // structurally incomplete
-      return fakeNlEditResponse(state);
+      const body = okState();
+      delete body.scheduleEdits; // structurally incomplete
+      return fakeNlEditResponse(body);
     });
     vi.stubGlobal('fetch', fetchMock);
     const { calls, status } = statusRecorder();
@@ -255,7 +259,9 @@ describe('submitNlEdit - first-class failure states', () => {
 
   it('rejects a content-level malformed result (normalizeSettingsData throws) instead of trusting it blindly', async () => {
     const fetchMock = vi.fn(async () =>
-      fakeNlEditResponse(okState({ bellTimes: [['not', 'a', 'valid', 'range']] }))
+      fakeNlEditResponse(
+        okState({ bellTimesChanged: true, bellTimes: [['not', 'a', 'valid', 'range']] })
+      )
     );
     vi.stubGlobal('fetch', fetchMock);
     const { calls, status } = statusRecorder();
@@ -268,16 +274,7 @@ describe('submitNlEdit - first-class failure states', () => {
 
 describe('submitNlEdit - confirm-before-apply', () => {
   it('never applies the change until the confirm sheet is accepted', async () => {
-    const fetchMock = vi.fn(async () => {
-      const context = buildNlEditContext();
-      const weeklySchedule = { ...context.weeklySchedule, 2: ['new1'] };
-      return fakeNlEditResponse(
-        okState({
-          classes: [...context.classes, { key: 'new1', subject: '物理', teacher: '', location: '' }],
-          weeklySchedule
-        })
-      );
-    });
+    const fetchMock = vi.fn(async () => fakeNlEditResponse(okChangedState()));
     vi.stubGlobal('fetch', fetchMock);
     const { status } = statusRecorder();
     await submitNlEdit('把我週二第一節改成物理', { status });
@@ -291,16 +288,7 @@ describe('submitNlEdit - confirm-before-apply', () => {
   });
 
   it('applies the proposed edit once confirmed', async () => {
-    const fetchMock = vi.fn(async () => {
-      const context = buildNlEditContext();
-      const weeklySchedule = { ...context.weeklySchedule, 2: ['new1'] };
-      return fakeNlEditResponse(
-        okState({
-          classes: [...context.classes, { key: 'new1', subject: '物理', teacher: '', location: '' }],
-          weeklySchedule
-        })
-      );
-    });
+    const fetchMock = vi.fn(async () => fakeNlEditResponse(okChangedState()));
     vi.stubGlobal('fetch', fetchMock);
     const { status } = statusRecorder();
     await submitNlEdit('把我週二第一節改成物理', { status });
@@ -312,7 +300,27 @@ describe('submitNlEdit - confirm-before-apply', () => {
     vi.unstubAllGlobals();
   });
 
-  it('reports "no change" instead of an empty confirm sheet when the AI echoes everything back unchanged', async () => {
+  // A patch entry the model invents for a class/cell nobody asked about
+  // would show up here as an extra line in the diff - this asserts the
+  // *actually applied* result only ever reflects what the fake response
+  // above included, never anything from the client's own unrelated fixture
+  // data (day 1's A/B/C classes, untouched by this instruction).
+  it('never lets an untouched class or cell end up changed', async () => {
+    const fetchMock = vi.fn(async () => fakeNlEditResponse(okChangedState()));
+    vi.stubGlobal('fetch', fetchMock);
+    const before = JSON.parse(JSON.stringify(state.applicationData.weeklySchedule[1]));
+    const beforeTeacherDB = JSON.parse(JSON.stringify(state.applicationData.teacherDB));
+    const { status } = statusRecorder();
+    await submitNlEdit('把我週二第一節改成物理', { status });
+    clickConfirm();
+    expect(state.applicationData.weeklySchedule[1]).toEqual(before);
+    Object.keys(beforeTeacherDB).forEach(key => {
+      expect(state.applicationData.teacherDB[key]).toEqual(beforeTeacherDB[key]);
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it('reports "no change" instead of an empty confirm sheet when the AI patch touches nothing', async () => {
     const fetchMock = vi.fn(async () => fakeNlEditResponse(okState()));
     vi.stubGlobal('fetch', fetchMock);
     const { status } = statusRecorder();
@@ -329,31 +337,39 @@ describe('submitNlEdit - confirm-before-apply', () => {
   it('applies several distinct changes from one multi-part instruction together, including ones the old fixed-verb design could never do', async () => {
     // "把週三第一節改成物理，加一節第四節生物課 11:10-12:00，午休改成 12:00-13:00" -
     // a new class scheduled into a brand-new bell period, plus a break time
-    // edit, all in one instruction/one result. Uses day 3 (untouched by the
-    // earlier tests in this block, which only ever mutate day 2) and its own
-    // key names/bell time, so it can't collide with state those tests already
-    // left behind in the shared, sequentially-mutated state.applicationData.
-    const fetchMock = vi.fn(async () => {
-      const context = buildNlEditContext();
-      return fakeNlEditResponse(
+    // edit, all in one instruction/one sparse patch. Uses day 3 (untouched
+    // by the earlier tests in this block, which only ever mutate day 2) and
+    // its own key names/bell time, so it can't collide with state those
+    // tests already left behind in the shared, sequentially-mutated
+    // state.applicationData.
+    const fetchMock = vi.fn(async () =>
+      fakeNlEditResponse(
         okState({
-          classes: [
-            ...context.classes,
+          classUpserts: [
             { key: 'mp1', subject: '物理', teacher: '', location: '' },
             { key: 'mp2', subject: '生物', teacher: '', location: '' }
           ],
-          weeklySchedule: { ...context.weeklySchedule, 3: ['mp1', '', '', 'mp2'] },
-          bellTimes: [...context.bellTimes, ['11:10', '12:00']],
+          scheduleEdits: [
+            { day: 3, period: 0, key: 'mp1' },
+            { day: 3, period: 3, key: 'mp2' }
+          ],
+          bellTimesChanged: true,
+          bellTimes: [...buildNlEditContext().bellTimes, ['11:10', '12:00']],
+          breakTimesChanged: true,
           breakTimes: [{ name: '午休', start: '12:00', end: '13:00' }]
         })
-      );
-    });
+      )
+    );
     vi.stubGlobal('fetch', fetchMock);
     const { status } = statusRecorder();
     await submitNlEdit('把週三第一節改成物理，加一節生物課，午休改成 12:00-13:00', { status });
     clickConfirm();
-    expect(state.applicationData.teacherDB[state.applicationData.weeklySchedule[3][0]][0]).toBe('物理');
-    expect(state.applicationData.teacherDB[state.applicationData.weeklySchedule[3][3]][0]).toBe('生物');
+    expect(state.applicationData.teacherDB[state.applicationData.weeklySchedule[3][0]][0]).toBe(
+      '物理'
+    );
+    expect(state.applicationData.teacherDB[state.applicationData.weeklySchedule[3][3]][0]).toBe(
+      '生物'
+    );
     expect(state.applicationData.bellTimes).toHaveLength(4);
     expect(state.applicationData.breakTimes).toEqual(
       expect.arrayContaining([{ name: '午休', start: '12:00', end: '13:00' }])

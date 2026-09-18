@@ -692,50 +692,86 @@ const MAX_NL_EDIT_CONTEXT_LENGTH = 40000;
 // the location-block retry's own worst case.
 const NL_EDIT_RATE_LIMIT = 30;
 
-// Full-state, not fixed verbs: earlier revisions of this feature had the
-// model pick from a small set of named operations (setSlot/moveSlot/...),
-// each only able to touch weeklySchedule. That meant any request outside
-// that narrow vocabulary - adding a bell period, a break time, a countdown
-// event, anything not shaped like "move one class" - had nothing valid to
-// map onto, and in practice the model sometimes forced a plausible-looking
-// but wrong answer through the nearest verb it did have (e.g. inventing a
-// period index that doesn't exist) rather than cleanly saying so. This
-// schema instead lets the model read and directly rewrite every editable
-// field at once - classes, weeklySchedule, bellTimes, breakTimes,
-// countdownEvents, reverseWeek - echoing back anything the instruction
-// didn't ask to change exactly as given (see buildNlEditPrompt's own
-// instructions on this). Every field mirrors GEMINI_RESPONSE_SCHEMA's own
-// shapes (see NL_EDIT_CLASS_SCHEMA/GEMINI_BREAK_TIME_SCHEMA/
-// GEMINI_WEEKLY_SCHEDULE_SCHEMA above - classes uses its own schema, not
-// GEMINI_CLASS_SCHEMA directly, see that schema's own comment on why) -
-// both ultimately have to produce something src/editor-backup.js's
-// normalizeSettingsData accepts, so there is one definition of each shape,
-// not two that could drift apart. That function is also the real safety net
-// on the client side once this comes
-// back - same as it already is for AI photo import and manual backup
-// import - so this Worker still never has to parse or judge the content
-// itself, only shape-check what's about to be embedded in the prompt (see
+// /nl-edit's own schedule-cell edit shape: one (day, period, key) triple -
+// see NL_EDIT_RESPONSE_SCHEMA's own comment for why the response describes
+// only the cells that actually change rather than every day's full array.
+const NL_EDIT_SCHEDULE_EDIT_SCHEMA = {
+  type: 'object',
+  properties: {
+    day: { type: 'integer' },
+    period: { type: 'integer' },
+    key: { type: 'string' }
+  },
+  required: ['day', 'period', 'key']
+};
+
+// Sparse patch, not full-state: an earlier revision of this schema had the
+// model echo back the COMPLETE new value of every editable field - classes,
+// weeklySchedule day-by-day, bellTimes, breakTimes, countdownEvents -
+// including everything the instruction never asked to touch, copied back
+// verbatim (see git history for that version, and its own comment on why it
+// replaced an even earlier fixed-verb design). That put "reproduce a few
+// dozen unrelated classes/schedule cells/times byte-for-byte, every single
+// request" on the model's plate as real work in its own right, on top of
+// actually figuring out the edit - and an LLM asked to copy a wall of JSON
+// it has no reason to even be touching is exactly the kind of task where it
+// occasionally drops or mis-types something, showing up as an unrelated,
+// unexplained change in the diff the user is asked to confirm. The fix
+// isn't a stricter prompt asking it to copy more carefully - it's not
+// asking it to copy that data at all: classUpserts/deletedClassKeys/
+// scheduleEdits below only ever contain the classes and schedule cells
+// actually being added, changed, or removed; everything else is taken
+// straight from the client's own current data (see
+// src/editor-nl-edit.js's applyNlEditResult), never retyped by the model,
+// so it is structurally impossible for an untouched class or cell to come
+// back different. bellTimes/breakTimes/countdownEvents/reverseWeek stay
+// whole-value fields (see their own *Changed booleans below) rather than
+// getting the same sparse treatment - each is one short list/value already
+// sitting fully in view (a handful of periods/breaks/events at most), not
+// a few dozen scattered entries, so sparse-patching them would only add
+// complexity without meaningfully lowering the same copy risk; the
+// *Changed flag still means an untouched one is never even asked for.
+// classUpserts reuses NL_EDIT_CLASS_SCHEMA (see that schema's own comment)
+// - the other shapes mirror GEMINI_BREAK_TIME_SCHEMA/
+// GEMINI_COUNTDOWN_EVENTS_SCHEMA above, both of which ultimately have to
+// produce something src/editor-backup.js's normalizeSettingsData accepts,
+// so there is one definition of each shape, not two that could drift
+// apart. That function is also the real safety net on the client side once
+// a patch comes back and gets applied on top of the current data - same as
+// it already is for AI photo import and manual backup import - so this
+// Worker still never has to parse or judge the content itself, only
+// shape-check what's about to be embedded in the prompt (see
 // readNlEditContext below).
 const NL_EDIT_RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
     status: { type: 'string', enum: ['ok', 'unclear', 'not_found'] },
     reason: { type: 'string' },
-    classes: { type: 'array', items: NL_EDIT_CLASS_SCHEMA },
-    weeklySchedule: GEMINI_WEEKLY_SCHEDULE_SCHEMA,
+    classUpserts: { type: 'array', items: NL_EDIT_CLASS_SCHEMA },
+    deletedClassKeys: { type: 'array', items: { type: 'string' } },
+    scheduleEdits: { type: 'array', items: NL_EDIT_SCHEDULE_EDIT_SCHEMA },
+    bellTimesChanged: { type: 'boolean' },
     bellTimes: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
+    breakTimesChanged: { type: 'boolean' },
     breakTimes: { type: 'array', items: GEMINI_BREAK_TIME_SCHEMA },
+    countdownEventsChanged: { type: 'boolean' },
     countdownEvents: GEMINI_COUNTDOWN_EVENTS_SCHEMA,
+    reverseWeekChanged: { type: 'boolean' },
     reverseWeek: { type: 'boolean' }
   },
   required: [
     'status',
     'reason',
-    'classes',
-    'weeklySchedule',
+    'classUpserts',
+    'deletedClassKeys',
+    'scheduleEdits',
+    'bellTimesChanged',
     'bellTimes',
+    'breakTimesChanged',
     'breakTimes',
+    'countdownEventsChanged',
     'countdownEvents',
+    'reverseWeekChanged',
     'reverseWeek'
   ]
 };
@@ -746,51 +782,54 @@ const NL_EDIT_RESPONSE_SCHEMA = {
 // generateContent call has nowhere else to put it, and it's already small
 // (see MAX_NL_EDIT_CONTEXT_LENGTH).
 function buildNlEditPrompt(text, context) {
-  return `You read a Traditional Chinese natural-language instruction about a weekly class schedule and return the COMPLETE new state of every editable field, with only what the instruction actually asks for changed. Return a single JSON object matching this exact schema:
+  return `You read a Traditional Chinese natural-language instruction about a weekly class schedule and return ONLY a sparse patch describing the classes/schedule cells/settings that actually change - never the whole schedule, never anything the instruction didn't ask about. Return a single JSON object matching this exact schema:
 {
   "status": "ok",
   "reason": "",
-  "classes": [{"key": "A", "subject": "物理", "teacher": "", "location": ""}],
-  "weeklySchedule": {"1": ["A", "", ""]},
-  "bellTimes": [["08:00", "08:50"]],
-  "breakTimes": [{"name": "打掃時間", "start": "08:50", "end": "09:10"}],
-  "countdownEvents": [{"name": "期末考", "startDate": "2026-01-10", "endDate": "2026-01-12"}],
+  "classUpserts": [{"key": "A", "subject": "物理", "teacher": "", "location": ""}],
+  "deletedClassKeys": [],
+  "scheduleEdits": [{"day": 1, "period": 2, "key": "A"}],
+  "bellTimesChanged": false,
+  "bellTimes": [],
+  "breakTimesChanged": false,
+  "breakTimes": [],
+  "countdownEventsChanged": false,
+  "countdownEvents": [],
+  "reverseWeekChanged": false,
   "reverseWeek": false
 }
 
-The current data, given as read-only context - this is the exact shape "classes"/"weeklySchedule"/"bellTimes"/"breakTimes"/"countdownEvents"/"reverseWeek" below must also be returned in:
+The current data, given as read-only context so you know what already exists and can decide what to change - do NOT copy any of it back into your result, only refer to it by key/day/period:
 ${JSON.stringify(context)}
 
-Field shapes and meaning (identical between the context you're given and the result you return):
-- "classes": every currently defined course, as {key, subject, teacher, location} - all four fields are required on every entry, always. For a course the instruction doesn't touch, copy its teacher and location EXACTLY as given in the context, even if that means an empty string "" (never drop the field and never invent a value) - the same rule as every other untouched field. "key" is an internal id, not shown to the user - reuse a class's EXISTING key unchanged whenever you keep referring to the same course (even if you rename its subject/teacher/location), so weeklySchedule references to it stay valid. For a genuinely NEW course the instruction adds, invent a short new key not already used by any class in "classes" (e.g. "new1", "new2", ...); leave teacher/location as "" if the instruction didn't specify them. Defining a new course is a complete, valid request entirely on its own even when the instruction never says where to schedule it (e.g. "新增一個課程叫社團活動", "幫我建一個王老師教的數學課" with no day/period mentioned) - in that case just add the entry to "classes" with a new key and leave "weeklySchedule" completely untouched; never invent a day/period for it just because a course needs one eventually - the user places it into a slot themselves afterward. A course no longer needed anywhere can simply be left out of the returned "classes" - just make sure "weeklySchedule" no longer references its key anywhere either.
-- "weeklySchedule": maps a day number (see day numbering below) to an array of class keys, one per period in bellTimes' order - an empty string means that period is free that day. A day's array may be shorter than "bellTimes" (a missing trailing entry means free, same as an explicit "") - it never needs padding just to reach full length.
-- "bellTimes": the list of [start, end] 24-hour time strings ("HH:MM"), one per period, in the same order/index every "weeklySchedule" day array uses. Adding a period means appending a new [start, end] pair (and giving it something to contain in "weeklySchedule" wherever relevant); removing a period means deleting its pair AND removing/shifting every "weeklySchedule" reference to it and to every later period, so indices still line up correctly afterward; editing a period's time in place doesn't change any index.
-- "breakTimes": named special/break times (e.g. 午休, 打掃時間, 就寢時間) as {name, start, end} ("HH:MM" each) - independent of "bellTimes"/"weeklySchedule", not tied to a period index at all. Add, edit, or remove entries directly.
-- "countdownEvents": named date-range events (e.g. 段考, 校慶) as {name, startDate, endDate} ("YYYY-MM-DD" each, the same day for a single-day event). Add, edit, or remove entries directly.
-- "reverseWeek": whether this week is treated as the "reversed" one of the 單/雙週 (odd/even week) split described next - true or false.
+THE SINGLE MOST IMPORTANT RULE: this is a PATCH, not a copy of the schedule. List a class in "classUpserts" only if you are adding it or changing one of its fields; list a key in "deletedClassKeys" only if the instruction removes that class entirely; list an entry in "scheduleEdits" only for a (day, period) cell whose class actually changes. Never include a class, cell, break time, or countdown event just because it already exists - every one the instruction doesn't touch must be left out of the result entirely, never repeated back. This is also why "bellTimesChanged"/"breakTimesChanged"/"countdownEventsChanged"/"reverseWeekChanged" exist: leave the flag false (and its matching field empty/false) whenever the instruction doesn't touch that field at all; set the flag true, and only then fill in the field, when it does. The result is shown to the user as a diff against the current data before anything is saved, so anything you include here that the instruction didn't actually ask for shows up as a confusing, unwanted line in that diff.
 
-單雙週分堂課 (odd/even-week split classes): ONE class entry can alternate between two different subject/teacher pairs depending on whether the real-world week is 單週 (odd) or 雙週 (even) - this is not two separate classes in "classes" and not two entries in "weeklySchedule", it is a single entry whose "subject" and/or "teacher" string is written as "單週內容/雙週內容", the two halves joined by a "/" (a full-width "／" means the same thing - normalize it to "/"). Example: {"subject": "國文/公民", "teacher": "李老師/陳老師"} is one slot that shows 國文 taught by 李老師 on 單週 weeks and 公民 taught by 陳老師 on 雙週 weeks; "location" is never split this way, it's the same room either week. Recognizing, creating, and editing these:
-  - An existing class already has this split if its subject or teacher contains "/". The part before "/" is what shows on 單週, the part after is 雙週.
-  - To turn an existing single-subject class into a split one (e.g. "週三第二節國文，改成單週上國文、雙週上公民" or "幫我把這堂課弄成單雙週，雙週改成地理" where only one side is named and the other should stay what it already was), join the 單週 content and 雙週 content with "/" in whichever of subject/teacher actually changes - leave the other field a plain unsplit value if it doesn't alternate (e.g. same teacher both weeks).
-  - To create a brand-new split class from scratch (e.g. "新增一節課，單週英文王老師、雙週美術林老師"), it works exactly like creating any new course (see "classes" above), just with "/"-joined subject/teacher instead of plain ones.
-  - To edit only one side of an already-split class (e.g. "雙週那半改成地理" or "單週的公民老師換成陳老師"), keep the untouched side's text exactly as it already was in context and only replace the named side - this is still "only change what's asked", just scoped to half of one field instead of the whole thing.
-  - To un-split one back into a single subject/teacher for every week (e.g. "OO老師的課取消單雙週，都固定上物理"), replace the whole "/"-joined string with the one value that now applies always.
+Field shapes and meaning:
+- "classUpserts": one entry per class being added or changed, as {key, subject, teacher, location} - all four fields are required on every entry you DO include (adding or changing a class replaces that whole entry, so if only the teacher changes, still repeat that same class's existing subject/location unchanged inside this one entry - never touch any other class just to do that). "key" is an internal id, not shown to the user - reuse a class's EXISTING key (from the context above) whenever you're changing that same course, even if you rename its subject/teacher/location, so "scheduleEdits" references to it stay valid. For a genuinely NEW course, invent a short new key not already used by any class in the context (e.g. "new1", "new2", ...); leave teacher/location as "" if the instruction didn't specify them. Defining a new course is a complete, valid request entirely on its own even when the instruction never says where to schedule it (e.g. "新增一個課程叫社團活動", "幫我建一個王老師教的數學課" with no day/period mentioned) - in that case just add it to "classUpserts" with a new key and leave "scheduleEdits" empty; never invent a day/period for it just because a course needs one eventually - the user places it into a slot themselves afterward.
+- "deletedClassKeys": keys (from the context above) of classes the instruction removes entirely. Also add a "scheduleEdits" entry with "key": "" for every cell in the context that still references a deleted key, so nothing is left pointing at a class that no longer exists.
+- "scheduleEdits": one entry per (day, period) cell whose class actually changes, as {day, period, key} - "key": "" clears that period (makes it free that day). Only list a cell here if the class it should now hold is different from what the context above already shows there. Moving a class is two entries (clear its old cell, set its new one); swapping two classes is two entries (each cell gets the other's key).
+- "bellTimes"/"breakTimes"/"countdownEvents"/"reverseWeek": each has a matching *Changed boolean (see above). When the instruction adds, removes, or edits ANY period/break/event/the odd-even split, set that one flag true and give the COMPLETE new value of that whole field, in order (not a partial patch within it) - e.g. adding one bell period still means the complete "bellTimes" array including the new one; adding one break time still means the complete "breakTimes" array including the new one, and so on. "bellTimes" is the list of [start, end] 24-hour time strings ("HH:MM"), one per period, in the same order "scheduleEdits"' period numbers use. Adding a period means appending a new [start, end] pair; removing or reordering a period shifts every later period's index - when that happens, also add "scheduleEdits" entries for whatever classes sat in those later periods, moving each to its new index (and clearing its old one), so nothing silently ends up in the wrong period. "breakTimes" is named special/break times (e.g. 午休, 打掃時間, 就寢時間) as {name, start, end} - independent of "bellTimes"/the schedule, not tied to any period index. "countdownEvents" is named date-range events (e.g. 段考, 校慶) as {name, startDate, endDate} ("YYYY-MM-DD" each, the same day for a single-day event).
 
-Day numbering: 0 = 週日, 1 = 週一, 2 = 週二, 3 = 週三, 4 = 週四, 5 = 週五, 6 = 週六 (matches JavaScript's Date.getDay(), the same numbering weeklySchedule's own keys already use).
+單雙週分堂課 (odd/even-week split classes): ONE class entry can alternate between two different subject/teacher pairs depending on whether the real-world week is 單週 (odd) or 雙週 (even) - this is a single "classUpserts" entry (never two, and never two "scheduleEdits" cells) whose "subject" and/or "teacher" string is written as "單週內容/雙週內容", the two halves joined by a "/" (a full-width "／" means the same thing - normalize it to "/"). Example: {"subject": "國文/公民", "teacher": "李老師/陳老師"} is one slot that shows 國文 taught by 李老師 on 單週 weeks and 公民 taught by 陳老師 on 雙週 weeks; "location" is never split this way, it's the same room either week. Recognizing, creating, and editing these:
+  - An existing class already has this split if its subject or teacher (in the context above) contains "/". The part before "/" is what shows on 單週, the part after is 雙週.
+  - To turn an existing single-subject class into a split one (e.g. "週三第二節國文，改成單週上國文、雙週上公民" or "幫我把這堂課弄成單雙週，雙週改成地理" where only one side is named and the other should stay what it already was), add ONE "classUpserts" entry reusing that class's existing key, joining the 單週 content and 雙週 content with "/" in whichever of subject/teacher actually alternates - leave the other field its existing plain unsplit value if it doesn't alternate (e.g. same teacher both weeks).
+  - To create a brand-new split class from scratch (e.g. "新增一節課，單週英文王老師、雙週美術林老師"), it works exactly like creating any new course (see "classUpserts" above), just with "/"-joined subject/teacher instead of plain ones.
+  - To edit only one side of an already-split class (e.g. "雙週那半改成地理" or "單週的公民老師換成陳老師"), the "classUpserts" entry's untouched side must repeat that side's text exactly as it already was in context, only the named side actually changes - this is still "only change what's asked", just scoped to half of one field inside one entry rather than the whole field.
+  - To un-split one back into a single subject/teacher for every week (e.g. "OO老師的課取消單雙週，都固定上物理"), the "classUpserts" entry replaces the whole "/"-joined string with the one value that now applies always.
+
+Day numbering: 0 = 週日, 1 = 週一, 2 = 週二, 3 = 週三, 4 = 週四, 5 = 週五, 6 = 週六 (matches JavaScript's Date.getDay(), the same numbering the context's own weeklySchedule keys use).
 Period numbering: 0-based, matching the index into a weeklySchedule day array and into bellTimes (period 0 is 第一節, period 1 is 第二節, and so on).
 
 The instruction to translate: "${text}"
 
-THE SINGLE MOST IMPORTANT RULE: only change what the instruction actually asks for. Every field, and everything inside every field, that the instruction doesn't mention must come back EXACTLY as given in the context above - same keys, same order, same values, byte-for-byte. Do not reformat, reorder, rename, "clean up", or fill in anything the instruction didn't ask about. The result is shown to the user as a diff against the given context before anything is saved, so an unrelated change here shows up as a confusing, unwanted line in that diff.
-
-Read the instruction the way a colleague would, not a compiler: it may be indirect, colloquial, or point at its target through context instead of naming it outright - e.g. "把國文課挪到早自習後面" means move it to whichever period immediately follows whatever's named/labeled 早自習 in the given data; "這兩堂對調" without the word "交換" still means swap them; "把雙週那半改掉" implicitly means the class in question already has a 單/雙週 split (see above) and only that half changes. Work out the concrete edit a reasonable teacher would mean from the wording and the context you were given, rather than requiring the instruction to spell out mechanics literally. This reasoning is about READING the instruction, not about inventing content: still never invent a day, period, subject, teacher, location, time, or event that neither the instruction nor the given context actually supports.
+Read the instruction the way a colleague would, not a compiler: it may be indirect, colloquial, or point at its target through context instead of naming it outright - e.g. "把國文課挪到早自習後面" means move it to whichever period immediately follows whatever's named/labeled 早自習 in the given context; "這兩堂對調" without the word "交換" still means swap them; "把雙週那半改掉" implicitly means the class in question already has a 單/雙週 split (see above) and only that half changes. Work out the concrete edit a reasonable teacher would mean from the wording and the context you were given, rather than requiring the instruction to spell out mechanics literally. This reasoning is about READING the instruction, not about inventing content: still never invent a day, period, subject, teacher, location, time, or event that neither the instruction nor the given context actually supports.
 
 Decide "status":
-- "ok": the instruction maps cleanly onto a change (or several - see below) to the data above, using only days/periods/classes/times that make sense given the context (and, for a multi-part instruction, given the effect of any earlier part already applied - e.g. moving a class out of a slot and then putting a different class into that now-empty slot is a perfectly ordinary two-part instruction, not a conflict).
-- "unclear": after actually reasoning through the wording and context as above, the instruction (or any part of it, if it describes several changes) still has multiple equally plausible readings with nothing to prefer one over another, is contradictory, or does not describe an edit to this data at all. This is not the same as "phrased indirectly" - reserve "unclear" for genuine ambiguity, not for instructions that merely require a little inference to resolve. Return every field exactly as given in the context (i.e. no actual change). Briefly explain why in "reason" (Traditional Chinese, one short sentence).
-- "not_found": the instruction is clear about what it wants, but names a day, period, class, break time, or countdown event that does not exist in the given context at the point it's referenced. Return every field exactly as given in the context. Briefly explain in "reason" (Traditional Chinese, one short sentence).
+- "ok": the instruction maps cleanly onto a change (or several - see below) to the data above, using only days/periods/classes/times that make sense given the context (and, for a multi-part instruction, given the effect of any earlier part already applied - e.g. moving a class out of a slot and then putting a different class into that now-empty slot is a perfectly ordinary two-part instruction, not a conflict). Fill in only whichever of "classUpserts"/"deletedClassKeys"/"scheduleEdits"/the four *Changed fields the patch actually needs - leave every other field/flag empty/false.
+- "unclear": after actually reasoning through the wording and context as above, the instruction (or any part of it, if it describes several changes) still has multiple equally plausible readings with nothing to prefer one over another, is contradictory, or does not describe an edit to this data at all. This is not the same as "phrased indirectly" - reserve "unclear" for genuine ambiguity, not for instructions that merely require a little inference to resolve. Leave every field/flag empty/false (i.e. no actual change). Briefly explain why in "reason" (Traditional Chinese, one short sentence).
+- "not_found": the instruction is clear about what it wants, but names a day, period, class, break time, or countdown event that does not exist in the given context at the point it's referenced. Leave every field/flag empty/false. Briefly explain in "reason" (Traditional Chinese, one short sentence).
 
-A single instruction may describe more than one distinct change (e.g. joined by "而且"/"然後"/"，"/"、", or a numbered/bulleted list) - apply all of them together in the one result you return, same as if each had been requested separately in order. If any one part is ambiguous or refers to something that doesn't exist, treat the WHOLE instruction as "unclear"/"not_found" rather than silently applying only the parts that made sense.
+A single instruction may describe more than one distinct change (e.g. joined by "而且"/"然後"/"，"/"、", or a numbered/bulleted list) - apply all of them together in the one result you return (e.g. several "scheduleEdits" entries, or a "classUpserts" entry alongside a "scheduleEdits" entry), same as if each had been requested separately in order. If any one part is ambiguous or refers to something that doesn't exist, treat the WHOLE instruction as "unclear"/"not_found" rather than silently applying only the parts that made sense.
 
 Return ONLY the raw JSON object — no markdown fences, no comments, no extra text.`;
 }

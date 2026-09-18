@@ -4,10 +4,10 @@ import { seedLocalStorage } from './helpers/fixtureData.js';
 
 // Pure-logic pieces of the natural-language schedule edit feature -
 // building the context sent to the proxy, cheaply shape-checking whatever
-// comes back, and turning an already-shape-checked result into a proposed
-// next settings-data object (the real content-level safety net, since this
-// runs the result through the exact same normalizeSettingsData() every
-// other write path in this app already trusts). None of this needs a
+// comes back, and turning an already-shape-checked sparse PATCH into a
+// proposed next settings-data object (the real content-level safety net,
+// since this runs the result through the exact same normalizeSettingsData()
+// every other write path in this app already trusts). None of this needs a
 // configured proxy or a network call - see editor-nl-edit-proxy.test.js for
 // the end-to-end request/confirm flow.
 let applyNlEditResult;
@@ -63,12 +63,21 @@ describe('validateNlEditResult', () => {
     expect(validateNlEditResult({ status: 'not_found', reason: '沒有這堂課' }).valid).toBe(true);
   });
 
+  // A patch that touches nothing - every array empty, every *Changed flag
+  // false - is still a well-shaped "ok" result (it just means "no change",
+  // handled by showNlEditConfirm's own describeSettingsDiff check, not by
+  // shape validation).
   const okFields = () => ({
-    classes: [],
-    weeklySchedule: {},
+    classUpserts: [],
+    deletedClassKeys: [],
+    scheduleEdits: [],
+    bellTimesChanged: false,
     bellTimes: [],
+    breakTimesChanged: false,
     breakTimes: [],
+    countdownEventsChanged: false,
     countdownEvents: [],
+    reverseWeekChanged: false,
     reverseWeek: false
   });
 
@@ -83,17 +92,23 @@ describe('validateNlEditResult', () => {
       expect(validateNlEditResult({ status: 'ok', ...fields }).valid).toBe(false);
     }
     expect(
-      validateNlEditResult({ status: 'ok', ...okFields(), classes: 'not an array' }).valid
+      validateNlEditResult({ status: 'ok', ...okFields(), classUpserts: 'not an array' }).valid
     ).toBe(false);
     expect(
       validateNlEditResult({ status: 'ok', ...okFields(), reverseWeek: 'not a boolean' }).valid
+    ).toBe(false);
+    expect(
+      validateNlEditResult({ status: 'ok', ...okFields(), bellTimesChanged: 'not a boolean' }).valid
     ).toBe(false);
   });
 });
 
 // Every test below builds its own minimal currentData rather than sharing
 // one fixture - keeps each test's starting point obvious from reading it
-// alone.
+// alone. patch() fills in every field a well-shaped "ok" patch needs,
+// letting each test override only the ones it actually cares about - the
+// same "only what changed" shape applyNlEditResult itself now expects from
+// the real AI response.
 function makeCurrentData(overrides) {
   return JSON.parse(
     JSON.stringify({
@@ -113,88 +128,141 @@ function makeCurrentData(overrides) {
     })
   );
 }
+function patch(overrides) {
+  return {
+    classUpserts: [],
+    deletedClassKeys: [],
+    scheduleEdits: [],
+    bellTimesChanged: false,
+    bellTimes: [],
+    breakTimesChanged: false,
+    breakTimes: [],
+    countdownEventsChanged: false,
+    countdownEvents: [],
+    reverseWeekChanged: false,
+    reverseWeek: false,
+    ...overrides
+  };
+}
 
 describe('applyNlEditResult', () => {
-  it('sets a class into a slot, reusing the existing key the AI echoed back', () => {
+  it('sets an existing class into a slot via a single scheduleEdits entry, without touching classUpserts', () => {
     const currentData = makeCurrentData();
-    const next = applyNlEditResult(currentData, {
-      classes: [{ key: 'A', subject: '數學', teacher: '王老師', location: '101' }],
-      weeklySchedule: { 0: [], 1: ['A'], 2: ['A'], 3: [], 4: [], 5: [], 6: [] },
-      bellTimes: currentData.bellTimes,
-      breakTimes: [],
-      countdownEvents: [],
-      reverseWeek: false
-    });
+    const next = applyNlEditResult(
+      currentData,
+      patch({ scheduleEdits: [{ day: 2, period: 0, key: 'A' }] })
+    );
     expect(next.weeklySchedule[2][0]).toBe('A');
     expect(next.teacherDB.A).toEqual(['數學', '王老師', '101']);
   });
 
-  it('creates a brand-new class the AI invented a new key for', () => {
+  it('creates a brand-new class the AI invented a new key for, via classUpserts + scheduleEdits', () => {
     const currentData = makeCurrentData();
-    const next = applyNlEditResult(currentData, {
-      classes: [
-        { key: 'A', subject: '數學', teacher: '王老師', location: '101' },
-        { key: 'new1', subject: '物理', teacher: '', location: '' }
-      ],
-      weeklySchedule: { 0: [], 1: ['A'], 2: ['new1'], 3: [], 4: [], 5: [], 6: [] },
-      bellTimes: currentData.bellTimes,
-      breakTimes: [],
-      countdownEvents: [],
-      reverseWeek: false
-    });
+    const next = applyNlEditResult(
+      currentData,
+      patch({
+        classUpserts: [{ key: 'new1', subject: '物理', teacher: '', location: '' }],
+        scheduleEdits: [{ day: 2, period: 0, key: 'new1' }]
+      })
+    );
     expect(next.weeklySchedule[2][0]).toBe('new1');
     expect(next.teacherDB.new1[0]).toBe('物理');
+    // The untouched pre-existing class is carried over unchanged, even
+    // though this patch never mentioned it.
+    expect(next.teacherDB.A).toEqual(['數學', '王老師', '101']);
   });
 
-  it('drops a class no longer referenced anywhere when the AI omits it from classes', () => {
+  it('drops a class via deletedClassKeys, without the patch having to repeat any other class', () => {
     const currentData = makeCurrentData({
       teacherDB: { A: ['數學', '王老師', '101'], B: ['英文', '林老師', '103'] },
       teacherOrder: ['A', 'B'],
       locationDB: { A: '101', B: '103' },
       weeklySchedule: { 0: [], 1: ['A', 'B'], 2: [], 3: [], 4: [], 5: [], 6: [] }
     });
-    const next = applyNlEditResult(currentData, {
-      classes: [{ key: 'A', subject: '數學', teacher: '王老師', location: '101' }],
-      weeklySchedule: { 0: [], 1: ['A', ''], 2: [], 3: [], 4: [], 5: [], 6: [] },
-      bellTimes: currentData.bellTimes,
-      breakTimes: [],
-      countdownEvents: [],
-      reverseWeek: false
-    });
+    const next = applyNlEditResult(
+      currentData,
+      patch({
+        deletedClassKeys: ['B'],
+        scheduleEdits: [{ day: 1, period: 1, key: '' }]
+      })
+    );
     expect(next.teacherDB.B).toBeUndefined();
+    expect(next.teacherDB.A).toEqual(['數學', '王老師', '101']);
     expect(next.weeklySchedule[1]).toEqual(['A', '']);
+  });
+
+  it('quietly clears any leftover schedule cell pointing at a deleted key, even if the patch forgot to', () => {
+    const currentData = makeCurrentData({
+      teacherDB: { A: ['數學', '王老師', '101'], B: ['英文', '林老師', '103'] },
+      teacherOrder: ['A', 'B'],
+      locationDB: { A: '101', B: '103' },
+      weeklySchedule: { 0: [], 1: ['A', 'B'], 2: [], 3: [], 4: [], 5: [], 6: [] }
+    });
+    // deletedClassKeys names B, but scheduleEdits (unlike a well-behaved AI
+    // response) never clears day 1 period 1 - normalizeSettingsData is the
+    // real safety net that keeps this from leaving a dangling reference.
+    const next = applyNlEditResult(currentData, patch({ deletedClassKeys: ['B'] }));
+    expect(next.teacherDB.B).toBeUndefined();
+    expect(next.weeklySchedule[1]).not.toContain('B');
+  });
+
+  it('leaves every class/cell the patch never mentions completely untouched', () => {
+    const currentData = makeCurrentData({
+      teacherDB: { A: ['數學', '王老師', '101'], B: ['英文', '林老師', '103'] },
+      teacherOrder: ['A', 'B'],
+      locationDB: { A: '101', B: '103' },
+      weeklySchedule: { 0: [], 1: ['A', 'B'], 2: [], 3: [], 4: [], 5: [], 6: [] }
+    });
+    // A patch that only touches day 2 - day 1's A/B classes and cells are
+    // never named anywhere in it.
+    const next = applyNlEditResult(
+      currentData,
+      patch({
+        classUpserts: [{ key: 'new1', subject: '物理', teacher: '', location: '' }],
+        scheduleEdits: [{ day: 2, period: 0, key: 'new1' }]
+      })
+    );
+    expect(next.weeklySchedule[1]).toEqual(['A', 'B']);
+    expect(next.teacherDB.A).toEqual(['數學', '王老師', '101']);
+    expect(next.teacherDB.B).toEqual(['英文', '林老師', '103']);
   });
 
   it('adds a new bell period alongside a class scheduled into it', () => {
     const currentData = makeCurrentData();
-    const next = applyNlEditResult(currentData, {
-      classes: [
-        { key: 'A', subject: '數學', teacher: '王老師', location: '101' },
-        { key: 'new1', subject: '生物', teacher: '林老師', location: '' }
-      ],
-      weeklySchedule: { 0: [], 1: ['A', 'new1'], 2: [], 3: [], 4: [], 5: [], 6: [] },
-      bellTimes: [
-        ['08:00', '08:50'],
-        ['09:10', '10:00']
-      ],
-      breakTimes: [],
-      countdownEvents: [],
-      reverseWeek: false
-    });
+    const next = applyNlEditResult(
+      currentData,
+      patch({
+        classUpserts: [{ key: 'new1', subject: '生物', teacher: '林老師', location: '' }],
+        scheduleEdits: [{ day: 1, period: 1, key: 'new1' }],
+        bellTimesChanged: true,
+        bellTimes: [
+          ['08:00', '08:50'],
+          ['09:10', '10:00']
+        ]
+      })
+    );
     expect(next.bellTimes).toHaveLength(2);
     expect(next.weeklySchedule[1][1]).toBe('new1');
   });
 
+  it('leaves bellTimes untouched when bellTimesChanged is false, even if the field carries a stray value', () => {
+    const currentData = makeCurrentData();
+    const next = applyNlEditResult(
+      currentData,
+      patch({ bellTimesChanged: false, bellTimes: [['not', 'used']] })
+    );
+    expect(next.bellTimes).toEqual([['08:00', '08:50']]);
+  });
+
   it('adds a new break time directly, independent of weeklySchedule', () => {
     const currentData = makeCurrentData();
-    const next = applyNlEditResult(currentData, {
-      classes: currentData.teacherOrder.map(key => ({ key, ...zip(currentData.teacherDB[key]) })),
-      weeklySchedule: currentData.weeklySchedule,
-      bellTimes: currentData.bellTimes,
-      breakTimes: [{ name: '午休', start: '12:00', end: '13:00' }],
-      countdownEvents: [],
-      reverseWeek: false
-    });
+    const next = applyNlEditResult(
+      currentData,
+      patch({
+        breakTimesChanged: true,
+        breakTimes: [{ name: '午休', start: '12:00', end: '13:00' }]
+      })
+    );
     // normalizeSettingsData's sanitizeBreakTimes may also auto-merge in a
     // default break time that happens not to conflict (see
     // test/helpers/fixtureData.js's own comment on this) - only assert the
@@ -206,45 +274,43 @@ describe('applyNlEditResult', () => {
 
   it('adds a new countdown event directly', () => {
     const currentData = makeCurrentData();
-    const next = applyNlEditResult(currentData, {
-      classes: currentData.teacherOrder.map(key => ({ key, ...zip(currentData.teacherDB[key]) })),
-      weeklySchedule: currentData.weeklySchedule,
-      bellTimes: currentData.bellTimes,
-      breakTimes: [],
-      countdownEvents: [{ name: '期末考', startDate: '2026-01-10', endDate: '2026-01-12' }],
-      reverseWeek: false
-    });
-    expect(next.countdownEvents).toEqual([{ name: '期末考', startDate: '2026-01-10', endDate: '2026-01-12' }]);
+    const next = applyNlEditResult(
+      currentData,
+      patch({
+        countdownEventsChanged: true,
+        countdownEvents: [{ name: '期末考', startDate: '2026-01-10', endDate: '2026-01-12' }]
+      })
+    );
+    expect(next.countdownEvents).toEqual([
+      { name: '期末考', startDate: '2026-01-10', endDate: '2026-01-12' }
+    ]);
   });
 
   it('flips reverseWeek directly', () => {
     const currentData = makeCurrentData({ reverseWeek: false });
-    const next = applyNlEditResult(currentData, {
-      classes: currentData.teacherOrder.map(key => ({ key, ...zip(currentData.teacherDB[key]) })),
-      weeklySchedule: currentData.weeklySchedule,
-      bellTimes: currentData.bellTimes,
-      breakTimes: [],
-      countdownEvents: [],
-      reverseWeek: true
-    });
+    const next = applyNlEditResult(
+      currentData,
+      patch({ reverseWeekChanged: true, reverseWeek: true })
+    );
     expect(next.reverseWeek).toBe(true);
+  });
+
+  it('leaves reverseWeek untouched when reverseWeekChanged is false', () => {
+    const currentData = makeCurrentData({ reverseWeek: false });
+    const next = applyNlEditResult(
+      currentData,
+      patch({ reverseWeekChanged: false, reverseWeek: true })
+    );
+    expect(next.reverseWeek).toBe(false);
   });
 
   it('throws a clear error when the returned data is structurally unsound', () => {
     const currentData = makeCurrentData();
     expect(() =>
-      applyNlEditResult(currentData, {
-        classes: [{ key: 'A', subject: '數學', teacher: '', location: '' }],
-        weeklySchedule: currentData.weeklySchedule,
-        bellTimes: [['not', 'a', 'valid', 'time', 'range']], // malformed - not [start, end]
-        breakTimes: [],
-        countdownEvents: [],
-        reverseWeek: false
-      })
+      applyNlEditResult(
+        currentData,
+        patch({ bellTimesChanged: true, bellTimes: [['not', 'a', 'valid', 'time', 'range']] })
+      )
     ).toThrow();
   });
 });
-
-function zip([subject, teacher, location]) {
-  return { subject, teacher, location };
-}
