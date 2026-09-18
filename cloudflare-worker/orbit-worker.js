@@ -31,6 +31,14 @@
 //                            handful of times a day by Match Find's own
 //                            scheduled build, never per visitor - see "====
 //                            /match-recommend" below.
+//   POST      /match-recommend-refine - a small, rare follow-up to
+//                            /match-recommend for fixtures that came out
+//                            genuinely contesting the same slot on the
+//                            first pass - the only route in this file
+//                            allowed to reach for a Pro-tier model, and
+//                            only for a handful of fixtures a day, never
+//                            the full list - see "==== /match-recommend"
+//                            below.
 //
 // /sync and /vocab-sync both hold a Firebase service-account key
 // server-side and proxy Firestore, so the pairing code isn't the only thing
@@ -1186,6 +1194,32 @@ const MATCH_RECOMMEND_RATE_LIMIT = 20;
 const MATCH_RECOMMEND_MAX_ITEMS = 80;
 const MATCH_RECOMMEND_MAX_FIELD_LEN = 160;
 
+// /match-recommend-refine - a SEPARATE, small-volume route Match Find only
+// calls for a handful of genuinely contested fixtures a day (see that
+// repo's build-data.mjs "contested cluster" detection), never the full
+// day's fixture list - so it's the one place in this whole file that's
+// deliberately allowed to reach for a more capable (and far more
+// rate-limited) Pro-tier model instead of staying on the Flash tier
+// everything else here uses. Free-tier Pro quota is commonly two orders of
+// magnitude smaller than Flash's (roughly 100/day vs several hundred-to-
+// thousand, and shared across EVERY feature this Worker serves, not just
+// this route) - spending it on every fixture Match Find fetches would
+// starve /gemini and /vocab-ai's own Pro-tier needs (if they ever have
+// any) for no real benefit, since most fixtures were never a close call to
+// begin with. Neither exact Pro-tier model name below has been verified
+// live the way MATCH_RECOMMEND_MODELS' flash models have (no Pro-tier
+// route existed to test against before this one) - both are tried, in
+// order, before falling back to the one model this file already knows
+// works, so a wrong guess here degrades to "no smarter than usual" rather
+// than failing the request outright.
+const MATCH_RECOMMEND_REFINE_MODELS = ['gemini-3.7-pro', 'gemini-3.5-pro', 'gemini-3.7-flash'];
+const MATCH_RECOMMEND_REFINE_RATE_LIMIT = 10;
+// A "cluster" of fixtures genuinely contesting the same slot is small by
+// nature (rarely more than 3-4 overlapping fixtures with similar scores at
+// once) - this caps well below that as a hard backstop on prompt/cost size
+// regardless of what the caller sends.
+const MATCH_RECOMMEND_REFINE_MAX_ITEMS = 6;
+
 const MATCH_RECOMMEND_RESPONSE_SCHEMA = {
   type: 'object',
   properties: {
@@ -1310,15 +1344,19 @@ function extractJsonObject(text) {
 
 // The scoring/reason/venueZh/whereToWatchTw-guess call - schema-constrained,
 // never grounded (see buildBroadcastLookupPrompt's comment for why those
-// two don't mix reliably). Tried across MATCH_RECOMMEND_MODELS in order,
-// same resilience reasoning as /gemini's own tryGeminiModels. Returns the
-// parsed `{picks: [...]}` object, or throws {message, status} on total
-// failure - this is required for the route to return anything at all, so a
-// failure here is fatal to the whole request.
-async function fetchStructuredPicks(matches, env) {
-  const prompt = buildMatchRecommendPrompt(matches);
+// two don't mix reliably). `models` is tried in order, same resilience
+// reasoning as /gemini's own tryGeminiModels - the base /match-recommend
+// route passes MATCH_RECOMMEND_MODELS (verified Flash-tier), the refine
+// route passes MATCH_RECOMMEND_REFINE_MODELS (an unverified Pro-tier guess
+// falling back to a known-good Flash model) - same function either way,
+// since "try a list of models in order, same schema, same failure
+// handling" doesn't care which list it's given. Returns the parsed
+// `{picks: [...]}` object, or throws {message, status} on total failure -
+// this is required for the route to return anything at all, so a failure
+// here is fatal to the whole request.
+async function fetchStructuredPicks(matches, env, models, prompt) {
   let lastError = { message: 'No model available', status: 502 };
-  for (const model of MATCH_RECOMMEND_MODELS) {
+  for (const model of models) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${env.GEMINI_API_KEY}`;
     try {
       const upstream = await fetch(url, {
@@ -1438,7 +1476,7 @@ async function handleMatchRecommendRequest(request, env, headers, ip) {
     // best-effort and never throws, so this only ever waits as long as the
     // slower of the two, not both added up.
     const [structured, grounded] = await Promise.all([
-      fetchStructuredPicks(matches, env),
+      fetchStructuredPicks(matches, env, MATCH_RECOMMEND_MODELS, buildMatchRecommendPrompt(matches)),
       fetchGroundedBroadcastInfo(matches, env)
     ]);
     picksResult = structured;
@@ -1454,6 +1492,84 @@ async function handleMatchRecommendRequest(request, env, headers, ip) {
         }
       }
     }
+  } catch (error) {
+    return json({ error: { message: error.message || 'Upstream request failed' } }, error.status || 502, headers);
+  }
+  return json(picksResult, 200, headers);
+}
+
+// A small, comparative re-score for fixtures that already went through
+// buildMatchRecommendPrompt once and came out genuinely contesting the
+// same viewing slot (see Match Find's build-data.mjs "contested cluster"
+// detection - this route never sees the rest of the day's fixtures, only
+// ones already flagged as a close call). The base prompt scores each
+// fixture in isolation, one at a time in a big batch, which is fine for
+// "roughly how good is this" but weak at "which of these two SPECIFIC
+// fixtures is actually the bigger deal right now" - a real answer to that
+// needs the model to weigh them against each other with a bit more
+// reasoning depth, which is what buying a Pro-tier model for just this
+// small, rare case is for (see MATCH_RECOMMEND_REFINE_MODELS' own
+// comment).
+function buildMatchRefinePrompt(matches) {
+  return `These ${matches.length} sports fixtures overlap in time and scored closely on an initial pass - you're being asked specifically because they need a more careful, COMPARATIVE judgment than a quick independent score can give. Using your own real-world knowledge (current standings/wild-card races, recent form, rivalry history, star players, injuries, how much real-world media/fan attention each is actually getting right now), decide which is genuinely the bigger deal and score them to reflect that clearly - don't default back to similar numbers just because the first pass did. For EACH fixture return:
+- "competitiveness": integer 1-10, how close/contested you expect it to be.
+- "watchability": integer 1-10, how entertaining or notable it is regardless of closeness.
+- "reason": one short sentence (under 40 Traditional Chinese characters) in Traditional Chinese explaining the two scores, written as a direct comparison where it's warranted (e.g. noting why this one edges out the others in the group).
+- "venueZh": the given "venue" in Traditional Chinese, or "" if you have no real basis to translate it.
+- "whereToWatchTw": your best guess at the Taiwan broadcaster, or "無已知台灣轉播" if unsure - this is a fallback only, a separate grounded lookup may override it.
+
+Fixtures (each already has an "id" - use it to key your answer, never invent or rely on ordering alone):
+${JSON.stringify(matches)}
+
+Rules:
+- Return exactly one entry per given "id" - never add, drop, or merge fixtures.
+- A genuine tie is a valid answer - don't manufacture a preference where the real-world stakes are actually comparable - but don't default to sameness out of caution either when one fixture is clearly the bigger story.
+- Never invent an injury, transfer, statistic, broadcaster, or venue translation you're not confident is real.
+- Return ONLY the raw JSON object matching the given schema - no markdown fences, no extra text.`;
+}
+
+async function handleMatchRecommendRefineRequest(request, env, headers, ip) {
+  if (request.method !== 'POST') return json({ error: { message: 'POST only' } }, 405, headers);
+
+  const rateLimit = await isRateLimited(env, ip, 'match-recommend-refine', MATCH_RECOMMEND_REFINE_RATE_LIMIT);
+  headers['X-RateLimit-Backend'] = rateLimit.backend;
+  if (rateLimit.limited) {
+    return json({ error: { message: 'Too many requests, please try again later.' } }, 429, headers);
+  }
+  if (!env.GEMINI_API_KEY) {
+    return json({ error: { message: 'Worker has not configured GEMINI_API_KEY.' } }, 500, headers);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: { message: 'Invalid JSON body' } }, 400, headers);
+  }
+  const rawMatches = Array.isArray(body?.matches) ? body.matches : null;
+  if (!rawMatches || !rawMatches.length) {
+    return json({ error: { message: 'Missing or invalid matches' } }, 400, headers);
+  }
+  if (rawMatches.length > MATCH_RECOMMEND_REFINE_MAX_ITEMS) {
+    return json(
+      { error: { message: `At most ${MATCH_RECOMMEND_REFINE_MAX_ITEMS} matches per request` } },
+      400,
+      headers
+    );
+  }
+  const matches = rawMatches.map(cleanMatchRecommendItem);
+  if (matches.some(m => !m)) {
+    return json({ error: { message: 'Missing or invalid matches' } }, 400, headers);
+  }
+
+  let picksResult;
+  try {
+    picksResult = await fetchStructuredPicks(
+      matches,
+      env,
+      MATCH_RECOMMEND_REFINE_MODELS,
+      buildMatchRefinePrompt(matches)
+    );
   } catch (error) {
     return json({ error: { message: error.message || 'Upstream request failed' } }, error.status || 502, headers);
   }
@@ -2150,6 +2266,7 @@ export default {
     if (path === '/vocab-sync') return handleSyncRequest(request, env, headers, ip, VOCAB_SYNC_APP);
     if (path === '/vocab-ai') return handleVocabAiRequest(request, env, headers, ip);
     if (path === '/match-recommend') return handleMatchRecommendRequest(request, env, headers, ip);
+    if (path === '/match-recommend-refine') return handleMatchRecommendRefineRequest(request, env, headers, ip);
     return json({ error: { message: 'Not found' } }, 404, headers);
   }
 };
