@@ -309,7 +309,7 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 
 `orbit-worker.js` 還多了一個 `/match-recommend` 路徑，服務另一個姊妹靜態網站 [Match Find](https://github.com/jaypengx-collab/Match-Find)：從英超、MLS、MLB、NBA、F1 當天的賽程裡，判斷哪一場最值得看。
 
-- **只做「值不值得看」這個判斷**：賽程本身（時間、對戰組合）由 Match Find 自己的建置腳本（`scripts/build-data.mjs`）向 ESPN 公開 API 抓取，換算成使用者本地時間、依時間是否衝突挑出推薦場次，全部都在 Match Find 那一側用普通程式碼完成，跟這支 Worker 無關——這裡只負責「這幾場比賽裡，哪些精彩、哪些勢均力敵」這種需要真實體育知識（近況、戰績、宿敵關係、季後賽／保級壓力）才能判斷的部分，一般程式邏輯做不到。
+- **只做需要真實世界知識才能回答的部分**：賽程本身（時間、對戰組合）由 Match Find 自己的建置腳本（`scripts/build-data.mjs`）向 ESPN 公開 API 抓取，換算成使用者本地時間、依時間是否衝突挑出推薦場次，全部都在 Match Find 那一側用普通程式碼完成，跟這支 Worker 無關——這裡只負責三件一般程式邏輯做不到、需要真實體育知識（近況、戰績、宿敵關係、季後賽／保級壓力）與台灣轉播生態才能回答的事：這幾場比賽哪些精彩／勢均力敵、場館名稱的繁體中文譯名（`venueZh`），以及台灣觀眾通常會在哪個頻道或串流平台收看這場比賽（`whereToWatchTw`，例如愛爾達體育台、ELEVEN SPORTS、Apple TV）。
 - **沿用 `/gemini` 的 `GEMINI_API_KEY`**，不需要另外申請：完成上方〈AI 辨識課表照片〉的部署設定後，`/match-recommend` 就自動可用。
 - **獨立的流量計數器**（`match-recommend:*`，見 `MATCH_RECOMMEND_RATE_LIMIT`），不會跟其他路徑互搶額度。
 - **呼叫頻率遠低於其他路徑**：Match Find 用排程的 GitHub Action 一天呼叫幾次，把結果寫進靜態 JSON 檔，不是每個訪客看網頁都各呼叫一次。

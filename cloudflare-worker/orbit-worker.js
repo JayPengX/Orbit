@@ -1197,9 +1197,11 @@ const MATCH_RECOMMEND_RESPONSE_SCHEMA = {
           id: { type: 'string' },
           competitiveness: { type: 'integer' },
           watchability: { type: 'integer' },
-          reason: { type: 'string' }
+          reason: { type: 'string' },
+          venueZh: { type: 'string' },
+          whereToWatchTw: { type: 'string' }
         },
-        required: ['id', 'competitiveness', 'watchability', 'reason']
+        required: ['id', 'competitiveness', 'watchability', 'reason', 'venueZh', 'whereToWatchTw']
       }
     }
   },
@@ -1222,17 +1224,30 @@ function cleanMatchRecommendItem(item) {
   const startTimeUtc = typeof item.startTimeUtc === 'string' ? item.startTimeUtc.trim().slice(0, 40) : '';
   const context =
     typeof item.context === 'string' ? item.context.trim().slice(0, MATCH_RECOMMEND_MAX_FIELD_LEN) : '';
-  return { id, sport, name, startTimeUtc, context };
+  const venue =
+    typeof item.venue === 'string' ? item.venue.trim().slice(0, MATCH_RECOMMEND_MAX_FIELD_LEN) : '';
+  return { id, sport, name, startTimeUtc, context, venue };
 }
 
 // The fixed, server-owned prompt - Match Find's build script only ever sends
 // {matches: [...]}, never prompt text of its own, same discipline as every
-// other route in this file (see top-of-file comment).
+// other route in this file (see top-of-file comment). Match Find's UI is
+// Traditional Chinese throughout (see that repo's public/app.js) - "reason"
+// is written in Chinese too now so the one AI-generated sentence on the
+// page doesn't stick out as the only English text on an otherwise Chinese
+// card. venueZh/whereToWatchTw exist for the same reason "venue" alone
+// wasn't enough: a Taiwanese viewer cares less about a US stadium's English
+// name than about which local channel/streaming service actually carries
+// this specific fixture - something ESPN's API has no concept of at all,
+// so it has to come from the model's own knowledge, same as the
+// competitiveness/watchability judgment itself.
 function buildMatchRecommendPrompt(matches) {
-  return `You are a knowledgeable sports fan helping viewers decide which upcoming fixture is most worth watching. You are given a list of fixtures across several leagues/series (e.g. Premier League, MLS, MLB, NBA, F1). For EACH fixture, using your own real-world knowledge of these specific teams/drivers (current form, standings position, rivalry history, star players, championship/relegation/playoff stakes), return:
+  return `You are a knowledgeable sports fan helping Traditional-Chinese-speaking viewers in Taiwan decide which upcoming fixture is most worth watching. You are given a list of fixtures across several leagues/series (e.g. Premier League, MLS, MLB, NBA, F1), each with a "venue". For EACH fixture, using your own real-world knowledge of these specific teams/drivers (current form, standings position, rivalry history, star players, championship/relegation/playoff stakes) and of Taiwan sports broadcasting, return:
 - "competitiveness": integer 1-10, how close/contested you expect the fixture to be.
 - "watchability": integer 1-10, how entertaining or notable it is to a general sports fan regardless of closeness (rivalry, stakes, star power, drama, historical significance).
-- "reason": one short sentence (under 25 words) explaining the two scores.
+- "reason": one short sentence (under 40 Traditional Chinese characters) in Traditional Chinese explaining the two scores.
+- "venueZh": the given "venue" written in Traditional Chinese - the commonly used Chinese name for that stadium/arena/circuit if you know one, otherwise a reasonable transliteration. Return "" if you have no real basis to translate it rather than guessing.
+- "whereToWatchTw": the TV channel or streaming service Taiwanese viewers would typically use to watch THIS SPECIFIC fixture live (e.g. "愛爾達體育台", "ELEVEN SPORTS", "Apple TV", "Disney+", "myVideo", "緯來體育台"), in Traditional Chinese, as short as possible - a channel/platform name, not a sentence. Return "無已知台灣轉播" if you have no real basis to know (an obscure fixture, or broadcast rights you're unsure of) rather than guessing.
 
 Fixtures (each already has an "id" - use it to key your answer, never invent or rely on ordering alone):
 ${JSON.stringify(matches)}
@@ -1240,7 +1255,7 @@ ${JSON.stringify(matches)}
 Rules:
 - Return exactly one entry per given "id" - never add, drop, or merge fixtures.
 - If you don't recognize a team/driver, or have no real basis to judge a fixture, score both fields conservatively (4-6) and say so plainly in "reason" rather than inventing form, stats, or a rivalry that isn't real.
-- Never invent an injury, transfer, or statistic you're not confident is real.
+- Never invent an injury, transfer, statistic, broadcaster, or venue translation you're not confident is real - an empty/placeholder value is always better than a guess stated as fact.
 - Return ONLY the raw JSON object matching the given schema - no markdown fences, no extra text.`;
 }
 
