@@ -1,6 +1,6 @@
 // ---- cloudflare-worker/orbit-worker.js ----
 // A single Cloudflare Worker serving Orbit Class's optional server-side
-// features, plus one more app's sync feature, routed by path:
+// features, plus several sibling apps' sync/AI features, routed by path:
 //
 //   POST      /gemini     - AI schedule-photo import (see src/gemini-ocr.js).
 //                            Holds the real Gemini API key server-side so
@@ -39,6 +39,15 @@
 //                            only for a handful of fixtures a day, never
 //                            the full list - see "==== /match-recommend"
 //                            below.
+//   GET/POST/PATCH   /match-find-sync - Match Find's cross-device settings
+//                            sync (sport priority, enabled sports,
+//                            subscribed services - see that repo's
+//                            public/app.js). Same reuse reasoning as
+//                            /vocab-sync, and the same one-passcode shape
+//                            (no separate manager role - see
+//                            MATCH_FIND_SYNC_APP's own comment), just a
+//                            different Firestore collection and its own
+//                            rate-limit counters.
 //
 // /sync and /vocab-sync both hold a Firebase service-account key
 // server-side and proxy Firestore, so the pairing code isn't the only thing
@@ -2258,6 +2267,38 @@ const VOCAB_SYNC_APP = {
   credentialPattern: VOCAB_PASSCODE_PATTERN
 };
 
+// Match Find's /match-find-sync: same reuse reasoning as /vocab-sync above
+// (one already-deployed Worker, one already-deployed Firebase project,
+// rather than standing up a second of each for another sibling static
+// site), and the same singleCredential shape as /vocab-sync rather than
+// Orbit's own code+manager-passcode one - a viewer's sport-priority/
+// enabled-sports/subscribed-services settings are "one person's own
+// preferences synced across their own devices", the same "no
+// teacher/student broadcast, no read-only viewer role" situation
+// /vocab-sync's own comment describes, not "one person's schedule read by
+// many". The payload itself is tiny (a handful of settings, not a whole
+// week's schedule or a learner's whole progress history) - its own much
+// smaller MAX_PAYLOAD_LENGTH reflects that rather than reusing Vocab's.
+const MATCH_FIND_SYNC_PASSCODE_LENGTH = 16;
+const MATCH_FIND_SYNC_PASSCODE_PATTERN = /^[2-9A-HJ-NP-Z]{16}$/;
+const MATCH_FIND_SYNC_READ_RATE_LIMIT = 6000;
+const MATCH_FIND_SYNC_WRITE_RATE_LIMIT = 300;
+const MATCH_FIND_SYNC_DELETE_RATE_LIMIT = 20;
+const MATCH_FIND_SYNC_CREATE_RATE_LIMIT = 20;
+const MATCH_FIND_SYNC_MAX_PAYLOAD_LENGTH = 4096;
+const MATCH_FIND_SYNC_APP = {
+  collection: 'match-find-sync',
+  featurePrefix: 'match-find-sync',
+  maxPayloadLength: MATCH_FIND_SYNC_MAX_PAYLOAD_LENGTH,
+  readLimit: MATCH_FIND_SYNC_READ_RATE_LIMIT,
+  writeLimit: MATCH_FIND_SYNC_WRITE_RATE_LIMIT,
+  deleteLimit: MATCH_FIND_SYNC_DELETE_RATE_LIMIT,
+  createLimit: MATCH_FIND_SYNC_CREATE_RATE_LIMIT,
+  singleCredential: true,
+  credentialLength: MATCH_FIND_SYNC_PASSCODE_LENGTH,
+  credentialPattern: MATCH_FIND_SYNC_PASSCODE_PATTERN
+};
+
 // ==== Routing ================================================================
 
 export default {
@@ -2274,6 +2315,7 @@ export default {
     if (path === '/nl-edit') return handleNlEditRequest(request, env, headers, ip);
     if (path === '/sync') return handleSyncRequest(request, env, headers, ip, ORBIT_SYNC_APP);
     if (path === '/vocab-sync') return handleSyncRequest(request, env, headers, ip, VOCAB_SYNC_APP);
+    if (path === '/match-find-sync') return handleSyncRequest(request, env, headers, ip, MATCH_FIND_SYNC_APP);
     if (path === '/vocab-ai') return handleVocabAiRequest(request, env, headers, ip);
     if (path === '/match-recommend') return handleMatchRecommendRequest(request, env, headers, ip);
     if (path === '/match-recommend-refine') return handleMatchRecommendRefineRequest(request, env, headers, ip);
