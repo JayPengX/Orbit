@@ -1206,13 +1206,23 @@ const MATCH_RECOMMEND_MAX_FIELD_LEN = 160;
 // this route) - spending it on every fixture Match Find fetches would
 // starve /gemini and /vocab-ai's own Pro-tier needs (if they ever have
 // any) for no real benefit, since most fixtures were never a close call to
-// begin with. Neither exact Pro-tier model name below has been verified
-// live the way MATCH_RECOMMEND_MODELS' flash models have (no Pro-tier
-// route existed to test against before this one) - both are tried, in
-// order, before falling back to the one model this file already knows
-// works, so a wrong guess here degrades to "no smarter than usual" rather
-// than failing the request outright.
-const MATCH_RECOMMEND_REFINE_MODELS = ['gemini-3.7-pro', 'gemini-3.5-pro', 'gemini-3.7-flash'];
+// begin with.
+//
+// `gemini-3.1-pro-preview` and `gemini-2.5-pro` are real, currently-listed
+// model ids (confirmed against Google's own model list - an earlier
+// version of this constant guessed at "gemini-3.7-pro"/"gemini-3.5-pro"
+// following this file's flash-model naming pattern, neither of which
+// actually exists, and every refine call was silently wasting two
+// guaranteed-404 attempts - each one still a real request against the
+// SAME 20-requests-per-minute Flash quota this whole file shares once the
+// loop fell through to gemini-3.7-flash - before landing on the one model
+// that worked). Neither Pro model has been verified live the way
+// MATCH_RECOMMEND_MODELS' flash models have (no Pro-tier route existed to
+// test against before this one) - both are tried, in order, before
+// falling back to the one model this file already knows works, so a
+// wrong guess here still degrades to "no smarter than usual" rather than
+// failing the request outright.
+const MATCH_RECOMMEND_REFINE_MODELS = ['gemini-3.1-pro-preview', 'gemini-2.5-pro', 'gemini-3.7-flash'];
 const MATCH_RECOMMEND_REFINE_RATE_LIMIT = 10;
 // A "cluster" of fixtures genuinely contesting the same slot is small by
 // nature (rarely more than 3-4 overlapping fixtures with similar scores at
