@@ -1247,7 +1247,7 @@ function buildMatchRecommendPrompt(matches) {
 - "watchability": integer 1-10, how entertaining or notable it is to a general sports fan regardless of closeness (rivalry, stakes, star power, drama, historical significance).
 - "reason": one short sentence (under 40 Traditional Chinese characters) in Traditional Chinese explaining the two scores.
 - "venueZh": the given "venue" written in Traditional Chinese - the commonly used Chinese name for that stadium/arena/circuit if you know one, otherwise a reasonable transliteration. Return "" if you have no real basis to translate it rather than guessing.
-- "whereToWatchTw": the TV channel or streaming service Taiwanese viewers would typically use to watch THIS SPECIFIC fixture live (e.g. "愛爾達體育台", "ELEVEN SPORTS", "Apple TV", "Disney+", "myVideo", "緯來體育台"), in Traditional Chinese, as short as possible - a channel/platform name, not a sentence. If a fixture is carried by BOTH 緯來體育台 and 愛爾達體育台 (common for MLB), answer "愛爾達體育台", not "緯來體育台" - when both are right, prefer naming 愛爾達體育台. Return "無已知台灣轉播" if you have no real basis to know (an obscure fixture, or broadcast rights you're unsure of) rather than guessing.
+- "whereToWatchTw": the TV channel or streaming service Taiwanese viewers would typically use to watch THIS SPECIFIC fixture live (e.g. "愛爾達體育台", "ELEVEN SPORTS", "Apple TV", "Disney+", "myVideo", "緯來體育台"), in Traditional Chinese, as short as possible - a channel/platform name, not a sentence. Use Google Search to check the ACTUAL, CURRENT broadcaster for this exact fixture rather than answering from a default assumption - broadcast rights are frequently team-specific and game-specific, not sport-wide: for example several MLB teams (e.g. the Phillies, the Mets) have games that air exclusively on Apple TV's "Friday Night Baseball" rather than through 愛爾達體育台/緯來體育台 at all, and guessing the usual channel for that fixture would be wrong. If a fixture is carried by BOTH 緯來體育台 and 愛爾達體育台 (common for MLB), answer "愛爾達體育台", not "緯來體育台" - when both are genuinely right, prefer naming 愛爾達體育台. Return "無已知台灣轉播" if a search still leaves you with no real basis to know (an obscure fixture, or broadcast rights you're unsure of) rather than guessing.
 
 Fixtures (each already has an "id" - use it to key your answer, never invent or rely on ordering alone):
 ${JSON.stringify(matches)}
@@ -1297,45 +1297,59 @@ async function handleMatchRecommendRequest(request, env, headers, ip) {
   let lastError = { message: 'No model available', status: 502 };
   for (const model of MATCH_RECOMMEND_MODELS) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${env.GEMINI_API_KEY}`;
-    try {
-      const upstream = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: buildGenerationConfig(model, MATCH_RECOMMEND_RESPONSE_SCHEMA)
-        })
-      });
-      if (!upstream.ok) {
-        const errorJson = await upstream.json().catch(() => ({}));
-        const message = errorJson.error?.message || upstream.statusText;
-        lastError = { message, status: upstream.status };
-        // Retryable on the next model: overloaded (503), rate-limited
-        // (429), retired/unknown model (404), or a transient server error
-        // (5xx) - same retryable set /gemini's tryGeminiModels uses.
-        // Anything else (a real 400 from a malformed request, or an
-        // invalid-key 401/403) would fail identically on every other
-        // model too, so it returns immediately instead of wasting the
-        // rest of the list on a guaranteed repeat.
-        const retryable =
-          upstream.status === 404 || upstream.status === 429 || upstream.status >= 500;
-        if (!retryable) return json({ error: { message } }, upstream.status, headers);
-        continue;
-      }
-      const data = await upstream.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (typeof text !== 'string') {
-        lastError = { message: 'Gemini response missing text', status: 502 };
-        continue;
-      }
+    // Tried with Google Search grounding first (so "whereToWatchTw" reflects
+    // an actual lookup rather than the model's static training-time
+    // knowledge of "which channel usually carries this sport") and, only if
+    // that specific combination is rejected outright, retried once WITHOUT
+    // the search tool on the same model before moving on - some Gemini
+    // versions don't allow combining a search tool with schema-constrained
+    // JSON output in one call, and this route would rather degrade to the
+    // old ungrounded guess than drop a whole model over it.
+    for (const grounded of [true, false]) {
       try {
-        return json(JSON.parse(text), 200, headers);
+        const upstream = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            ...(grounded ? { tools: [{ google_search: {} }] } : {}),
+            generationConfig: buildGenerationConfig(model, MATCH_RECOMMEND_RESPONSE_SCHEMA)
+          })
+        });
+        if (!upstream.ok) {
+          const errorJson = await upstream.json().catch(() => ({}));
+          const message = errorJson.error?.message || upstream.statusText;
+          lastError = { message, status: upstream.status };
+          // Retryable on the next model: overloaded (503), rate-limited
+          // (429), retired/unknown model (404), or a transient server error
+          // (5xx) - same retryable set /gemini's tryGeminiModels uses.
+          // A 400 while grounded also retries once, ungrounded, on this
+          // same model (see the comment above) rather than being treated as
+          // a guaranteed repeat. Any other non-retryable status (an
+          // invalid-key 401/403, or a 400 that persists ungrounded too)
+          // would fail identically on every other model, so it returns
+          // immediately instead of wasting the rest of the list.
+          if (grounded && upstream.status === 400) continue;
+          const retryable =
+            upstream.status === 404 || upstream.status === 429 || upstream.status >= 500;
+          if (!retryable) return json({ error: { message } }, upstream.status, headers);
+          break;
+        }
+        const data = await upstream.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (typeof text !== 'string') {
+          lastError = { message: 'Gemini response missing text', status: 502 };
+          break;
+        }
+        try {
+          return json(JSON.parse(text), 200, headers);
+        } catch (error) {
+          lastError = { message: `Gemini returned invalid JSON: ${error.message}`, status: 502 };
+          break;
+        }
       } catch (error) {
-        lastError = { message: `Gemini returned invalid JSON: ${error.message}`, status: 502 };
-        continue;
+        lastError = { message: error.message || 'Upstream request failed', status: 502 };
       }
-    } catch (error) {
-      lastError = { message: error.message || 'Upstream request failed', status: 502 };
     }
   }
   return json({ error: { message: lastError.message } }, lastError.status, headers);
