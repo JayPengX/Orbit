@@ -1226,7 +1226,13 @@ function cleanMatchRecommendItem(item) {
     typeof item.context === 'string' ? item.context.trim().slice(0, MATCH_RECOMMEND_MAX_FIELD_LEN) : '';
   const venue =
     typeof item.venue === 'string' ? item.venue.trim().slice(0, MATCH_RECOMMEND_MAX_FIELD_LEN) : '';
-  return { id, sport, name, startTimeUtc, context, venue };
+  // ESPN's own on-record national broadcaster (e.g. "Apple TV", "TBS") -
+  // optional (older callers or a fixture ESPN has no broadcaster listed
+  // for both send/have ""), see buildMatchRecommendPrompt for how it's
+  // used.
+  const broadcast =
+    typeof item.broadcast === 'string' ? item.broadcast.trim().slice(0, MATCH_RECOMMEND_MAX_FIELD_LEN) : '';
+  return { id, sport, name, startTimeUtc, context, venue, broadcast };
 }
 
 // The fixed, server-owned prompt - Match Find's build script only ever sends
@@ -1247,7 +1253,7 @@ function buildMatchRecommendPrompt(matches) {
 - "watchability": integer 1-10, how entertaining or notable it is to a general sports fan regardless of closeness (rivalry, stakes, star power, drama, historical significance).
 - "reason": one short sentence (under 40 Traditional Chinese characters) in Traditional Chinese explaining the two scores.
 - "venueZh": the given "venue" written in Traditional Chinese - the commonly used Chinese name for that stadium/arena/circuit if you know one, otherwise a reasonable transliteration. Return "" if you have no real basis to translate it rather than guessing.
-- "whereToWatchTw": your best guess at the TV channel or streaming service Taiwanese viewers would typically use to watch THIS SPECIFIC fixture live (e.g. "愛爾達體育台", "ELEVEN SPORTS", "Apple TV", "Disney+", "myVideo", "緯來體育台"), in Traditional Chinese, as short as possible - a channel/platform name, not a sentence. This is only a FALLBACK guess from memory, not a search result (a separate grounded lookup - see handleMatchRecommendRequest - takes priority when it has an answer) - if a fixture is carried by BOTH 緯來體育台 and 愛爾達體育台 (common for MLB), answer "愛爾達體育台", not "緯來體育台". Return "無已知台灣轉播" if you have no real basis to know rather than guessing.
+- "whereToWatchTw": your best guess at the TV channel or streaming service Taiwanese viewers would typically use to watch THIS SPECIFIC fixture live (e.g. "愛爾達體育台", "ELEVEN SPORTS", "Apple TV", "Disney+", "myVideo", "緯來體育台"), in Traditional Chinese, as short as possible - a channel/platform name, not a sentence. This is only a FALLBACK guess from memory, not a search result (a separate grounded lookup - see handleMatchRecommendRequest - takes priority when it has an answer). Each fixture may include a "broadcast" field - ESPN's own on-record NATIONAL (usually US) broadcaster for it, e.g. "Apple TV", "TBS", "Fox", "ESPN". This is NOT itself the Taiwan answer, but treat it as a strong hint: if "broadcast" names a service that is a genuine GLOBAL streaming exclusive with no regional blackout (most notably MLB's Apple TV "Friday Night Baseball" package), that same service is very likely also how it's watched in Taiwan, NOT 愛爾達體育台/緯來體育台 - MLB's international broadcast deals with 愛爾達/緯來 typically do NOT include Apple TV's exclusive slate at all. An ordinary US regional cable network name in "broadcast" (Fox, TBS, ESPN, a team's own regional network, etc.) does NOT imply anything about Taiwan on its own. If a fixture is carried by BOTH 緯來體育台 and 愛爾達體育台 (common for ordinary MLB games), answer "愛爾達體育台", not "緯來體育台". Return "無已知台灣轉播" if you have no real basis to know rather than guessing.
 
 Fixtures (each already has an "id" - use it to key your answer, never invent or rely on ordering alone):
 ${JSON.stringify(matches)}
@@ -1263,20 +1269,21 @@ Rules:
 // on purpose - Gemini's schema-constrained JSON mode
 // (response_mime_type/response_schema, see buildGenerationConfig) and the
 // google_search grounding tool are NOT reliably combinable in one request:
-// depending on model/version this either gets rejected outright (see the
-// grounded/ungrounded retry in handleMatchRecommendRequest) or, worse,
-// silently accepted with the tool quietly ignored - a request that LOOKS
-// grounded but never actually searched, which is indistinguishable from a
-// real grounded miss without checking. Asking for broadcast info alone, as
-// free-form text with NO response_schema at all, sidesteps that ambiguity
-// entirely: grounding is unambiguously well-supported for plain-text
-// generation, so this pass either genuinely searches or visibly fails
-// (network/quota error), never silently no-ops.
+// depending on model/version this either gets rejected outright, or,
+// worse, silently accepted with the tool quietly ignored - a request that
+// LOOKS grounded but never actually searched, which is indistinguishable
+// from a real grounded miss without checking (see fetchStructuredPicks vs
+// fetchGroundedBroadcastInfo, which is why this stays its own call rather
+// than being combined back into the scoring one). Asking for broadcast
+// info alone, as free-form text with NO response_schema at all, sidesteps
+// that ambiguity entirely: grounding is unambiguously well-supported for
+// plain-text generation, so this pass either genuinely searches or
+// visibly fails (network/quota error), never silently no-ops.
 function buildBroadcastLookupPrompt(matches) {
-  return `Use Google Search to find the ACTUAL, CURRENT Taiwan TV channel or streaming service for EACH of these upcoming sports fixtures. Broadcast rights are often team-specific or even game-specific, not sport-wide - for example several MLB teams (e.g. the Phillies, the Mets) have games that air exclusively on Apple TV's "Friday Night Baseball" rather than through the usual 愛爾達體育台/緯來體育台 at all, so check each fixture individually rather than assuming the sport's usual channel. If a fixture is genuinely carried by BOTH 緯來體育台 and 愛爾達體育台 (common for MLB), answer "愛爾達體育台".
+  return `Use Google Search to find the ACTUAL, CURRENT Taiwan TV channel or streaming service for EACH of these upcoming sports fixtures. Each fixture may include a "broadcast" field - ESPN's own on-record NATIONAL (usually US) broadcaster, e.g. "Apple TV", "TBS", "Fox". This is a strong hint, not the Taiwan answer itself: if it names a genuine GLOBAL streaming exclusive with no regional blackout (most notably MLB's Apple TV "Friday Night Baseball" package), verify with search whether that same global service - not 愛爾達體育台/緯來體育台 - is also how Taiwanese viewers watch it, since MLB's international deals with 愛爾達/緯來 typically exclude Apple TV's exclusive slate entirely. An ordinary US regional network name in "broadcast" doesn't imply anything about Taiwan by itself. Broadcast rights are often team-specific or game-specific, not sport-wide, so check each fixture individually rather than assuming the sport's usual channel. If a fixture is genuinely carried by BOTH 緯來體育台 and 愛爾達體育台 (common for an ordinary MLB game), answer "愛爾達體育台".
 
 Fixtures (each already has an "id" - use it to key your answer):
-${JSON.stringify(matches.map(m => ({ id: m.id, sport: m.sport, name: m.name, startTimeUtc: m.startTimeUtc })))}
+${JSON.stringify(matches.map(m => ({ id: m.id, sport: m.sport, name: m.name, startTimeUtc: m.startTimeUtc, broadcast: m.broadcast })))}
 
 Respond with ONLY a raw JSON object (no markdown fences, no extra text) mapping each given "id" to the Traditional Chinese channel/service name, as short as possible (a name, not a sentence) - e.g. {"abc123": "愛爾達體育台", "def456": "Apple TV"}. If a search leaves you with no real basis to know a fixture's broadcaster, map its id to "無已知台灣轉播" rather than guessing. Include every given id exactly once.`;
 }
