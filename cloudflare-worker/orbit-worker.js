@@ -946,11 +946,17 @@ async function handleNlEditRequest(request, env, headers, ip) {
 
 // Reuses /gemini's own GEMINI_API_KEY secret (see handleGeminiRequest) -
 // nothing new to configure once AI 辨識課表照片 is already set up. Not
-// client-selectable (unlike /gemini's own `model` field): this feature is a
-// small, fixed-shape, low-stakes generation task with no multi-model
-// fallback chain worth maintaining, so this just picks the fastest verified
-// model from GEMINI_ALLOWED_MODELS above rather than exposing a second knob.
-const VOCAB_AI_MODEL = 'gemini-3.5-flash-lite';
+// client-selectable (unlike /gemini's own `model` field): this feature has a
+// small, fixed-shape request, so there's no multi-model fallback chain worth
+// maintaining, just a single pick from GEMINI_ALLOWED_MODELS above. Picks
+// the other one of the two rather than the lite model /gemini and /nl-edit
+// use: those routes are bulk/structured extraction, where the lite model's
+// speed matters and "thinking" buys nothing (see buildGenerationConfig).
+// This route is the opposite - one mnemonic, generated on a single manual
+// tap, where the bottleneck users actually complained about was the writing
+// being generic and repetitive, not latency - so it trades a little speed
+// for the stronger model's better creative writing.
+const VOCAB_AI_MODEL = 'gemini-3.7-flash';
 // Tighter than GEMINI_RATE_LIMIT (20/hour is for a whole schedule-photo
 // import session; this is for a single learner's own occasional taps on
 // "產生記憶法" while reviewing) - generous for real use, still bounded per
@@ -989,22 +995,73 @@ function cleanVocabAiText(value, maxLen) {
   return trimmed;
 }
 
-// Deliberately asks the model to diagnose the mistake PATTERN (a swapped
-// letter pair, a dropped double letter, a missing silent letter) rather than
-// just "here's a mnemonic for this word" - a hook that targets the specific
-// way this learner keeps getting it wrong is the entire reason this needs a
-// live per-user call instead of reusing data/ai_signals.json's one static
-// mnemonic every learner already sees. The explicit "diagnose first, name
-// it" step and the banned-phrases list below were both added after real
-// generations kept landing on generic study-advice filler ("多加練習就會記
-// 住"、"多寫幾次自然會拼對") that technically answered the prompt but gave
-// the learner nothing to actually latch onto - forcing the model to commit
-// to a concrete technique up front heads that off.
+// Names the exact letter-level mistake between what the learner typed and
+// the correct spelling ourselves, in plain deterministic code, instead of
+// making the model diagnose it from the two raw strings (an earlier version
+// of this prompt did exactly that: asked the model to "diagnose the pattern
+// and state it before writing the mnemonic"). That was the real source of
+// two separate complaints at once - the diagnosis itself was inconsistent
+// (a fast model given e.g. "wierd" vs "weird" would routinely miscount
+// which letters were swapped, or invent a pattern that wasn't there), and
+// because the prompt asked for the diagnosis to be stated "before writing
+// the mnemonic", the model's answer always opened with a throwaway sentence
+// describing the mistake instead of going straight into something useful.
+// Handing over an exact, code-computed diagnosis fixes the first problem by
+// construction (string comparison doesn't miscount), and lets the prompt
+// below flatly forbid restating it, fixing the second.
+//
+// Only handles the shapes real spelling mistakes actually take - one
+// substituted letter, two adjacent letters swapped, one letter missing, one
+// extra letter - exactly, via plain string comparison (same length ->
+// substitution or transposition; length differs by one -> first point of
+// divergence is the missing/extra letter). Anything messier than that
+// (several scattered differences) deliberately falls back to a description
+// that doesn't claim a specific pattern, rather than guessing one - a wrong
+// but confident diagnosis handed to the model would be worse than admitting
+// there isn't a single clean one.
+function diagnoseSpellingMistake(word, wrong) {
+  if (!wrong || wrong === word) return null;
+  if (wrong.length === word.length) {
+    const diffIdx = [];
+    for (let i = 0; i < word.length; i++) {
+      if (wrong[i] !== word[i]) diffIdx.push(i);
+    }
+    if (diffIdx.length === 1) {
+      const i = diffIdx[0];
+      return `wrote "${wrong[i]}" instead of "${word[i]}" as letter #${i + 1} (of ${word.length}) in "${word}" (typed "${wrong}")`;
+    }
+    if (diffIdx.length === 2) {
+      const [i, j] = diffIdx;
+      if (wrong[i] === word[j] && wrong[j] === word[i]) {
+        return `swapped letters #${i + 1} and #${j + 1} of "${word}" ("${word[i]}" and "${word[j]}"), writing "${wrong}" instead`;
+      }
+    }
+  } else if (Math.abs(wrong.length - word.length) === 1) {
+    const shorterLen = Math.min(wrong.length, word.length);
+    let i = 0;
+    while (i < shorterLen && wrong[i] === word[i]) i++;
+    if (wrong.length < word.length) {
+      return `left out letter #${i + 1} of "${word}" ("${word[i]}"), writing "${wrong}" instead`;
+    }
+    return `added an extra letter not in "${word}" around position #${i + 1}, writing "${wrong}" instead`;
+  }
+  return `misspelled "${word}" as "${wrong}" - no single clean letter-level pattern here, so just pick the most visually distinctive difference between the two spellings`;
+}
+
+// The banned-phrases list below was added after real generations kept
+// landing on generic study-advice filler ("多加練習就會記住"、"多寫幾次自
+// 然會拼對") that technically answered the prompt but gave the learner
+// nothing to actually latch onto. The "output ONLY the mnemonic" rule and
+// its own banned-openers list (see diagnoseSpellingMistake's comment for
+// why this changed) were added for the same reason: a diagnosis-first
+// sentence isn't a memory hook, it's just a recap of an error the learner
+// already knows they made.
 function buildVocabMnemonicPrompt(word, pos, meaning, wrongAnswers) {
-  const mistakesLine = wrongAnswers.length
-    ? `This learner has previously typed these WRONG spellings for this exact word: ${wrongAnswers
-        .map((w) => `"${w}"`)
-        .join(', ')}. Diagnose the exact letter-level pattern behind these mistakes (e.g. "swapped the 'e' and 'a' in the second syllable", "dropped the second 'c'", "wrote 'ie' where it should be 'ei'") and state that pattern in one short clause before writing the mnemonic.`
+  const diagnoses = wrongAnswers.map((w) => diagnoseSpellingMistake(word, w)).filter(Boolean);
+  const mistakesLine = diagnoses.length
+    ? `This learner has previously misspelled this exact word. Here is exactly what went wrong each time, already worked out by code - trust it as fact, don't re-derive or contradict it, just build the mnemonic around it:\n${diagnoses
+        .map((d) => `- ${d}`)
+        .join('\n')}`
     : `No specific past misspelling was recorded for this word - pick the single most error-prone part of its spelling (a silent letter, a doubled letter, an unusual letter combination) and treat that as the target pattern.`;
   return `You are helping a Taiwanese high school student remember how to correctly spell an English vocabulary word they keep getting wrong.
 
@@ -1012,7 +1069,11 @@ Word: "${word}" (${pos || 'unknown part of speech'})
 Chinese meaning: ${meaning || '(none given)'}
 ${mistakesLine}
 
-Then write ONE short mnemonic (under 40 words, in Traditional Chinese, weaving in the actual English letters/word where useful) built around that exact pattern, using a real memory technique - a sound-alike association, a keyword/imagery hook, or a tiny made-up story about the specific letters that trip this learner up.
+Write ONE mnemonic (under 40 words, in Traditional Chinese, weaving in the actual English letters/word) that uses a real memory technique - a sound-alike association, a keyword/imagery hook, or a tiny vivid story - built specifically around the exact letters named above. Name the specific letters; don't just gesture vaguely at "this part of the word".
+
+Example of the right shape (a different word, "believe", where the learner dropped the second "e" and wrote "belive"): "『believe』中間藏著一個 lie（謊言）－ b-e-LIE-ve，你要先相信（believe）一個謊言（lie）才會被騙，所以中間是 l-i-e 兩個字母都不能少。"
+
+Output ONLY the mnemonic itself. Do NOT open with a sentence naming or restating the mistake (e.g. "你把...拼成..."、"這個字你常把...搞混"、"正確拼法是...") - that's not a memory hook, it's just a description of an error the learner already knows about. Go straight into the technique.
 
 Do NOT give generic study advice such as "多加練習"、"多寫幾次"、"多背幾次就會記住"、"注意拼法" or anything to that effect - if nothing else fits, invent a vivid image or sound association for the trickiest letters instead. Never restate the correct spelling on its own without a memory hook attached to it.`;
 }
