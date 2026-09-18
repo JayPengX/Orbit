@@ -1167,7 +1167,18 @@ async function handleVocabAiRequest(request, env, headers, ip) {
 //
 // Reuses GEMINI_API_KEY rather than needing its own secret - same reasoning
 // as /vocab-ai reusing it instead of provisioning a second key.
-const MATCH_RECOMMEND_MODEL = 'gemini-3.7-flash';
+//
+// A list, not a single model, and tried in order - added after live testing
+// found gemini-3.7-flash alone returning a genuine upstream 503 ("This
+// model is currently experiencing high demand") on every one of several
+// consecutive real attempts, not a one-off blip. /gemini already treats
+// exactly this as expected/retryable (see its own GEMINI_ALLOWED_MODELS
+// fallback chain and tryGeminiModels); this route needs the same
+// resilience rather than depending on one model's availability, since a
+// failed run here just means Match Find's build falls back to its own
+// local heuristic for that day - a bigger loss than a few seconds' extra
+// latency trying a second model first.
+const MATCH_RECOMMEND_MODELS = ['gemini-3.7-flash', 'gemini-3.5-flash-lite'];
 const MATCH_RECOMMEND_RATE_LIMIT = 20;
 // One day across five leagues (MLB alone can run ~15 games/day) can add up
 // fast - this stays well above what a real day's fixture list needs while
@@ -1267,39 +1278,52 @@ async function handleMatchRecommendRequest(request, env, headers, ip) {
     return json({ error: { message: 'Missing or invalid matches' } }, 400, headers);
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(MATCH_RECOMMEND_MODEL)}:generateContent?key=${env.GEMINI_API_KEY}`;
-  try {
-    const upstream = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: buildMatchRecommendPrompt(matches) }] }],
-        generationConfig: buildGenerationConfig(MATCH_RECOMMEND_MODEL, MATCH_RECOMMEND_RESPONSE_SCHEMA)
-      })
-    });
-    if (!upstream.ok) {
-      const errorJson = await upstream.json().catch(() => ({}));
-      return json(
-        { error: { message: errorJson.error?.message || upstream.statusText } },
-        upstream.status,
-        headers
-      );
-    }
-    const data = await upstream.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (typeof text !== 'string') {
-      return json({ error: { message: 'Gemini response missing text' } }, 502, headers);
-    }
-    let parsed;
+  const prompt = buildMatchRecommendPrompt(matches);
+  let lastError = { message: 'No model available', status: 502 };
+  for (const model of MATCH_RECOMMEND_MODELS) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${env.GEMINI_API_KEY}`;
     try {
-      parsed = JSON.parse(text);
+      const upstream = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: buildGenerationConfig(model, MATCH_RECOMMEND_RESPONSE_SCHEMA)
+        })
+      });
+      if (!upstream.ok) {
+        const errorJson = await upstream.json().catch(() => ({}));
+        const message = errorJson.error?.message || upstream.statusText;
+        lastError = { message, status: upstream.status };
+        // Retryable on the next model: overloaded (503), rate-limited
+        // (429), retired/unknown model (404), or a transient server error
+        // (5xx) - same retryable set /gemini's tryGeminiModels uses.
+        // Anything else (a real 400 from a malformed request, or an
+        // invalid-key 401/403) would fail identically on every other
+        // model too, so it returns immediately instead of wasting the
+        // rest of the list on a guaranteed repeat.
+        const retryable =
+          upstream.status === 404 || upstream.status === 429 || upstream.status >= 500;
+        if (!retryable) return json({ error: { message } }, upstream.status, headers);
+        continue;
+      }
+      const data = await upstream.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (typeof text !== 'string') {
+        lastError = { message: 'Gemini response missing text', status: 502 };
+        continue;
+      }
+      try {
+        return json(JSON.parse(text), 200, headers);
+      } catch (error) {
+        lastError = { message: `Gemini returned invalid JSON: ${error.message}`, status: 502 };
+        continue;
+      }
     } catch (error) {
-      return json({ error: { message: `Gemini returned invalid JSON: ${error.message}` } }, 502, headers);
+      lastError = { message: error.message || 'Upstream request failed', status: 502 };
     }
-    return json(parsed, 200, headers);
-  } catch (error) {
-    return json({ error: { message: error.message || 'Upstream request failed' } }, 502, headers);
   }
+  return json({ error: { message: lastError.message } }, lastError.status, headers);
 }
 
 // ==== /sync - cross-device sync proxy =======================================
