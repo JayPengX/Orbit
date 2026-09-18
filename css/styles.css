@@ -1882,10 +1882,11 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
    squeezed down to a sliver a few px tall while dashboard-render.js's
    fitNowTitleText() still tried to size that name's text to its usual
    floor, painting the class name straight over the progress bar and meta
-   row beneath it instead of shrinking to match (fitNowTitleText() itself
-   now also caps against the box's real height as a second line of
-   defense - see its own comment - but giving the box a sane height to
-   begin with is what keeps that cap from ever having to bite hard).
+   row beneath it instead of shrinking to match (fitNowTitleText() also
+   carries its own last-resort safety net for exactly this - see its own
+   comment - but that net is deliberately narrow, only for a box collapsed
+   well past normal, so THIS is still what keeps .now-stack from ever
+   reaching that state on an ordinary phone in the first place).
    Below this height, let the three sections size to their own content
    instead of a fixed share of the viewport, and let the page itself take
    over scrolling as the genuine fallback - nothing needs to be squeezed,

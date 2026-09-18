@@ -313,22 +313,7 @@ function fitNowTitleText(force = false) {
     // even in a short box.
     const availableHeight = Math.max(0, stack.clientHeight - paddingY - (metaHeight + gap));
     const heightDefaultSize = Math.floor(availableHeight * 0.78);
-    // minDefaultSize is a floor only when the box is actually tall enough to
-    // hold it. On a viewport short enough that .now-stack itself has been
-    // squeezed below that (a landscape phone, a short laptop/tablet browser
-    // window - see the short-viewport fallback in styles.css), forcing the
-    // floor regardless of the box's real height is what used to send the
-    // title past its own box entirely, overlapping the progress bar and meta
-    // row underneath instead of shrinking to match. Capping by the box's own
-    // height (one line, with a little slack) keeps the floor's original
-    // intent - grow into a tall box, never look smaller than the other
-    // cards' text just because this one has a little less room than usual -
-    // without ever producing a font bigger than the box can actually hold.
-    const heightCeiling = Math.max(minSize, Math.floor(availableHeight * 0.95));
-    const defaultSize = Math.min(
-      heightCeiling,
-      Math.max(minDefaultSize, Math.min(heightDefaultSize, 70))
-    );
+    const defaultSize = Math.max(minDefaultSize, Math.min(heightDefaultSize, 70));
 
     title.style.whiteSpace = 'nowrap';
     title.style.wordBreak = 'keep-all';
@@ -396,6 +381,35 @@ function fitNowTitleText(force = false) {
     // rare case it has to be.
     if (title.style.whiteSpace === 'nowrap' && title.scrollWidth > available + 1) {
       shrinkFontToFit(title, available, minSize, 8);
+    }
+
+    // Everything above only ever measures WIDTH - shrinkFontToFit binary-
+    // searches scrollWidth, fitTwoLineTitle's own wrap check is triggered by
+    // a WIDTH-driven shrink, and the recheck just above is a width overflow
+    // too. None of it verifies the chosen size's actual line height against
+    // the box's real HEIGHT - which is fine normally: minDefaultSize's own
+    // comment already explains why a few px of harmless overflow at the
+    // floor size, on an ordinary box that's merely a LITTLE tighter than
+    // usual (an iPhone SE, a taller meta row), is an accepted, deliberate
+    // tradeoff, not a bug - and this must never second-guess that judgment
+    // call by nudging the size down "just in case", or it quietly drifts
+    // every one-line/two-line decision above along with it (a previous
+    // version of this safety net did exactly that, proactively capping
+    // defaultSize itself, and ended up visibly shrinking the class name and
+    // shifting the two-line wrap threshold on completely ordinary phones
+    // that were never actually broken). It only matters once the box has
+    // collapsed well past "a little tighter than usual" - a landscape
+    // phone, a short laptop/tablet browser window (see the short-viewport
+    // fallback in styles.css) - where the same floor can overshoot the box
+    // by tens of px, painting the title over the progress bar and meta row
+    // beneath it. availableHeight < minSize - the box can't even fit the
+    // smallest LEGIBLE size, not merely less than the preferred one - is the
+    // line between those two cases: a normal box, however tight, never
+    // crosses it, so this never touches one; only a genuinely collapsed box
+    // does, and only then does it step in, no further than the box's own
+    // height actually needs.
+    if (availableHeight < minSize) {
+      shrinkFontToFit(title, available, Math.max(8, Math.floor(availableHeight)), 8);
     }
   });
 }
