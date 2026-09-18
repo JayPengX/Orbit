@@ -276,7 +276,7 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
      }
    }
    ```
-   服務帳戶的存取本來就不受 Firestore 規則限制（跟 Admin SDK 一樣），所以這條規則只影響「繞過 Worker、直接打 Firestore」的請求——把它整個關掉，才是這個 Worker 真正的意義：不是多一層檢查，是拿掉原本永遠開著的那道門。用萬用字元 `{document=**}` 涵蓋整個資料庫，而不是只列 `orbit-schedules`，是因為同一個 Firebase 專案、同一組服務帳戶也同時服務 `/vocab-sync`（見下方），寫成萬用字元就不用每多一個共用同步功能都回來改一次規則。
+   服務帳戶的存取本來就不受 Firestore 規則限制（跟 Admin SDK 一樣），所以這條規則只影響「繞過 Worker、直接打 Firestore」的請求——把它整個關掉，才是這個 Worker 真正的意義：不是多一層檢查，是拿掉原本永遠開著的那道門。用萬用字元 `{document=**}` 涵蓋整個資料庫，而不是只列 `orbit-schedules`，是因為同一個 Firebase 專案、同一組服務帳戶也同時服務 `/vocab-sync`、`/match-find-sync`（見下方），寫成萬用字元就不用每多一個共用同步功能都回來改一次規則——新增 `/match-find-sync` 時就完全沒動過這條規則，正是這樣設計的意義。
 7. 如果上方〈AI 辨識課表照片〉那節已經設定過 `PROXY_URL`，這裡不用再設一次——`/sync` 路徑跟 `/gemini`、`/nl-edit` 共用同一個值，直接跳過這步。只想單獨開通跨裝置同步、還沒設定過 `PROXY_URL` 的話：複製 Worker 網址（**不要加路徑**）到 GitHub 專案 Settings → Secrets and variables → Actions → **Variables**，新增 `PROXY_URL`。推送到 `main` 後站台建置時內建進去。
 
 沒做這套設定（`PROXY_URL` 留空，例如自建 fork）的話，跨裝置同步這整個功能就不可用——不會退回成直連 Firestore 的舊模式（那個模式已經移除：Firestore 規則沒辦法計數請求次數，等於形同虛設的流量限制）。
@@ -318,6 +318,17 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 - **呼叫頻率遠低於其他路徑**：Match Find 用排程的 GitHub Action 一天呼叫幾次，把結果寫進靜態 JSON 檔，不是每個訪客看網頁都各呼叫一次。
 - 部署者不需要任何額外步驟——已經設定過 `GEMINI_API_KEY` 的話，`/match-recommend` 立刻可用；把 Worker 網址（**不要加路徑**）設進 Match Find 那個 repo 的 Settings → Secrets and variables → Actions → Variables 的 `PROXY_URL` 即可（細節見該 repo 的 README）。未設定的話，Match Find 會退回成純本地端的簡單評分規則，網站仍可正常使用，只是推薦理由沒有 AI 產生的說明。
 - 同樣是單向依賴：Orbit 自己完全不使用、也不知道 `/match-recommend` 的存在。
+
+### 這支 Worker 同時也服務 Match Find 的跨裝置設定同步（`/match-find-sync`）
+
+跟 `/vocab-sync` 一樣的重用邏輯：Match Find 想讓使用者的個人化設定（運動優先順序、啟用哪些運動、訂閱哪些頻道／服務）能跨裝置同步，與其為了這一個功能再申請一次 Firebase 專案、再部署一支 Worker，不如重用已經在跑的這一支。
+
+- 用**同一個** Firebase 專案、**同一組**服務帳戶密鑰——完成上方〈跨裝置同步〉的 Firestore 服務帳戶設定後，`/match-find-sync` 不需要任何額外的 Secret。
+- 存進**獨立的** Firestore collection（`match-find-sync`），並用**獨立的**流量計數器（`match-find-sync:*`，見 `MATCH_FIND_SYNC_APP` 與旁邊的 `MATCH_FIND_SYNC_*` 常數），跟 `/sync`、`/vocab-sync`、`/gemini` 等其他路徑互不影響。
+- 配對機制跟 `/vocab-sync` 一樣，不是 `/sync` 那一套：只有**一組 16 碼密碼**，同時當識別碼與唯一憑證，讀取（`GET`）跟寫入（`PATCH`）都需要它——因為這裡的同步情境同樣是「同一個人自己的多台裝置」，不是「一人的資料、多人唯讀」，沒有必要留一個誰都能讀的公開讀取權限，也不需要 `/sync` 那組額外的管理者密碼設計。伺服器端一樣只存這組密碼的雜湊值（`docIdForPasscode`），不存明文。
+- payload（要同步的設定內容）上限刻意訂得比 `/vocab-sync` 小很多（`MATCH_FIND_SYNC_MAX_PAYLOAD_LENGTH`，4KB）——這裡同步的只是幾個設定值，不是一整份課表或學習進度，用不到那麼大的空間。
+- 部署者只要照上方〈AI 辨識課表照片〉與〈跨裝置同步〉的步驟部署過這支 Worker、完成 Firestore 服務帳戶設定，`/match-find-sync` 就自動可用；把 Worker 網址（**不要加路徑**）設進 Match Find 那個 repo 的 `PROXY_URL`（跟 `/match-recommend` 共用同一個值，已經設定過的話不用再設一次）。
+- 同樣是單向依賴：Orbit 自己完全不使用、也不知道 `/match-find-sync` 的存在。
 
 ---
 
