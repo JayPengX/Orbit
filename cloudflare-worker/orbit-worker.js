@@ -1247,7 +1247,7 @@ function buildMatchRecommendPrompt(matches) {
 - "watchability": integer 1-10, how entertaining or notable it is to a general sports fan regardless of closeness (rivalry, stakes, star power, drama, historical significance).
 - "reason": one short sentence (under 40 Traditional Chinese characters) in Traditional Chinese explaining the two scores.
 - "venueZh": the given "venue" written in Traditional Chinese - the commonly used Chinese name for that stadium/arena/circuit if you know one, otherwise a reasonable transliteration. Return "" if you have no real basis to translate it rather than guessing.
-- "whereToWatchTw": the TV channel or streaming service Taiwanese viewers would typically use to watch THIS SPECIFIC fixture live (e.g. "愛爾達體育台", "ELEVEN SPORTS", "Apple TV", "Disney+", "myVideo", "緯來體育台"), in Traditional Chinese, as short as possible - a channel/platform name, not a sentence. Return "無已知台灣轉播" if you have no real basis to know (an obscure fixture, or broadcast rights you're unsure of) rather than guessing.
+- "whereToWatchTw": the TV channel or streaming service Taiwanese viewers would typically use to watch THIS SPECIFIC fixture live (e.g. "愛爾達體育台", "ELEVEN SPORTS", "Apple TV", "Disney+", "myVideo", "緯來體育台"), in Traditional Chinese, as short as possible - a channel/platform name, not a sentence. If a fixture is carried by BOTH 緯來體育台 and 愛爾達體育台 (common for MLB), answer "愛爾達體育台", not "緯來體育台" - when both are right, prefer naming 愛爾達體育台. Return "無已知台灣轉播" if you have no real basis to know (an obscure fixture, or broadcast rights you're unsure of) rather than guessing.
 
 Fixtures (each already has an "id" - use it to key your answer, never invent or rely on ordering alone):
 ${JSON.stringify(matches)}
