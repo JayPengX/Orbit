@@ -24,6 +24,13 @@
 //                            /gemini's GEMINI_API_KEY secret instead of
 //                            /vocab-sync's Firebase ones - see "==== /vocab-ai"
 //                            below.
+//   POST      /match-recommend - Match Find's daily "which fixture is worth
+//                            watching" ranking (see that repo's
+//                            scripts/build-data.mjs). Same reuse reasoning
+//                            and same GEMINI_API_KEY as /vocab-ai, called a
+//                            handful of times a day by Match Find's own
+//                            scheduled build, never per visitor - see "====
+//                            /match-recommend" below.
 //
 // /sync and /vocab-sync both hold a Firebase service-account key
 // server-side and proxy Firestore, so the pairing code isn't the only thing
@@ -1139,6 +1146,162 @@ async function handleVocabAiRequest(request, env, headers, ip) {
   }
 }
 
+// ==== /match-recommend - Match Find's "worth watching" ranking ==============
+//
+// Match Find (github.com/jaypengx-collab/Match-Find) is a static site that
+// recommends which upcoming fixture across several leagues is worth
+// watching. Ranking "worth watching" needs real-world sports knowledge -
+// current form, standings stakes, rivalry history - that no deterministic
+// heuristic over raw fixture data can approximate well, so that judgment is
+// what gets delegated here; everything else (fetching each league's
+// fixtures from ESPN's own public API, converting to the viewer's local
+// time, resolving same-time conflicts by score) happens entirely in Match
+// Find's own build script with no need for this Worker at all.
+//
+// Called a handful of times a day by Match Find's own scheduled GitHub
+// Action (which bakes the result into a static JSON file), never per page
+// view - unlike /gemini and /vocab-ai, which run once per end-user action.
+// That's also why this stays generous but modest at
+// MATCH_RECOMMEND_RATE_LIMIT rather than needing per-IP fairness tuning:
+// the caller is one scheduled job, not many browsers.
+//
+// Reuses GEMINI_API_KEY rather than needing its own secret - same reasoning
+// as /vocab-ai reusing it instead of provisioning a second key.
+const MATCH_RECOMMEND_MODEL = 'gemini-3.7-flash';
+const MATCH_RECOMMEND_RATE_LIMIT = 20;
+// One day across five leagues (MLB alone can run ~15 games/day) can add up
+// fast - this stays well above what a real day's fixture list needs while
+// still bounding one request's prompt size and Gemini cost.
+const MATCH_RECOMMEND_MAX_ITEMS = 80;
+const MATCH_RECOMMEND_MAX_FIELD_LEN = 160;
+
+const MATCH_RECOMMEND_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    picks: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          competitiveness: { type: 'integer' },
+          watchability: { type: 'integer' },
+          reason: { type: 'string' }
+        },
+        required: ['id', 'competitiveness', 'watchability', 'reason']
+      }
+    }
+  },
+  required: ['picks']
+};
+
+// Bounds/shape-checks one submitted fixture before it's embedded in the
+// prompt - same posture as cleanVocabAiText/readGeminiFiles: this route has
+// no passcode gate either, reachable by anyone who knows the URL, so every
+// field is treated as untrusted regardless of how Match Find's own build
+// script actually behaves. Returns null (never a silently truncated value)
+// so the caller 400s outright rather than forwarding a malformed fixture.
+function cleanMatchRecommendItem(item) {
+  if (!item || typeof item !== 'object') return null;
+  const id = typeof item.id === 'string' ? item.id.trim().slice(0, 64) : '';
+  const sport = typeof item.sport === 'string' ? item.sport.trim().slice(0, 40) : '';
+  const name =
+    typeof item.name === 'string' ? item.name.trim().slice(0, MATCH_RECOMMEND_MAX_FIELD_LEN) : '';
+  if (!id || !sport || !name) return null;
+  const startTimeUtc = typeof item.startTimeUtc === 'string' ? item.startTimeUtc.trim().slice(0, 40) : '';
+  const context =
+    typeof item.context === 'string' ? item.context.trim().slice(0, MATCH_RECOMMEND_MAX_FIELD_LEN) : '';
+  return { id, sport, name, startTimeUtc, context };
+}
+
+// The fixed, server-owned prompt - Match Find's build script only ever sends
+// {matches: [...]}, never prompt text of its own, same discipline as every
+// other route in this file (see top-of-file comment).
+function buildMatchRecommendPrompt(matches) {
+  return `You are a knowledgeable sports fan helping viewers decide which upcoming fixture is most worth watching. You are given a list of fixtures across several leagues/series (e.g. Premier League, MLS, MLB, NBA, F1). For EACH fixture, using your own real-world knowledge of these specific teams/drivers (current form, standings position, rivalry history, star players, championship/relegation/playoff stakes), return:
+- "competitiveness": integer 1-10, how close/contested you expect the fixture to be.
+- "watchability": integer 1-10, how entertaining or notable it is to a general sports fan regardless of closeness (rivalry, stakes, star power, drama, historical significance).
+- "reason": one short sentence (under 25 words) explaining the two scores.
+
+Fixtures (each already has an "id" - use it to key your answer, never invent or rely on ordering alone):
+${JSON.stringify(matches)}
+
+Rules:
+- Return exactly one entry per given "id" - never add, drop, or merge fixtures.
+- If you don't recognize a team/driver, or have no real basis to judge a fixture, score both fields conservatively (4-6) and say so plainly in "reason" rather than inventing form, stats, or a rivalry that isn't real.
+- Never invent an injury, transfer, or statistic you're not confident is real.
+- Return ONLY the raw JSON object matching the given schema - no markdown fences, no extra text.`;
+}
+
+async function handleMatchRecommendRequest(request, env, headers, ip) {
+  if (request.method !== 'POST') return json({ error: { message: 'POST only' } }, 405, headers);
+
+  const rateLimit = await isRateLimited(env, ip, 'match-recommend', MATCH_RECOMMEND_RATE_LIMIT);
+  headers['X-RateLimit-Backend'] = rateLimit.backend;
+  if (rateLimit.limited) {
+    return json({ error: { message: 'Too many requests, please try again later.' } }, 429, headers);
+  }
+  if (!env.GEMINI_API_KEY) {
+    return json({ error: { message: 'Worker has not configured GEMINI_API_KEY.' } }, 500, headers);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: { message: 'Invalid JSON body' } }, 400, headers);
+  }
+  const rawMatches = Array.isArray(body?.matches) ? body.matches : null;
+  if (!rawMatches || !rawMatches.length) {
+    return json({ error: { message: 'Missing or invalid matches' } }, 400, headers);
+  }
+  if (rawMatches.length > MATCH_RECOMMEND_MAX_ITEMS) {
+    return json(
+      { error: { message: `At most ${MATCH_RECOMMEND_MAX_ITEMS} matches per request` } },
+      400,
+      headers
+    );
+  }
+  const matches = rawMatches.map(cleanMatchRecommendItem);
+  if (matches.some(m => !m)) {
+    return json({ error: { message: 'Missing or invalid matches' } }, 400, headers);
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(MATCH_RECOMMEND_MODEL)}:generateContent?key=${env.GEMINI_API_KEY}`;
+  try {
+    const upstream = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: buildMatchRecommendPrompt(matches) }] }],
+        generationConfig: buildGenerationConfig(MATCH_RECOMMEND_MODEL, MATCH_RECOMMEND_RESPONSE_SCHEMA)
+      })
+    });
+    if (!upstream.ok) {
+      const errorJson = await upstream.json().catch(() => ({}));
+      return json(
+        { error: { message: errorJson.error?.message || upstream.statusText } },
+        upstream.status,
+        headers
+      );
+    }
+    const data = await upstream.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (typeof text !== 'string') {
+      return json({ error: { message: 'Gemini response missing text' } }, 502, headers);
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (error) {
+      return json({ error: { message: `Gemini returned invalid JSON: ${error.message}` } }, 502, headers);
+    }
+    return json(parsed, 200, headers);
+  } catch (error) {
+    return json({ error: { message: error.message || 'Upstream request failed' } }, 502, headers);
+  }
+}
+
 // ==== /sync - cross-device sync proxy =======================================
 //
 // Requires more setup than /gemini, because closing the gap properly means
@@ -1828,6 +1991,7 @@ export default {
     if (path === '/sync') return handleSyncRequest(request, env, headers, ip, ORBIT_SYNC_APP);
     if (path === '/vocab-sync') return handleSyncRequest(request, env, headers, ip, VOCAB_SYNC_APP);
     if (path === '/vocab-ai') return handleVocabAiRequest(request, env, headers, ip);
+    if (path === '/match-recommend') return handleMatchRecommendRequest(request, env, headers, ip);
     return json({ error: { message: 'Not found' } }, 404, headers);
   }
 };

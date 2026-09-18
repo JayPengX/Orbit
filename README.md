@@ -305,6 +305,17 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 - 部署者不需要任何額外步驟——已經照上方設定過 `GEMINI_API_KEY` 的話，`/vocab-ai` 立刻可用；只要 Orbit Vocab 那個 repo 已經照上一節設定過 `PROXY_URL`（同一支 Worker 網址，不加路徑），`/vocab-ai` 會跟 `/vocab-sync` 一起自動開通，不用再多設定什麼（細節見該 repo 的 README）。
 - 同樣是單向依賴：Orbit 自己完全不使用、也不知道 `/vocab-ai` 的存在。
 
+### 這支 Worker 同時也服務 Match Find 的「今天該看哪場比賽」推薦（`/match-recommend`）
+
+`orbit-worker.js` 還多了一個 `/match-recommend` 路徑，服務另一個姊妹靜態網站 [Match Find](https://github.com/jaypengx-collab/Match-Find)：從英超、MLS、MLB、NBA、F1 當天的賽程裡，判斷哪一場最值得看。
+
+- **只做「值不值得看」這個判斷**：賽程本身（時間、對戰組合）由 Match Find 自己的建置腳本（`scripts/build-data.mjs`）向 ESPN 公開 API 抓取，換算成使用者本地時間、依時間是否衝突挑出推薦場次，全部都在 Match Find 那一側用普通程式碼完成，跟這支 Worker 無關——這裡只負責「這幾場比賽裡，哪些精彩、哪些勢均力敵」這種需要真實體育知識（近況、戰績、宿敵關係、季後賽／保級壓力）才能判斷的部分，一般程式邏輯做不到。
+- **沿用 `/gemini` 的 `GEMINI_API_KEY`**，不需要另外申請：完成上方〈AI 辨識課表照片〉的部署設定後，`/match-recommend` 就自動可用。
+- **獨立的流量計數器**（`match-recommend:*`，見 `MATCH_RECOMMEND_RATE_LIMIT`），不會跟其他路徑互搶額度。
+- **呼叫頻率遠低於其他路徑**：Match Find 用排程的 GitHub Action 一天呼叫幾次，把結果寫進靜態 JSON 檔，不是每個訪客看網頁都各呼叫一次。
+- 部署者不需要任何額外步驟——已經設定過 `GEMINI_API_KEY` 的話，`/match-recommend` 立刻可用；把 Worker 網址（**不要加路徑**）設進 Match Find 那個 repo 的 Settings → Secrets and variables → Actions → Variables 的 `PROXY_URL` 即可（細節見該 repo 的 README）。未設定的話，Match Find 會退回成純本地端的簡單評分規則，網站仍可正常使用，只是推薦理由沒有 AI 產生的說明。
+- 同樣是單向依賴：Orbit 自己完全不使用、也不知道 `/match-recommend` 的存在。
+
 ---
 
 ## 資料存在哪裡、存了什麼
