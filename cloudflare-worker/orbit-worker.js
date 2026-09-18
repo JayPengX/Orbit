@@ -1247,7 +1247,7 @@ function buildMatchRecommendPrompt(matches) {
 - "watchability": integer 1-10, how entertaining or notable it is to a general sports fan regardless of closeness (rivalry, stakes, star power, drama, historical significance).
 - "reason": one short sentence (under 40 Traditional Chinese characters) in Traditional Chinese explaining the two scores.
 - "venueZh": the given "venue" written in Traditional Chinese - the commonly used Chinese name for that stadium/arena/circuit if you know one, otherwise a reasonable transliteration. Return "" if you have no real basis to translate it rather than guessing.
-- "whereToWatchTw": the TV channel or streaming service Taiwanese viewers would typically use to watch THIS SPECIFIC fixture live (e.g. "愛爾達體育台", "ELEVEN SPORTS", "Apple TV", "Disney+", "myVideo", "緯來體育台"), in Traditional Chinese, as short as possible - a channel/platform name, not a sentence. Use Google Search to check the ACTUAL, CURRENT broadcaster for this exact fixture rather than answering from a default assumption - broadcast rights are frequently team-specific and game-specific, not sport-wide: for example several MLB teams (e.g. the Phillies, the Mets) have games that air exclusively on Apple TV's "Friday Night Baseball" rather than through 愛爾達體育台/緯來體育台 at all, and guessing the usual channel for that fixture would be wrong. If a fixture is carried by BOTH 緯來體育台 and 愛爾達體育台 (common for MLB), answer "愛爾達體育台", not "緯來體育台" - when both are genuinely right, prefer naming 愛爾達體育台. Return "無已知台灣轉播" if a search still leaves you with no real basis to know (an obscure fixture, or broadcast rights you're unsure of) rather than guessing.
+- "whereToWatchTw": your best guess at the TV channel or streaming service Taiwanese viewers would typically use to watch THIS SPECIFIC fixture live (e.g. "愛爾達體育台", "ELEVEN SPORTS", "Apple TV", "Disney+", "myVideo", "緯來體育台"), in Traditional Chinese, as short as possible - a channel/platform name, not a sentence. This is only a FALLBACK guess from memory, not a search result (a separate grounded lookup - see handleMatchRecommendRequest - takes priority when it has an answer) - if a fixture is carried by BOTH 緯來體育台 and 愛爾達體育台 (common for MLB), answer "愛爾達體育台", not "緯來體育台". Return "無已知台灣轉播" if you have no real basis to know rather than guessing.
 
 Fixtures (each already has an "id" - use it to key your answer, never invent or rely on ordering alone):
 ${JSON.stringify(matches)}
@@ -1257,6 +1257,138 @@ Rules:
 - If you don't recognize a team/driver, or have no real basis to judge a fixture, score both fields conservatively (4-6) and say so plainly in "reason" rather than inventing form, stats, or a rivalry that isn't real.
 - Never invent an injury, transfer, statistic, broadcaster, or venue translation you're not confident is real - an empty/placeholder value is always better than a guess stated as fact.
 - Return ONLY the raw JSON object matching the given schema - no markdown fences, no extra text.`;
+}
+
+// A SEPARATE, ungrounded-vs-grounded split from the scoring prompt above,
+// on purpose - Gemini's schema-constrained JSON mode
+// (response_mime_type/response_schema, see buildGenerationConfig) and the
+// google_search grounding tool are NOT reliably combinable in one request:
+// depending on model/version this either gets rejected outright (see the
+// grounded/ungrounded retry in handleMatchRecommendRequest) or, worse,
+// silently accepted with the tool quietly ignored - a request that LOOKS
+// grounded but never actually searched, which is indistinguishable from a
+// real grounded miss without checking. Asking for broadcast info alone, as
+// free-form text with NO response_schema at all, sidesteps that ambiguity
+// entirely: grounding is unambiguously well-supported for plain-text
+// generation, so this pass either genuinely searches or visibly fails
+// (network/quota error), never silently no-ops.
+function buildBroadcastLookupPrompt(matches) {
+  return `Use Google Search to find the ACTUAL, CURRENT Taiwan TV channel or streaming service for EACH of these upcoming sports fixtures. Broadcast rights are often team-specific or even game-specific, not sport-wide - for example several MLB teams (e.g. the Phillies, the Mets) have games that air exclusively on Apple TV's "Friday Night Baseball" rather than through the usual 愛爾達體育台/緯來體育台 at all, so check each fixture individually rather than assuming the sport's usual channel. If a fixture is genuinely carried by BOTH 緯來體育台 and 愛爾達體育台 (common for MLB), answer "愛爾達體育台".
+
+Fixtures (each already has an "id" - use it to key your answer):
+${JSON.stringify(matches.map(m => ({ id: m.id, sport: m.sport, name: m.name, startTimeUtc: m.startTimeUtc })))}
+
+Respond with ONLY a raw JSON object (no markdown fences, no extra text) mapping each given "id" to the Traditional Chinese channel/service name, as short as possible (a name, not a sentence) - e.g. {"abc123": "愛爾達體育台", "def456": "Apple TV"}. If a search leaves you with no real basis to know a fixture's broadcaster, map its id to "無已知台灣轉播" rather than guessing. Include every given id exactly once.`;
+}
+
+// Salvages a JSON object out of a plain-text model response that was NOT
+// schema-constrained (see buildBroadcastLookupPrompt's own comment for
+// why) - a markdown fence or a short leading/trailing sentence around the
+// JSON is common even when explicitly told not to, so this strips a
+// fenced block if present and otherwise just grabs the outermost {...}
+// rather than trusting the whole response body to be bare JSON.
+function extractJsonObject(text) {
+  if (typeof text !== 'string') return null;
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1] : text;
+  const start = candidate.indexOf('{');
+  const end = candidate.lastIndexOf('}');
+  if (start === -1 || end === -1 || end < start) return null;
+  try {
+    return JSON.parse(candidate.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+// The scoring/reason/venueZh/whereToWatchTw-guess call - schema-constrained,
+// never grounded (see buildBroadcastLookupPrompt's comment for why those
+// two don't mix reliably). Tried across MATCH_RECOMMEND_MODELS in order,
+// same resilience reasoning as /gemini's own tryGeminiModels. Returns the
+// parsed `{picks: [...]}` object, or throws {message, status} on total
+// failure - this is required for the route to return anything at all, so a
+// failure here is fatal to the whole request.
+async function fetchStructuredPicks(matches, env) {
+  const prompt = buildMatchRecommendPrompt(matches);
+  let lastError = { message: 'No model available', status: 502 };
+  for (const model of MATCH_RECOMMEND_MODELS) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${env.GEMINI_API_KEY}`;
+    try {
+      const upstream = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: buildGenerationConfig(model, MATCH_RECOMMEND_RESPONSE_SCHEMA)
+        })
+      });
+      if (!upstream.ok) {
+        const errorJson = await upstream.json().catch(() => ({}));
+        const message = errorJson.error?.message || upstream.statusText;
+        lastError = { message, status: upstream.status };
+        // Retryable on the next model: overloaded (503), rate-limited
+        // (429), retired/unknown model (404), or a transient server error
+        // (5xx) - same retryable set /gemini's tryGeminiModels uses. Any
+        // other status (an invalid-key 401/403, or a real 400) would fail
+        // identically on every other model, so it throws immediately
+        // instead of wasting the rest of the list.
+        const retryable = upstream.status === 404 || upstream.status === 429 || upstream.status >= 500;
+        if (!retryable) throw lastError;
+        continue;
+      }
+      const data = await upstream.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (typeof text !== 'string') {
+        lastError = { message: 'Gemini response missing text', status: 502 };
+        continue;
+      }
+      try {
+        return JSON.parse(text);
+      } catch (error) {
+        lastError = { message: `Gemini returned invalid JSON: ${error.message}`, status: 502 };
+        continue;
+      }
+    } catch (error) {
+      if (error && typeof error.status === 'number') throw error; // already a {message, status}
+      lastError = { message: error.message || 'Upstream request failed', status: 502 };
+    }
+  }
+  throw lastError;
+}
+
+// The grounded broadcast-only lookup - best-effort, never fatal to the
+// request: any failure here (quota, no model accepts grounding, an
+// unparseable response) just means whereToWatchTw falls back to
+// fetchStructuredPicks' own ungrounded guess for every fixture, same as
+// before this lookup existed at all. Tries every model in
+// MATCH_RECOMMEND_MODELS, not just the first, since a quota/availability
+// issue on one model says nothing about another.
+async function fetchGroundedBroadcastInfo(matches, env) {
+  const prompt = buildBroadcastLookupPrompt(matches);
+  for (const model of MATCH_RECOMMEND_MODELS) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${env.GEMINI_API_KEY}`;
+    try {
+      const upstream = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          tools: [{ google_search: {} }]
+          // Deliberately no generationConfig/response_schema here - see
+          // buildBroadcastLookupPrompt's comment.
+        })
+      });
+      if (!upstream.ok) continue;
+      const data = await upstream.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      const parsed = extractJsonObject(text);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch {
+      // Best-effort - fall through to the next model, and eventually to
+      // the caller's own fallback, on any failure.
+    }
+  }
+  return null;
 }
 
 async function handleMatchRecommendRequest(request, env, headers, ip) {
@@ -1293,66 +1425,32 @@ async function handleMatchRecommendRequest(request, env, headers, ip) {
     return json({ error: { message: 'Missing or invalid matches' } }, 400, headers);
   }
 
-  const prompt = buildMatchRecommendPrompt(matches);
-  let lastError = { message: 'No model available', status: 502 };
-  for (const model of MATCH_RECOMMEND_MODELS) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${env.GEMINI_API_KEY}`;
-    // Tried with Google Search grounding first (so "whereToWatchTw" reflects
-    // an actual lookup rather than the model's static training-time
-    // knowledge of "which channel usually carries this sport") and, only if
-    // that specific combination is rejected outright, retried once WITHOUT
-    // the search tool on the same model before moving on - some Gemini
-    // versions don't allow combining a search tool with schema-constrained
-    // JSON output in one call, and this route would rather degrade to the
-    // old ungrounded guess than drop a whole model over it.
-    for (const grounded of [true, false]) {
-      try {
-        const upstream = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            ...(grounded ? { tools: [{ google_search: {} }] } : {}),
-            generationConfig: buildGenerationConfig(model, MATCH_RECOMMEND_RESPONSE_SCHEMA)
-          })
-        });
-        if (!upstream.ok) {
-          const errorJson = await upstream.json().catch(() => ({}));
-          const message = errorJson.error?.message || upstream.statusText;
-          lastError = { message, status: upstream.status };
-          // Retryable on the next model: overloaded (503), rate-limited
-          // (429), retired/unknown model (404), or a transient server error
-          // (5xx) - same retryable set /gemini's tryGeminiModels uses.
-          // A 400 while grounded also retries once, ungrounded, on this
-          // same model (see the comment above) rather than being treated as
-          // a guaranteed repeat. Any other non-retryable status (an
-          // invalid-key 401/403, or a 400 that persists ungrounded too)
-          // would fail identically on every other model, so it returns
-          // immediately instead of wasting the rest of the list.
-          if (grounded && upstream.status === 400) continue;
-          const retryable =
-            upstream.status === 404 || upstream.status === 429 || upstream.status >= 500;
-          if (!retryable) return json({ error: { message } }, upstream.status, headers);
-          break;
+  let picksResult;
+  try {
+    // Run together, not sequentially - fetchGroundedBroadcastInfo is
+    // best-effort and never throws, so this only ever waits as long as the
+    // slower of the two, not both added up.
+    const [structured, grounded] = await Promise.all([
+      fetchStructuredPicks(matches, env),
+      fetchGroundedBroadcastInfo(matches, env)
+    ]);
+    picksResult = structured;
+    if (grounded && Array.isArray(picksResult?.picks)) {
+      for (const pick of picksResult.picks) {
+        const groundedChannel = grounded[pick.id];
+        // Only overrides with a real answer - a grounded "無已知台灣轉播"
+        // doesn't get to stomp out a specific channel name the ungrounded
+        // pass already guessed; it just means the search came up empty,
+        // which isn't more informative than the existing guess.
+        if (typeof groundedChannel === 'string' && groundedChannel.trim() && groundedChannel !== '無已知台灣轉播') {
+          pick.whereToWatchTw = groundedChannel.trim().slice(0, MATCH_RECOMMEND_MAX_FIELD_LEN);
         }
-        const data = await upstream.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (typeof text !== 'string') {
-          lastError = { message: 'Gemini response missing text', status: 502 };
-          break;
-        }
-        try {
-          return json(JSON.parse(text), 200, headers);
-        } catch (error) {
-          lastError = { message: `Gemini returned invalid JSON: ${error.message}`, status: 502 };
-          break;
-        }
-      } catch (error) {
-        lastError = { message: error.message || 'Upstream request failed', status: 502 };
       }
     }
+  } catch (error) {
+    return json({ error: { message: error.message || 'Upstream request failed' } }, error.status || 502, headers);
   }
-  return json({ error: { message: lastError.message } }, lastError.status, headers);
+  return json(picksResult, 200, headers);
 }
 
 // ==== /sync - cross-device sync proxy =======================================
