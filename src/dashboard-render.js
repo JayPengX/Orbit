@@ -313,7 +313,22 @@ function fitNowTitleText(force = false) {
     // even in a short box.
     const availableHeight = Math.max(0, stack.clientHeight - paddingY - (metaHeight + gap));
     const heightDefaultSize = Math.floor(availableHeight * 0.78);
-    const defaultSize = Math.max(minDefaultSize, Math.min(heightDefaultSize, 70));
+    // minDefaultSize is a floor only when the box is actually tall enough to
+    // hold it. On a viewport short enough that .now-stack itself has been
+    // squeezed below that (a landscape phone, a short laptop/tablet browser
+    // window - see the short-viewport fallback in styles.css), forcing the
+    // floor regardless of the box's real height is what used to send the
+    // title past its own box entirely, overlapping the progress bar and meta
+    // row underneath instead of shrinking to match. Capping by the box's own
+    // height (one line, with a little slack) keeps the floor's original
+    // intent - grow into a tall box, never look smaller than the other
+    // cards' text just because this one has a little less room than usual -
+    // without ever producing a font bigger than the box can actually hold.
+    const heightCeiling = Math.max(minSize, Math.floor(availableHeight * 0.95));
+    const defaultSize = Math.min(
+      heightCeiling,
+      Math.max(minDefaultSize, Math.min(heightDefaultSize, 70))
+    );
 
     title.style.whiteSpace = 'nowrap';
     title.style.wordBreak = 'keep-all';
