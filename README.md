@@ -138,7 +138,7 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 
 ### 金鑰在哪、安全性怎麼樣
 
-一般使用者**完全不需要**自己申請或輸入 Gemini API Key。部署站台已設定好伺服器端代理（`cloudflare-worker/orbit-worker.js` 的 `/gemini` 路徑——這支 Worker 同時也服務跨裝置同步的 `/sync` 路徑，見下方〈跨裝置同步〉），真正的 Key 只存成該 Worker 的加密 Secret，永遠不進客戶端程式碼。
+一般使用者**完全不需要**自己申請或輸入 Gemini API Key。部署站台已設定好伺服器端代理（獨立的 [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) 這個 repo 的 `worker.js`，`/gemini` 路徑——這支 Worker 同時也服務跨裝置同步的 `/sync` 路徑，見下方〈跨裝置同步〉），真正的 Key 只存成該 Worker 的加密 Secret，永遠不進客戶端程式碼。
 
 代理不是單純的轉發水管，客戶端只能傳 `{model, files}`（檔案數量、單檔與總量大小、可用的 MIME 類型都在 Worker 端擋掉），實際送去 Gemini 的提示詞、回應 Schema 與生成參數是 Worker 自己寫死的——即使有人挖出 Worker 網址（它本來就在公開的前端程式碼裡）直接發請求，也只能拿它跑「辨識這張圖裡的課表」，沒辦法把它當成通用的免費 AI 代理去問別的問題。這是刻意設計成這樣，因為 Worker 網址從來就不是秘密。
 
@@ -150,29 +150,14 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 
 ### 部署者一次性設定
 
-不需要安裝任何 CLI：
+這支 Worker 的原始碼、部署方式與詳細設定步驟（Cloudflare 帳號設定、`GEMINI_API_KEY`、KV 流量限制、`[placement] region` 為什麼要這樣設、GitHub Actions 自動部署）都已經搬到獨立的 [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) 這個 repo——因為這支 Worker從一開始就同時服務 Orbit、Orbit Vocab、Match Find 三個各自獨立的網站，放在 Orbit 自己的 repo 裡反而讓「要改代理該去哪個 repo」變成一個問題。完整步驟見該 repo 的 README。
 
-1. 到 [Cloudflare 註冊免費帳號](https://dash.cloudflare.com/sign-up)（只需 email，不需信用卡）。
-2. Workers & Pages → Create → Create Worker，取個名字 → Deploy。
-3. 「Edit code」貼上 `cloudflare-worker/orbit-worker.js` 全部內容，儲存並部署。這支檔案同時服務 AI 匯入（`/gemini`）跟跨裝置同步（`/sync`，見下方），只設定其中一個功能的 Secret 也沒問題，另一個路徑會回報「尚未設定」但不影響已設定的那個。
-4. Settings → Variables and Secrets → 新增 `GEMINI_API_KEY`（[到這裡申請](https://aistudio.google.com/apikey)），類型選 **Secret** → 儲存並部署。
-5. 複製 Worker 網址（`https://<worker 名稱>.<子網域>.workers.dev`）——**不要加路徑**。這一支 Worker 同時服務 AI 匯入（`/gemini`）、AI 課表編輯（`/nl-edit`，見下方）、跨裝置同步（`/sync`，見下方）三個功能，路徑是前端程式碼自己寫死補上的（見 `src/proxy-config.js`），設定值只需要 Worker 本身的網址。
-6. GitHub 專案 Settings → Secrets and variables → Actions → **Variables**（不是 Secrets，這個值本來就會進公開前端程式碼），新增 `PROXY_URL`，值就是上一步複製的 Worker 網址。下次推送到 `main`，站台就會改用代理——同時開通這三個功能（後兩個功能是否真的可用，還要看有沒有另外設定它們各自需要的 Secret，見下方各自的〈部署者一次性設定〉）。
-7. **建議但非必要**：Cloudflare 左側選單 Workers & Pages → KV → Create namespace（名稱隨意）；回到這個 Worker 的 Settings → Bindings → Add → KV Namespace，變數名稱填 `RATE_LIMIT_KV`，選剛建立的命名空間 → Deploy。這一步讓每小時請求限制變成跨邊緣節點的真計數器（見上方安全性小節），跳過的話功能一樣能用，只是這層限制比較弱。如果下方跨裝置同步的進階設定也會用到，同一個 KV 命名空間可以兩邊共用（兩個功能的計數器鍵值前綴不同，不會互相干擾）。
-8. **這個 Worker 的 `[placement]` 設定會影響 `/gemini`、`/nl-edit` 對 Google 的那一次呼叫從哪裡送出**，進而影響會不會收到 AI 匯入/AI 課表編輯失敗、`AI 辨識請求失敗（400）：User location is not supported for the API use.`（見 `src/gemini-ocr.js`）——Cloudflare 執行 Worker 的邊緣節點，就是 `/gemini` 那次對外呼叫的實際來源 IP，某些節點所在地區被 Google 的 Gemini API 直接拒絕，即使使用者自己所在的地區完全合法，也一樣會收到這個錯誤。`cloudflare-worker/wrangler.toml` 已經把這個設定寫成 `[placement] region = "gcp:us-east4"`（美國維吉尼亞州 Ashburn）——用 Wrangler CLI／GitHub Actions 部署的話直接生效，不用手動到後台開任何開關。**這是實測過的設定，不是猜的**：早期版本用的是 `mode = "smart"`（讓 Cloudflare 自己分析流量、挑一個「離 Worker 實際講話對象最近」的節點），對這個專案以台灣使用者為主的流量，Smart Placement 穩定選到 Cloudflare 在**香港**的節點——香港是 Cloudflare 在亞太地區最大的節點之一，「離 Google 最近」聽起來合理，但 Google 的 Gemini API 明文規定不開放香港與中國大陸，不是眾多節點裡剛好被擋的其中一個，而是分類上完全不在服務地區列表裡，每一次都會被拒絕，不是偶爾——回應標頭裡的 `X-Worker-Colo`（見下方）能直接看到卡在哪個節點，這個專案就是靠這個標頭才確認問題出在香港。既然是固定分類的封鎖，同一支 Worker 重試幾次也沒有用（Smart Placement 每次都選同一個「最佳」節點，不是隨機換）。`region` 反過來明確指定一個已知能用的目標（`us-east4`，經過實際多次呼叫 `/nl-edit` 驗證過 15/15 成功），讓 Cloudflare 直接依照這個目標挑節點，不用自己猜——每個 Workers 方案（含免費方案）都能用這個設定，不需要升級付費方案；跟需要 Cloudflare Workers Paid 方案的 Durable Objects `locationHint` 或需要 Enterprise 合約的 Regional Services（後者是資料落地／合規用途，鎖定的是整個轄區而不是特定一個節點，跟這裡要解決的問題不是同一回事）都不一樣。唯一限制：Cloudflare 後台「Settings → Placement」目前只有 Smart 開關可以點，沒有 `region` 欄位可選——只有 Wrangler CLI／API（也就是這個專案 `deploy-worker.yml` 的部署方式）能真正套用它，純後台貼程式碼部署的話目前還是只能退回開 Smart Placement 這個較弱的選項。
+部署好之後，這個 repo 這邊只需要一步：
 
-碰到這個錯誤時客戶端本身也會自動重送整輪請求（最多重試 2 次），`/nl-edit` 用的是同一套重試邏輯（見下方〈AI 課表編輯（自然語言指令）〉）；改用明確的 `region` 之後，這一層重試的角色主要是應付真正偶發的網路問題，不再需要靠它硬扛一個其實每次都會被拒絕的節點。每個回應（包含這個 400 錯誤本身）都會帶一個 `X-Worker-Colo` 標頭，值是 Cloudflare 官方的節點代碼（IATA 機場代碼，例如 `IAD`＝美國維吉尼亞、`HKG`＝香港）——這個代碼現在會直接顯示在錯誤訊息裡（`（節點：IAD）`這樣的字樣），之後如果又開始頻繁出現這個錯誤，先看訊息裡的節點代碼，比重新從頭排查更快。
+1. 複製 Worker 網址（`https://<worker 名稱>.<子網域>.workers.dev`）——**不要加路徑**。這一支 Worker 同時服務 AI 匯入（`/gemini`）、AI 課表編輯（`/nl-edit`，見下方）、跨裝置同步（`/sync`，見下方）三個功能，路徑是前端程式碼自己寫死補上的（見 `src/proxy-config.js`），設定值只需要 Worker 本身的網址。
+2. GitHub 專案 Settings → Secrets and variables → Actions → **Variables**（不是 Secrets，這個值本來就會進公開前端程式碼），新增 `PROXY_URL`，值就是上一步複製的 Worker 網址。下次推送到 `main`，站台就會改用代理——同時開通這三個功能（後兩個功能是否真的可用，還要看 shared-proxy 那邊有沒有另外設定它們各自需要的 Secret，見該 repo README）。
 
-也可以用 Wrangler CLI 部署（見 `cloudflare-worker/wrangler.toml` 開頭註解，含 KV 命名空間的 CLI 建立指令），效果相同。想調整每小時限制次數，改 `orbit-worker.js` 裡的 `GEMINI_RATE_LIMIT`／`NL_EDIT_RATE_LIMIT` 常數即可。
-
-**選用：改用 GitHub Actions 自動部署 Worker**，這樣以後改 `cloudflare-worker/orbit-worker.js` 推送到 `main` 就會自動部署，不用每次手動貼到 Cloudflare 後台（`.github/workflows/deploy-worker.yml`，`cloudflare-worker/**` 有變更且推到 `main` 才會觸發，也可以在 Actions 分頁手動觸發）：
-
-1. [Cloudflare Dashboard](https://dash.cloudflare.com/) → 右上角帳號 → My Profile → API Tokens → Create Token → 用 **Edit Cloudflare Workers** 範本 → 建立。複製產生的 token（只會顯示一次）。
-2. GitHub 專案 Settings → Secrets and variables → Actions → **Secrets**（這次是 Secrets，不是 Variables——這個值不該進公開程式碼），新增 `CLOUDFLARE_API_TOKEN`，貼上一步的 token。
-3. 同一頁再新增一個 Secret：`CLOUDFLARE_ACCOUNT_ID`，值是 Cloudflare Dashboard 右側欄（或網址列）看到的 Account ID。
-4. **關鍵一步**：`wrangler deploy` 會把 `cloudflare-worker/wrangler.toml` 裡的 `[vars]`／`[[kv_namespaces]]` 整組覆蓋上去，不是跟後台現有設定合併。推送前先把 `wrangler.toml` 改成跟後台現況一致——`FIREBASE_PROJECT_ID` 填實際的 Firebase 專案 ID（不是檔案裡的預留文字），有設定 `RATE_LIMIT_KV` 的話把對應的 `[[kv_namespaces]]` 區塊取消註解並填入真正的 namespace id——不然第一次自動部署會把後台設定蓋掉，導致同步失效或流量限制變弱。`GEMINI_API_KEY`／`FIREBASE_CLIENT_EMAIL`／`FIREBASE_PRIVATE_KEY` 這些 Secret 不受影響，本來就不存在這個檔案裡。
-
-設定好以上兩個 GitHub Secret 並確認 `wrangler.toml` 內容無誤後，之後編輯 `cloudflare-worker/orbit-worker.js` 只要跟平常一樣推送到 `main`，就會自動部署，不用再手動開 Cloudflare 後台貼程式碼。
+Gemini 偶爾回報 `AI 辨識請求失敗（400）：User location is not supported for the API use.`（見 `src/gemini-ocr.js`）時，客戶端本身會自動重送整輪請求（最多重試 2 次，`/nl-edit` 用的是同一套重試邏輯——見下方〈AI 課表編輯（自然語言指令）〉），錯誤訊息裡也會帶一個 Cloudflare 節點代碼（`X-Worker-Colo` 標頭，例如 `（節點：IAD）`）方便回報問題；這個錯誤實際發生的原因、以及 shared-proxy 那邊怎麼設定來避免它，見該 repo README 的 `[placement]` 說明。
 
 ---
 
@@ -192,7 +177,7 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 
 ### 部署者一次性設定
 
-跟 AI 匯入用的是**同一支** `cloudflare-worker/orbit-worker.js`、**同一把** `GEMINI_API_KEY`、**同一個** `PROXY_URL`（見上方〈AI 辨識課表照片〉的部署設定）——已經照那一節設定過的話，這裡不需要再做任何事，`/nl-edit` 路徑已經寫在 `orbit-worker.js` 裡，`PROXY_URL` 一設定就會一起生效。
+跟 AI 匯入用的是**同一支** shared-proxy Worker、**同一把** `GEMINI_API_KEY`、**同一個** `PROXY_URL`（見上方〈AI 辨識課表照片〉的部署設定）——已經照那一節設定過的話，這裡不需要再做任何事，`/nl-edit` 路徑已經寫在該 Worker 的 `worker.js` 裡，`PROXY_URL` 一設定就會一起生效。
 
 沒有部署這個 Worker、或 `PROXY_URL` 留空的話，這個功能直接不可用，不影響 AI 匯入、跨裝置同步或課表其他功能。
 
@@ -208,7 +193,7 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 
 選用功能，把課表自動同步到多台裝置，不用每次手動匯出/匯入。點右上角工具選單的「同步 / 匯入匯出」圖示，會打開一個獨立於課表編輯器之外的面板——同步是**預設看到的第一個選項**；手動備份流程還在，收進同個面板裡一個預設收合的「手動備份（舊版）」子項目。這個面板跟課表編輯器是分開的兩個工具，僅接收裝置也一定打得開（見下方〈管理者／僅接收身份〉）。
 
-一般使用者**完全不需要**自己申請或設定任何東西。部署站台已設定好伺服器端代理（`cloudflare-worker/orbit-worker.js` 的 `/sync` 路徑——這支 Worker 同時也服務 AI 匯入的 `/gemini` 路徑，見上方〈AI 辨識課表照片〉），瀏覽器不直接碰 Firestore，全部讀寫都先經過這個會計數、擋格式錯誤代碼的 Worker，Worker 才用自己的 Firebase 服務帳戶去存取共用的 Firestore 專案。裝置數量沒有上限，拿到同一組配對代碼就會加入同一份共享文件。
+一般使用者**完全不需要**自己申請或設定任何東西。部署站台已設定好伺服器端代理（[jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) 這個 repo 的 `worker.js`，`/sync` 路徑——這支 Worker 同時也服務 AI 匯入的 `/gemini` 路徑，見上方〈AI 辨識課表照片〉），瀏覽器不直接碰 Firestore，全部讀寫都先經過這個會計數、擋格式錯誤代碼的 Worker，Worker 才用自己的 Firebase 服務帳戶去存取共用的 Firestore 專案。裝置數量沒有上限，拿到同一組配對代碼就會加入同一份共享文件。
 
 沒有部署這個 Worker（`PROXY_URL` 留空，例如自建 fork）的話，跨裝置同步整個功能不可用——編輯器會顯示「跨裝置同步功能尚未設定」，不會退回成直連 Firestore 的舊流程，課表其他功能完全不受影響。
 
@@ -244,7 +229,7 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 
 同步代碼是讀取的唯一門檻，管理者密碼是寫入／刪除的唯一門檻——兩者職責分開，而且分開之後的規則是伺服器真的會檢查的：
 
-- 拿到**同步代碼**的人可以永久讀取該份課表——這個代碼本身不能拿來寫入，純粹是「知道要看哪一份共用文件」的識別碼。拿到**管理者密碼**（連同同步代碼）的人可以寫入（`PATCH`）與整個刪除（`DELETE`）該份課表；沒有密碼，或密碼不對，這兩個操作一律被 Worker 拒絕、回傳 403——這是 Worker 端真的會檢查、真的會擋下來的規則，不是介面上「僅接收裝置看不到按鈕」那種單純的引導：管理者身份不再只活在裝置本機的 `localStorage` 裡，伺服器自己會核對密碼才准許寫入（見 `cloudflare-worker/orbit-worker.js` 的 `handleSyncRequest`）。這是這一版跟最早期設計最大的差別：以前任何人只要有代碼，繞過 UI 直接發 HTTP 請求就能寫入或刪除；現在沒有正確的管理者密碼，在伺服器這一層就辦不到。
+- 拿到**同步代碼**的人可以永久讀取該份課表——這個代碼本身不能拿來寫入，純粹是「知道要看哪一份共用文件」的識別碼。拿到**管理者密碼**（連同同步代碼）的人可以寫入（`PATCH`）與整個刪除（`DELETE`）該份課表；沒有密碼，或密碼不對，這兩個操作一律被 Worker 拒絕、回傳 403——這是 Worker 端真的會檢查、真的會擋下來的規則，不是介面上「僅接收裝置看不到按鈕」那種單純的引導：管理者身份不再只活在裝置本機的 `localStorage` 裡，伺服器自己會核對密碼才准許寫入（見 shared-proxy repo 的 `worker.js` 裡的 `handleSyncRequest`）。這是這一版跟最早期設計最大的差別：以前任何人只要有代碼，繞過 UI 直接發 HTTP 請求就能寫入或刪除；現在沒有正確的管理者密碼，在伺服器這一層就辦不到。
 - 但代碼與密碼依然只是憑證，**使用者身分驗證依然不存在**——伺服器只認密碼本身，不認是誰在用它，也不知道用的人是不是本人。管理者密碼外流，任何人都能無限期竄改課表；同步代碼外流，任何人都能無限期讀到課表內容——兩者都沒有到期機制，密碼也無法單獨換發（只能整個刪除同步重建，代碼跟密碼一起作廢）。
 - 管理者密碼只在建立當下由 Worker 回傳一次，資料庫裡只存它的 SHA-256 雜湊（`managerPasscodeHash`），密碼原文完全不會被存下來——即使 Firestore 裡的資料外洩（例如專案存取權限設錯、備份外流），對方也只會拿到雜湊值，沒辦法反推回原始密碼、也就沒辦法冒充管理者去寫入。文件的 ID 就是同步代碼本身（讀取本來就不設防，這點沒必要藏），只有管理者密碼才走雜湊比對。
 - 建立同步後沒有自動過期或清除：不再使用的配對會永遠留在資料庫裡，除非有人主動按「整個刪除同步」（或直接對代碼+管理者密碼發 `DELETE`）——這是目前唯一真正把文件從資料庫移除的方式（見〈限制〉）。
@@ -255,80 +240,20 @@ npm run format       # Prettier 格式化（不含 index.html／css/styles.css�
 
 ### 部署者一次性設定
 
-跟 AI 匯入用的是**同一支** `cloudflare-worker/orbit-worker.js`（見上方〈AI 辨識課表照片〉的部署設定）——兩個功能各自獨立設定 Secret、互不影響，已經因為 AI 匯入部署過這支 Worker 的話，從第 2 步直接接著做，不用再建一個新 Worker：
+跟 AI 匯入用的是**同一支** shared-proxy Worker——Firebase 專案建立、服務帳戶金鑰、`FIREBASE_PROJECT_ID`／`FIREBASE_CLIENT_EMAIL`／`FIREBASE_PRIVATE_KEY`、KV 流量限制、Firestore 安全規則等完整設定步驟都在 [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) 這個 repo 的 README（「Sync features」一節），已經因為 AI 匯入部署過這支 Worker 的話直接照那節設定即可，不用再建一個新 Worker。
 
-1. 到 [Firebase Console](https://console.firebase.google.com/) 建立新專案，啟用 Firestore。
-2. 還沒部署過 `orbit-worker.js` 的話：[Cloudflare Dashboard](https://dash.cloudflare.com/) → Workers & Pages → Create → 貼上 `cloudflare-worker/orbit-worker.js` 的內容，部署。已經部署過的話，直接用同一個 Worker，跳過這步。
-3. Firebase Console → 專案設定 → 服務帳戶 → 產生新的私密金鑰，下載 JSON。這把金鑰形同該 Firebase 專案的完整讀寫權限，跟密碼一樣保管，不要放進任何會被推送到 GitHub 的檔案。**如果你的 Firebase 專案是由學校／公司 Google Workspace 帳號管理，這個下載按鈕可能被組織政策關閉**——去 [Google Cloud Console](https://console.cloud.google.com/) 同一個專案的 IAM & Admin → Service Accounts → 選 `firebase-adminsdk-...` 帳號 → Keys 分頁 → Add Key → Create new key → JSON 再試一次；如果那裡也顯示政策封鎖，代表這個 Google 帳號完全無法產生金鑰，只能改用個人 Google 帳號建立 Firebase 專案。
-4. 這個 Worker 的 Settings → Variables and Secrets，新增：
-   - `FIREBASE_PROJECT_ID`（一般變數）：Firebase 專案的 Project ID。
-   - `FIREBASE_CLIENT_EMAIL`（Secret）：下載的 JSON 裡的 `client_email`。
-   - `FIREBASE_PRIVATE_KEY`（Secret）：下載的 JSON 裡的 `private_key`。貼的時候用實際換行（貼上 PEM 檔案本身的內容），不要貼 JSON 字串裡逐字的 `\n` 跳脫符號——兩種格式 Worker 都認得，但貼錯格式是最容易出錯的一步。
-5. （可選但建議）Workers & Pages → KV → Create namespace → 任意命名 → 回到這個 Worker 的 Settings → Bindings → Add → KV Namespace → 變數名稱 `RATE_LIMIT_KV` → 選剛建立的 namespace。這個 Worker 內兩個功能的計數器鍵值前綴不同，共用同一個 KV namespace 完全沒問題。設定完 Bindings 後記得回「Edit code」畫面按一次 Deploy——只加 Binding 不會自動讓正在跑的版本套用它，一定要重新部署一次。
-6. 回到 Firebase Console「規則」分頁，貼上：
-   ```
-   rules_version = '2';
-   service cloud.firestore {
-     match /databases/{database}/documents {
-       match /{document=**} {
-         allow read, write: if false;
-       }
-     }
-   }
-   ```
-   服務帳戶的存取本來就不受 Firestore 規則限制（跟 Admin SDK 一樣），所以這條規則只影響「繞過 Worker、直接打 Firestore」的請求——把它整個關掉，才是這個 Worker 真正的意義：不是多一層檢查，是拿掉原本永遠開著的那道門。用萬用字元 `{document=**}` 涵蓋整個資料庫，而不是只列 `orbit-schedules`，是因為同一個 Firebase 專案、同一組服務帳戶也同時服務 `/vocab-sync`、`/match-find-sync`（見下方），寫成萬用字元就不用每多一個共用同步功能都回來改一次規則——新增 `/match-find-sync` 時就完全沒動過這條規則，正是這樣設計的意義。
-7. 如果上方〈AI 辨識課表照片〉那節已經設定過 `PROXY_URL`，這裡不用再設一次——`/sync` 路徑跟 `/gemini`、`/nl-edit` 共用同一個值，直接跳過這步。只想單獨開通跨裝置同步、還沒設定過 `PROXY_URL` 的話：複製 Worker 網址（**不要加路徑**）到 GitHub 專案 Settings → Secrets and variables → Actions → **Variables**，新增 `PROXY_URL`。推送到 `main` 後站台建置時內建進去。
+完成後，這個 repo 這邊只需要確認 `PROXY_URL` 已設定（見上方〈AI 辨識課表照片〉的部署設定）——`/sync` 路徑跟 `/gemini`、`/nl-edit` 共用同一個值，已經設定過的話不用再做任何事。
 
 沒做這套設定（`PROXY_URL` 留空，例如自建 fork）的話，跨裝置同步這整個功能就不可用——不會退回成直連 Firestore 的舊模式（那個模式已經移除：Firestore 規則沒辦法計數請求次數，等於形同虛設的流量限制）。
 
-### 這支 Worker 同時也服務 Orbit Vocab 的同步功能
+### 這支 Worker 也同時服務兩個姊妹網站
 
-`cloudflare-worker/orbit-worker.js` 除了 `/sync`、`/gemini` 之外，還多了一個 `/vocab-sync` 路徑——服務姊妹專案 [Orbit Vocab](https://github.com/jaypengx-collab/Orbit-Vocab) 的跨裝置學習進度同步。這不是 Orbit 自己的功能，純粹是把已經部署好的這支 Worker 當成共用基礎設施重複利用，不用為了另一個純前端小工具再申請一次 Firebase 專案、再部署一支 Worker、再重新調一次流量限制：
+除了 `/sync`、`/gemini`、`/nl-edit` 之外，同一支 Worker 還服務兩個姊妹靜態網站，純粹是把已經部署好、已經設定好 Firebase／Gemini 的這支 Worker 當成共用基礎設施重複利用，不用為了另一個網站再申請一次 Firebase 專案、再部署一支 Worker、再重新調一次流量限制。每個路徑都是自己獨立的 Firestore collection 或自己獨立的流量計數器（見 shared-proxy repo README 的路徑總表），彼此、以及跟 Orbit 自己的 `/sync`／`/gemini`／`/nl-edit`，都不會互相干擾額度：
 
-- 用**同一個** Firebase 專案、**同一組**服務帳戶密鑰（`FIREBASE_PROJECT_ID`／`FIREBASE_CLIENT_EMAIL`／`FIREBASE_PRIVATE_KEY`）——完成上方〈跨裝置同步〉的設定後，`/vocab-sync` 不需要任何額外的 Secret。
-- 存進不同的 Firestore collection（`vocab-progress-sync`，而不是 Orbit 自己用的 `orbit-schedules`），並且用獨立的流量計數器（`vocab-sync:*`，見 `orbit-worker.js` 裡的 `VOCAB_SYNC_*` 常數），彼此互不影響——`/vocab-sync` 被濫用不會吃掉 `/sync` 或 `/gemini` 的額度，反之亦然。
-- 配對機制跟 `/sync` **不一樣**：`/vocab-sync` 沒有「僅接收」角色，也沒有另一組同步代碼——只有**一組密碼**，同時當識別碼與唯一憑證，讀取（`GET`）跟寫入一樣都需要它才能成功，不像 `/sync` 讀取本身不設防；因為英文單字工具的同步情境是「同一個學習者自己的多台裝置」，不是「一位老師的課表廣播給很多學生唯讀」，沒有必要留一個誰都能讀的公開讀取權限，也沒必要為此多維護一組不需要的代碼。伺服器端只存這組密碼的雜湊值（`docIdForPasscode` 把它雜湊成 Firestore 文件 ID，而不是直接拿明文密碼當 ID），密碼本身也拉長到 16 碼（見 `orbit-worker.js` 裡 `VOCAB_SYNC_APP` 與 `VOCAB_PASSCODE_LENGTH` 旁的註解）。
-- 部署者只要照上方〈AI 辨識課表照片〉與〈跨裝置同步〉的步驟部署過這一支 Worker、且完成 Firestore 服務帳戶設定，`/vocab-sync` 就自動可用；把 Worker 網址（**不要加路徑**——路徑一樣是 Orbit Vocab 自己的前端程式碼寫死補上的）設進 Orbit Vocab 那個 repo 的 Settings → Secrets and variables → Actions → Variables 的 `PROXY_URL` 即可（這是 Orbit Vocab repo 自己的變數，值跟這裡的 `PROXY_URL` 相同，因為是同一支 Worker——細節見該 repo 的 README）。
-- 這是單向依賴：Orbit 完全不需要知道 Orbit Vocab 的存在也能正常運作，`/vocab-sync` 只是這支 Worker 多服務的一個路徑，不會出現在 Orbit 自己的網頁或程式碼裡。
+- **[Orbit Vocab](https://github.com/jaypengx-collab/Orbit-Vocab)** 的跨裝置學習進度同步（`/vocab-sync`）與個人化記憶法（`/vocab-ai`，依這個學習者自己實際打錯過的拼法即時產生記憶法）。
+- **[Match Find](https://github.com/jaypengx-collab/Match-Find)** 的「今天該看哪場比賽」AI 推薦（`/match-recommend`、`/match-recommend-refine`）與跨裝置設定同步（`/match-find-sync`）。
 
-### 這支 Worker 同時也服務 Orbit Vocab 的個人化 AI 功能（`/vocab-ai`）
-
-除了 `/vocab-sync` 之外，`orbit-worker.js` 還多了一個 `/vocab-ai` 路徑，一樣是服務 [Orbit Vocab](https://github.com/jaypengx-collab/Orbit-Vocab)，但用途不同：`/vocab-ai` 是**即時、依這個學習者當下自己的資料**產生內容的功能——
-
-- **個人化記憶法**：依這個學習者自己實際打錯過的拼法，產生針對這個錯誤模式的記憶法（不是每個人看到都一樣的靜態提示）。
-
-這個功能需要知道「這個學習者現在的資料長什麼樣子」，所以不能像 Orbit Vocab 既有的 `scripts/generate_ai_signals.py`（離線、一次性幫全部 3,060 個單字產生 `data/ai_signals.json` 靜態資料）一樣在建置時預先算好——只能在使用當下即時呼叫。
-
-- **沿用 `/gemini` 的 `GEMINI_API_KEY`**，不需要另外申請或設定：完成上方〈AI 辨識課表照片〉的部署設定後，`/vocab-ai` 就自動可用，不需要 Firebase 相關的任何 Secret（跟 `/vocab-sync` 不一樣，這個路徑完全不碰 Firestore）。
-- **沒有密碼或身分驗證**，信任模型跟 `/gemini` 一樣——單純用 IP 做流量限制（見 `orbit-worker.js` 裡的 `VOCAB_AI_RATE_LIMIT`），不綁定任何一個學習者的同步配對；因為這個功能本來就跟「這台裝置是誰的同步」無關，只是把目前畫面上看得到的單字／錯誤紀錄送出去問一次。
-- **獨立的流量計數器**（`vocab-ai:*`），不會跟 `/gemini` 或 `/vocab-sync` 互搶額度，反之亦然。
-- 部署者不需要任何額外步驟——已經照上方設定過 `GEMINI_API_KEY` 的話，`/vocab-ai` 立刻可用；只要 Orbit Vocab 那個 repo 已經照上一節設定過 `PROXY_URL`（同一支 Worker 網址，不加路徑），`/vocab-ai` 會跟 `/vocab-sync` 一起自動開通，不用再多設定什麼（細節見該 repo 的 README）。
-- 同樣是單向依賴：Orbit 自己完全不使用、也不知道 `/vocab-ai` 的存在。
-
-### 這支 Worker 同時也服務 Match Find 的「今天該看哪場比賽」推薦（`/match-recommend`）
-
-`orbit-worker.js` 還多了一個 `/match-recommend` 路徑，服務另一個姊妹靜態網站 [Match Find](https://github.com/jaypengx-collab/Match-Find)：從英超、MLS、MLB、NBA、F1 當天的賽程裡，判斷哪一場最值得看。
-
-- **只做需要真實世界知識才能回答的部分**：賽程本身（時間、對戰組合）由 Match Find 自己的建置腳本（`scripts/build-data.mjs`）向 ESPN 公開 API 抓取，換算成使用者本地時間、依時間是否衝突挑出推薦場次，全部都在 Match Find 那一側用普通程式碼完成，跟這支 Worker 無關——這裡只負責三件一般程式邏輯做不到、需要真實體育知識（近況、戰績、宿敵關係、季後賽／保級壓力）與台灣轉播生態才能回答的事：這幾場比賽哪些精彩／勢均力敵、場館名稱的繁體中文譯名（`venueZh`），以及台灣觀眾通常會在哪個頻道或串流平台收看這場比賽（`whereToWatchTw`，例如愛爾達體育台、ELEVEN SPORTS、Apple TV）。
-- **`whereToWatchTw` 由兩次獨立的 Gemini 呼叫合成**，而不是單一次呼叫：一次是原本的 schema 限定 JSON 評分呼叫（含 `whereToWatchTw` 的「憑印象猜」備援），另一次是**專門**用 Google 搜尋 grounding（`tools: [{ google_search: {} }]`）查證轉播台的純文字呼叫（`buildBroadcastLookupPrompt`），兩者平行送出。分成兩次呼叫是刻意的：Gemini 的 schema 限定輸出（`response_schema`）與搜尋 grounding 工具**不保證能穩定同時使用**——有些模型版本會直接回傳 400，但更麻煩的是有些版本會「安靜地」忽略搜尋工具、正常回傳 JSON，看起來像有 grounding、實際上模型根本沒搜尋，且從回應本身完全看不出差異。專門查轉播台的這次呼叫完全不設 `response_schema`，只要求回傳一段可解析的 JSON 文字（`extractJsonObject` 負責處理可能夾雜的 markdown 圍欄或前後綴文字），確保 grounding 真的有生效，而不是賭有沒有被悄悄跳過。查證失敗（配額用盡、所有模型都不接受 grounding 等）時，安靜地退回成第一次呼叫本來就有的「憑印象猜」答案，不會讓整個請求失敗。
-- **每場賽事可以附帶一個 `broadcast` 欄位**：ESPN 自己記錄的（通常是美國）全國轉播單位，例如 "Apple TV"、"TBS"、"Fox"。這不是台灣答案本身，但是比開放式網路搜尋更直接、更可靠的線索——實測發現光靠 grounding 搜尋，即使已經改成純文字、確定真的有執行搜尋，對「MLB 某一場特定比賽在台灣的轉播」這種偏門的單場事實，搜尋結果覆蓋率仍然不夠，模型還是會答成訓練時記住的「MLB 在台灣＝愛爾達」預設印象。兩個 prompt 現在都會明確提示：如果 `broadcast` 指出的是像 Apple TV「Friday Night Baseball」這種真正全球同步、沒有分區限制的串流專屬轉播（MLB 跟愛爾達／緯來的國際轉播合約通常不包含這個系列），那台灣答案也很可能就是同一個服務，而不是愛爾達／緯來；換成一般美國區域電視台名稱（Fox、TBS、球隊自己的區域台等）則不代表台灣有任何特殊意義。轉播權常常是球隊別、甚至單場別的，只憑印象或籠統搜尋都容易答錯。
-- **`/match-recommend-refine`：一個獨立、量很小的第二階段路徑**，只給 Match Find 建置腳本自己判斷「這幾場賽事時間重疊、初評分數又很接近」的一小群賽事（通常 2～4 場）用，重新用比較式的角度（而不是各自獨立評分）再問一次——同一批賽事分開評分容易分數相近、看不出誰才是真正的焦點戰，直接放在一起比較更容易看出差異。這是全部路徑裡唯一允許呼叫 Pro 等級模型的地方（`MATCH_RECOMMEND_REFINE_MODELS`）：Pro 等級的免費額度通常只有 Flash 的幾十分之一，而且是整個 Worker 共用（不只這個路徑），如果對每天幾百場賽事都這樣問一次，其他功能可能真的的額度會被排擠掉；只對「真的接近到需要比較」的少數幾場用，一天用量自然很小。兩個 Pro 模型（`gemini-3.1-pro-preview`、`gemini-2.5-pro`）都是對照 Google 官方模型列表確認過真的存在的型號名稱——初版曾經照著這支檔案既有的 Flash 命名慣例，直接猜了「gemini-3.7-pro」「gemini-3.5-pro」，結果兩個都不存在，每次呼叫都白白浪費兩次註定 404 的請求，而且退回 Flash 之後用的還是跟 `/match-recommend` 共用同一個「每分鐘 20 次」額度的同一個模型，等於每一次 refine 呼叫都在不知不覺間多擠壓一點大家共用的 Flash 額度。即便如此，兩個 Pro 模型都還沒有像 Flash 那兩個一樣實際打過這支 Worker、實測驗證過，所以會依序嘗試、最後退回成 `/match-recommend` 本來就在用、已知可行的 Flash 模型，不會因為型號猜錯或還沒開放而整個失敗。
-- **沿用 `/gemini` 的 `GEMINI_API_KEY`**，不需要另外申請：完成上方〈AI 辨識課表照片〉的部署設定後，`/match-recommend` 與 `/match-recommend-refine` 就自動可用。
-- **獨立的流量計數器**（`match-recommend:*`、`match-recommend-refine:*`，分別見 `MATCH_RECOMMEND_RATE_LIMIT`／`MATCH_RECOMMEND_REFINE_RATE_LIMIT`），不會跟其他路徑互搶額度。
-- **呼叫頻率遠低於其他路徑**：Match Find 用排程的 GitHub Action 一天呼叫幾次，把結果寫進靜態 JSON 檔，不是每個訪客看網頁都各呼叫一次。
-- 部署者不需要任何額外步驟——已經設定過 `GEMINI_API_KEY` 的話，`/match-recommend` 立刻可用；把 Worker 網址（**不要加路徑**）設進 Match Find 那個 repo 的 Settings → Secrets and variables → Actions → Variables 的 `PROXY_URL` 即可（細節見該 repo 的 README）。未設定的話，Match Find 會退回成純本地端的簡單評分規則，網站仍可正常使用，只是推薦理由沒有 AI 產生的說明。
-- 同樣是單向依賴：Orbit 自己完全不使用、也不知道 `/match-recommend` 的存在。
-
-### 這支 Worker 同時也服務 Match Find 的跨裝置設定同步（`/match-find-sync`）
-
-跟 `/vocab-sync` 一樣的重用邏輯：Match Find 想讓使用者的個人化設定（運動優先順序、啟用哪些運動、訂閱哪些頻道／服務）能跨裝置同步，與其為了這一個功能再申請一次 Firebase 專案、再部署一支 Worker，不如重用已經在跑的這一支。
-
-- 用**同一個** Firebase 專案、**同一組**服務帳戶密鑰——完成上方〈跨裝置同步〉的 Firestore 服務帳戶設定後，`/match-find-sync` 不需要任何額外的 Secret。
-- 存進**獨立的** Firestore collection（`match-find-sync`），並用**獨立的**流量計數器（`match-find-sync:*`，見 `MATCH_FIND_SYNC_APP` 與旁邊的 `MATCH_FIND_SYNC_*` 常數），跟 `/sync`、`/vocab-sync`、`/gemini` 等其他路徑互不影響。
-- 配對機制跟 `/vocab-sync` 一樣，不是 `/sync` 那一套：只有**一組 16 碼密碼**，同時當識別碼與唯一憑證，讀取（`GET`）跟寫入（`PATCH`）都需要它——因為這裡的同步情境同樣是「同一個人自己的多台裝置」，不是「一人的資料、多人唯讀」，沒有必要留一個誰都能讀的公開讀取權限，也不需要 `/sync` 那組額外的管理者密碼設計。伺服器端一樣只存這組密碼的雜湊值（`docIdForPasscode`），不存明文。
-- payload（要同步的設定內容）上限刻意訂得比 `/vocab-sync` 小很多（`MATCH_FIND_SYNC_MAX_PAYLOAD_LENGTH`，4KB）——這裡同步的只是幾個設定值，不是一整份課表或學習進度，用不到那麼大的空間。
-- 部署者只要照上方〈AI 辨識課表照片〉與〈跨裝置同步〉的步驟部署過這支 Worker、完成 Firestore 服務帳戶設定，`/match-find-sync` 就自動可用；把 Worker 網址（**不要加路徑**）設進 Match Find 那個 repo 的 `PROXY_URL`（跟 `/match-recommend` 共用同一個值，已經設定過的話不用再設一次）。
-- 同樣是單向依賴：Orbit 自己完全不使用、也不知道 `/match-find-sync` 的存在。
+這都是單向依賴：Orbit 完全不需要知道這兩個網站的存在也能正常運作，這些路徑不會出現在 Orbit 自己的網頁或程式碼裡。細節（各自的配對機制、payload 上限、為什麼需要兩次獨立的 Gemini 呼叫等等）見 shared-proxy repo 的 README 與 `worker.js` 裡對應路徑的註解，不在這裡重複一份容易和原始碼兜不起來的說明。
 
 ---
 
@@ -384,7 +309,7 @@ src/strings.js         畫面文字對照表
 src/main.js            進入點，依序 import 以上每個模組
 ```
 
-`cloudflare-worker/orbit-worker.js` 獨立部署到 Cloudflare Workers，不屬於 `src/` 的相依圖，不會被 Vite 打包——是唯一跑在伺服器端的程式碼。同一支檔案用路徑（`/gemini`、`/sync`）服務兩個各自可選的功能：沒部署/沒設定對應環境變數，該功能就直接不可用，不會有退回模式。
+伺服器端的程式碼（`/gemini`、`/sync` 等路徑）不在這個 repo 裡——那支 Cloudflare Worker 現在是獨立的 [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) repo，不屬於 `src/` 的相依圖，當然也不會被 Vite 打包。沒部署/沒設定對應環境變數，該功能就直接不可用，不會有退回模式。
 
 每個檔案開頭有一行註解說明職責。改程式碼前值得知道的幾個約定：
 

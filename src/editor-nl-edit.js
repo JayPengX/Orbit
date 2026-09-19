@@ -5,7 +5,7 @@
 // confirm - never silently. Same server-owns-the-prompt discipline as
 // src/gemini-ocr.js's AI photo import: this module only ever sends
 // {model, text, context} to the proxy; the Worker's /nl-edit path (see
-// cloudflare-worker/orbit-worker.js) owns the actual prompt and
+// the shared-proxy repo's worker.js) owns the actual prompt and
 // response_schema, so the deployed proxy URL can never be used to run an
 // arbitrary free-form prompt.
 //
@@ -21,7 +21,7 @@
 // something. applyNlEditResult below now takes a sparse patch instead
 // (classUpserts/deletedClassKeys/scheduleEdits, plus a handful of
 // whole-value fields the model only fills in when it actually changes
-// them - see NL_EDIT_RESPONSE_SCHEMA's own comment in orbit-worker.js) and
+// them - see NL_EDIT_RESPONSE_SCHEMA's own comment in worker.js) and
 // applies it on top of `current`: anything the patch doesn't mention comes
 // from the app's own existing data, never from the model, so it is
 // structurally impossible for an untouched class or cell to come back
@@ -46,7 +46,7 @@ import {
 } from './editor-core.js';
 import { proxyPath } from './proxy-config.js';
 
-// Must match GEMINI_ALLOWED_MODELS in cloudflare-worker/orbit-worker.js -
+// Must match GEMINI_ALLOWED_MODELS in the shared-proxy repo's worker.js -
 // the Worker's /nl-edit path reuses the exact same vetted model list as
 // /gemini (see that file's own comment on why these two models specifically
 // - fastest first, escalate to the stronger one only on a transient
@@ -148,7 +148,7 @@ async function tryNlEditModels(text, context) {
     // through the whole model list - callNlEditProxy decides whether a
     // fresh pass is worth retrying.
     if (response.status === 400 && /User location is not supported/i.test(message)) {
-      // Surfaces the Cloudflare colo (X-Worker-Colo, set by orbit-worker.js
+      // Surfaces the Cloudflare colo (X-Worker-Colo, set by worker.js
       // from request.cf.colo) that actually got blocked - see
       // gemini-ocr.js's matching comment for why this pass's own retry can't
       // detect or route around a colo Smart Placement keeps reusing.
@@ -231,7 +231,7 @@ function validateNlEditResult(result) {
 
 // Turns an already-shape-checked `result` - now a sparse PATCH, not a full
 // next state (see this file's own top-of-file comment and
-// NL_EDIT_RESPONSE_SCHEMA's comment in orbit-worker.js for why) - into a
+// NL_EDIT_RESPONSE_SCHEMA's comment in worker.js for why) - into a
 // full next settings-data object, built on top of `current` (as
 // settingsDataForExport() sees it) - pure data rearrangement, no DOM, so the
 // caller can diff it with describeSettingsDiff before ever touching the

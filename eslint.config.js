@@ -68,21 +68,10 @@ export default [
         ...globals.serviceworker
       }
     }
-  },
-  {
-    // The Gemini proxy Cloudflare Worker: a separate, server-side deployable
-    // (pasted into the Cloudflare dashboard or deployed with Wrangler - see
-    // README), not part of the app's src/ ES module graph. Its global scope
-    // (fetch/Response/Request/URL as ambient globals, an ES module with a
-    // default export) matches the service-worker environment closely enough
-    // to reuse those globals here.
-    files: ['cloudflare-worker/**/*.js'],
-    languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: 'module',
-      globals: {
-        ...globals.serviceworker
-      }
-    }
   }
+  // The Cloudflare Worker that backs /gemini, /nl-edit, and /sync (see
+  // README) used to live here as cloudflare-worker/**/*.js and had its own
+  // override in this list - it's now the separate jaypengx-collab/
+  // shared-proxy repo, with its own lint setup, so there's nothing left in
+  // this repo's src/ ES module graph for that override to match.
 ];

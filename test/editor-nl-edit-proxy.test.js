@@ -36,7 +36,7 @@ function fakeNlEditResponse(json) {
 }
 
 // Sparse patch, not full-state (see NL_EDIT_RESPONSE_SCHEMA's own comment in
-// orbit-worker.js) - a well-shaped "ok" result that touches nothing at all
+// worker.js) - a well-shaped "ok" result that touches nothing at all
 // by default: every list empty, every *Changed flag false. `overrides`
 // patches whichever fields a test actually cares about, exactly the way the
 // real AI response only ever fills in what the instruction asked to change.
@@ -177,7 +177,7 @@ describe('submitNlEdit - request shape', () => {
     expect(calls.some(call => call.isError && /地區限制|稍後再試/.test(call.message))).toBe(true);
     expect(calls.some(call => /User location/.test(call.message))).toBe(false);
     // The colo that actually got blocked (X-Worker-Colo, set by
-    // orbit-worker.js from request.cf.colo) - Smart Placement can stick a
+    // worker.js from request.cf.colo) - Smart Placement can stick a
     // given caller to the same colo indefinitely, so this needs to be
     // reportable, not just "somewhere, sometime".
     expect(calls.some(call => call.isError && call.message.includes('IAD'))).toBe(true);

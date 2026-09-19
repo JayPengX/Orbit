@@ -316,7 +316,7 @@ class AIVisionProcessor {
     // "high demand" - not a correctness problem, just not reliably
     // available yet.
     //
-    // Must match GEMINI_ALLOWED_MODELS in cloudflare-worker/orbit-worker.js
+    // Must match GEMINI_ALLOWED_MODELS in the shared-proxy repo's worker.js
     // exactly. Fastest-first is safe for every call this class makes now:
     // each one is single-file and single-purpose (see callGemini) after the
     // combined "read both documents and cross-reference them" request was
@@ -327,7 +327,7 @@ class AIVisionProcessor {
   }
 
   // Low-level call shared by every request this class makes: the one fixed
-  // server-side prompt (cloudflare-worker/orbit-worker.js's GEMINI_PROMPT)
+  // server-side prompt (the shared-proxy repo's worker.js, GEMINI_PROMPT)
   // against exactly the files given. That prompt is self-classifying now -
   // every file gets the same request regardless of what it turns out to
   // contain (see recognizeAndMerge for why upload order can no longer be
@@ -355,7 +355,7 @@ class AIVisionProcessor {
     if (!parts.length) throw new Error('請先選擇檔案。');
 
     // The prompt text and generation config are NOT sent from here - the
-    // proxy (cloudflare-worker/orbit-worker.js's /gemini path) owns both and
+    // proxy (the shared-proxy repo's worker.js, its /gemini path) owns both and
     // builds the full Gemini request itself from just {model, files}. That's
     // deliberate: it means the proxy can only ever be used to run this app's
     // own fixed, hardcoded prompt against submitted files, never as a
@@ -456,7 +456,7 @@ class AIVisionProcessor {
       // decide whether to retry a fresh pass (see its own comment on why
       // that has a real chance of landing on a different edge colo).
       if (response.status === 400 && /User location is not supported/i.test(message)) {
-        // Surfaces the Cloudflare colo (X-Worker-Colo, set by orbit-worker.js
+        // Surfaces the Cloudflare colo (X-Worker-Colo, set by worker.js
         // from request.cf.colo) that actually got blocked, so a user hitting
         // this repeatedly can report which one it is - Smart Placement can
         // keep sticking a given caller to the same colo indefinitely, which

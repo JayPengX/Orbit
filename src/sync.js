@@ -8,7 +8,7 @@
 //
 // No server of Orbit's own, in the sense that end users never run or pay
 // for anything: every read/write goes through a Cloudflare Worker (see
-// cloudflare-worker/orbit-worker.js's /sync path, backed by the same shared
+// the shared-proxy repo's worker.js, its /sync path, backed by the same shared
 // PROXY_URL as gemini-ocr.js and editor-nl-edit.js - see proxy-config.js)
 // that the app's owner - not each user - deploys once. The Worker holds its
 // own Firebase service-account credentials server-side and applies real,
@@ -1019,7 +1019,7 @@ async function withButtonDisabled(buttonId, fn) {
 }
 
 // Creating a sync spends a real, limited resource - the Worker's own create
-// rate limit is deliberately tight (see cloudflare-worker/orbit-worker.js's
+// rate limit is deliberately tight (see the shared-proxy repo's worker.js,
 // SYNC_CREATE_RATE_LIMIT), and every create leaves behind a throwaway
 // Firestore document if the code/passcode it returns never actually get
 // used - so this confirms first instead of firing on click, same reasoning

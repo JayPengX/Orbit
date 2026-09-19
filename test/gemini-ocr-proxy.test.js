@@ -196,7 +196,7 @@ describe('AIVisionProcessor.recognizeSchedule with a configured proxy', () => {
     expect(caught?.message).toMatch(/地區限制|稍後再試/);
     expect(caught?.message).not.toMatch(/User location/);
     // The colo that actually got blocked (X-Worker-Colo, set by
-    // orbit-worker.js from request.cf.colo) - Smart Placement can stick a
+    // worker.js from request.cf.colo) - Smart Placement can stick a
     // given caller to the same colo indefinitely, so this needs to be
     // reportable, not just "somewhere, sometime".
     expect(caught?.message).toContain('IAD');
