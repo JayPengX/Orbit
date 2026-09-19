@@ -1195,7 +1195,22 @@ async function handleVocabAiRequest(request, env, headers, ip) {
 // failed run here just means Match Find's build falls back to its own
 // local heuristic for that day - a bigger loss than a few seconds' extra
 // latency trying a second model first.
-const MATCH_RECOMMEND_MODELS = ['gemini-3.7-flash', 'gemini-3.5-flash-lite'];
+//
+// `gemini-3.1-flash-lite` was added as a third, last-resort member after
+// the account's own rate-limit dashboard showed gemini-3.7-flash and
+// gemini-3.5-flash-lite BOTH regularly exceeding their per-model RPM/RPD/
+// TPM ceilings at peak (shared across every feature this Worker serves,
+// not just this route - see this file's top comment), while
+// gemini-3.1-flash-lite sat at a small fraction of its own limit. It
+// hasn't been live-tested against this route's specific prompt+schema
+// shape the way the first two have (unlike gemini-3.6-flash/
+// gemini-3.8-flash above, which WERE tested against a real request shape
+// and rejected for documented reasons - a vision+schema correctness bug
+// and a persistent 503, respectively - this is a real, currently-listed
+// model with no such black mark against it, just unverified here), so it
+// stays last: a bad interaction with it still only costs one more retry
+// before falling to the local heuristic, never worse than not having it.
+const MATCH_RECOMMEND_MODELS = ['gemini-3.7-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
 const MATCH_RECOMMEND_RATE_LIMIT = 20;
 // One day across five leagues (MLB alone can run ~15 games/day) can add up
 // fast - this stays well above what a real day's fixture list needs while
@@ -1306,7 +1321,7 @@ function buildMatchRecommendPrompt(matches) {
 - "watchability": integer 1-10, how entertaining or notable it is to a general sports fan regardless of closeness (rivalry, stakes, star power, drama, historical significance).
 - "reason": one short sentence (under 40 Traditional Chinese characters) in Traditional Chinese explaining the two scores.
 - "venueZh": the given "venue" written in Traditional Chinese - the commonly used Chinese name for that stadium/arena/circuit if you know one, otherwise a reasonable transliteration. Return "" if you have no real basis to translate it rather than guessing.
-- "whereToWatchTw": your best guess at the TV channel or streaming service Taiwanese viewers would typically use to watch THIS SPECIFIC fixture live (e.g. "愛爾達體育台", "ELEVEN SPORTS", "Apple TV", "Disney+", "myVideo", "緯來體育台"), in Traditional Chinese, as short as possible - a channel/platform name, not a sentence. This is only a FALLBACK guess from memory, not a search result (a separate grounded lookup - see handleMatchRecommendRequest - takes priority when it has an answer). Each fixture may include a "broadcast" field - ESPN's own on-record NATIONAL (usually US) broadcaster for it, e.g. "Apple TV", "TBS", "Fox", "ESPN". This is NOT itself the Taiwan answer, but treat it as a strong hint FOR MLB SPECIFICALLY: if an MLB fixture's "broadcast" names a service that is a genuine GLOBAL streaming exclusive with no regional blackout (most notably MLB's Apple TV "Friday Night Baseball" package), that same service is very likely also how it's watched in Taiwan, NOT 愛爾達體育台/緯來體育台 - MLB's international broadcast deals with 愛爾達/緯來 typically do NOT include Apple TV's exclusive slate at all. An ordinary US regional cable network name in "broadcast" (Fox, TBS, ESPN, a team's own regional network, etc.) does NOT imply anything about Taiwan on its own. This "broadcast" override does NOT apply to F1: F1's US/international broadcaster is Apple TV, but F1 in Taiwan is broadcast exclusively by 愛爾達體育台 regardless of that - for F1 specifically, always answer "愛爾達體育台" and ignore "broadcast" entirely. If an MLB fixture is carried by BOTH 緯來體育台 and 愛爾達體育台 (common for an ordinary MLB game), answer "愛爾達體育台", not "緯來體育台". Return "無已知台灣轉播" if you have no real basis to know rather than guessing.
+- "whereToWatchTw": your best guess at the TV channel or streaming service Taiwanese viewers would typically use to watch THIS SPECIFIC fixture live (e.g. "愛爾達體育台", "DAZN", "Apple TV", "Disney+", "myVideo", "緯來體育台"), in Traditional Chinese, as short as possible - a channel/platform name, not a sentence. DAZN completed its acquisition of ELEVEN Sports in February 2023, and the ELEVEN Sports brand itself was fully retired in Taiwan by mid-2024 - if your own knowledge points at "ELEVEN SPORTS" for a fixture, answer "DAZN" instead, since that's the same service under its current name, not two different ones. This is only a FALLBACK guess from memory, not a search result (a separate grounded lookup - see handleMatchRecommendRequest - takes priority when it has an answer). Each fixture may include a "broadcast" field - ESPN's own on-record NATIONAL (usually US) broadcaster for it, e.g. "Apple TV", "TBS", "Fox", "ESPN". This is NOT itself the Taiwan answer, but treat it as a strong hint FOR MLB SPECIFICALLY: if an MLB fixture's "broadcast" names a service that is a genuine GLOBAL streaming exclusive with no regional blackout (most notably MLB's Apple TV "Friday Night Baseball" package), that same service is very likely also how it's watched in Taiwan, NOT 愛爾達體育台/緯來體育台 - MLB's international broadcast deals with 愛爾達/緯來 typically do NOT include Apple TV's exclusive slate at all. An ordinary US regional cable network name in "broadcast" (Fox, TBS, ESPN, a team's own regional network, etc.) does NOT imply anything about Taiwan on its own. This "broadcast" override does NOT apply to F1: F1's US/international broadcaster is Apple TV, but F1 in Taiwan is broadcast exclusively by 愛爾達體育台 regardless of that - for F1 specifically, always answer "愛爾達體育台" and ignore "broadcast" entirely. If an MLB fixture is carried by BOTH 緯來體育台 and 愛爾達體育台 (common for an ordinary MLB game), answer "愛爾達體育台", not "緯來體育台". Return "無已知台灣轉播" if you have no real basis to know rather than guessing.
 
 Fixtures (each already has an "id" - use it to key your answer, never invent or rely on ordering alone):
 ${JSON.stringify(matches)}
