@@ -71,7 +71,7 @@ export function computeDashboardViewModel({ now, curDay, week, todaySchedule, br
     if (mins >= parseTime(c.s) && mins < parseTime(c.e)) curIdx = i;
     if (mins < parseTime(c.s) && nxtIdx === -1) nxtIdx = i;
   });
-  const activeBreak =
+  let activeBreak =
     curIdx === -1
       ? (breakTimes || []).find(item => {
           if (!item.name || !item.start || !item.end) return false;
@@ -85,6 +85,13 @@ export function computeDashboardViewModel({ now, curDay, week, todaySchedule, br
             : mins >= startMin || mins < endMin;
         })
       : null;
+  // On a day with no classes (weekend, holiday), a same-day break like
+  // 中午時間 only means anything relative to a school day's schedule, so it
+  // shouldn't show as "active" here - only an overnight break (e.g. a
+  // lights-out sleep window crossing midnight) still applies.
+  if (!isSchoolDay && activeBreak && parseTime(activeBreak.end) > parseTime(activeBreak.start)) {
+    activeBreak = null;
+  }
 
   // statusText/nextText/nextMeta/dotState/timerVisible/progressVisible are
   // unconditionally set in every branch below (isSchoolDay true or false),

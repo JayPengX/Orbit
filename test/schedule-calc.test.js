@@ -212,3 +212,33 @@ describe('computeDashboardViewModel - overnight (cross-midnight) special time', 
     expect(vm.timerVisible).toBe(false);
   });
 });
+
+describe('computeDashboardViewModel - same-day special time on a no-class day', () => {
+  // 中午時間 (12:00-13:00) only means anything relative to a school day's
+  // schedule - on a weekend/holiday with no classes it shouldn't show as an
+  // active special time, unlike an overnight break (e.g. 就寢時間) which
+  // keeps counting down regardless of whether today has classes.
+  const noonBreak = [{ name: '中午時間', start: '12:00', end: '13:00' }];
+
+  it('does not show a same-day break as active on a no-class day', () => {
+    const vm = compute(at(12, 30, 0), { todaySchedule: [], breakTimes: noonBreak });
+    expect(vm.statusText).toBe('今日無課');
+    expect(vm.timerVisible).toBe(false);
+    expect(vm.activeBreakName).toBe('');
+  });
+
+  it('still shows the same-day break normally on an actual school day', () => {
+    const vm = compute(at(12, 30, 0), { breakTimes: noonBreak });
+    expect(vm.statusText).toBe('中午時間');
+    expect(vm.timerVisible).toBe(true);
+  });
+
+  it('keeps an overnight break active even alongside an ignored same-day one', () => {
+    const vm = compute(at(22, 0, 0), {
+      todaySchedule: [],
+      breakTimes: [...noonBreak, { name: '就寢時間', start: '18:00', end: '05:00' }]
+    });
+    expect(vm.statusText).toBe('就寢時間');
+    expect(vm.timerVisible).toBe(true);
+  });
+});
