@@ -467,19 +467,27 @@ body.orbit-booting .dashboard-boot-loader{visibility:visible;display:flex;positi
 .exam-countdown{
   touch-action:pan-y;cursor:grab;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;justify-self:center;
   gap:10px;padding:8px 12px;min-height:60px;width:clamp(210px,60vw,248px);max-width:100%;
-  border-left:3px solid var(--pro-accent);
+  border-left:3px solid var(--pro-secondary);
   border-radius:0 14px 14px 0;
   /* Glass, on the app's own tokens rather than its former one-off blur
      values - it floats over the dashboard's backdrop the same way every
-     other floating control does, and the accent tint in the fill is what
-     ties it to the theme now that the flat panel color is gone. */
-  background:linear-gradient(135deg,color-mix(in srgb,var(--pro-accent) 15%,transparent),var(--glass-fill-card) 70%);
+     other floating control does, and the secondary tint in the fill is what
+     ties it to the theme now that the flat panel color is gone. Secondary,
+     not accent: this card always counts down to a future event that hasn't
+     started yet, the same "not begun yet" moment the break timer marks in
+     --pro-secondary (counting down to 上課) - --pro-accent stays reserved
+     for "in progress right now, counting down to the end" (the class timer
+     counting down to 下課, .row.is-next's own next-up highlight). Also the
+     one persistent, always-on card in the whole dashboard that isn't itself
+     a class/break state, so it's the one place a second brand hue can live
+     full-time instead of waiting for a break to flash by. */
+  background:linear-gradient(135deg,color-mix(in srgb,var(--pro-secondary) 15%,transparent),var(--glass-fill-card) 70%);
   backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat)) brightness(var(--glass-bright));
   -webkit-backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat)) brightness(var(--glass-bright));
   box-shadow:var(--glass-shadow-soft);
   transition:box-shadow .15s,transform .12s var(--ease-glass);
 }
-@supports not (backdrop-filter:blur(1px)){.exam-countdown{background:color-mix(in srgb,var(--pro-accent) 14%,var(--orbit-panel-strong))}}
+@supports not (backdrop-filter:blur(1px)){.exam-countdown{background:color-mix(in srgb,var(--pro-secondary) 14%,var(--orbit-panel-strong))}}
 /* Grabbing cursor only - no press-scale here. A tap alone does nothing (only
    an actual swipe changes the active event), so animating on every press
    would be feedback for an action that didn't happen; .is-swapping below is
@@ -519,12 +527,12 @@ body.orbit-booting .dashboard-boot-loader{visibility:visible;display:flex;positi
    timer: a shape sized to hold this legibly was always a fight against
    its own curve, especially for the rarer 4-character status words
    (進行中/已結束). Just text, sized to be read at a glance. */
-.exam-countdown-value{flex:0 0 auto;color:var(--pro-accent-readable);font-family:ui-monospace,SFMono-Regular,monospace;font-size:clamp(26px,7vw,32px);line-height:1;font-weight:850;text-align:center;letter-spacing:-.02em;white-space:nowrap}
+.exam-countdown-value{flex:0 0 auto;color:var(--pro-secondary-readable);font-family:ui-monospace,SFMono-Regular,monospace;font-size:clamp(26px,7vw,32px);line-height:1;font-weight:850;text-align:center;letter-spacing:-.02em;white-space:nowrap}
 .exam-countdown-unit{font-size:.42em;font-weight:800;letter-spacing:0;margin-left:3px;color:var(--orbit-muted);vertical-align:.2em}
 .exam-countdown-dots{position:absolute;left:50%;bottom:2px;transform:translateX(-50%);display:flex;align-items:center;gap:3px;pointer-events:none;z-index:1}
 .exam-countdown-dots[hidden]{display:none}
 .exam-countdown-dot{width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.28);transition:background .2s,width .2s}
-.exam-countdown-dot.active{width:10px;border-radius:3px;background:var(--accent)}
+.exam-countdown-dot.active{width:10px;border-radius:3px;background:var(--pro-secondary)}
 @media (max-width:360px){.exam-countdown{min-height:54px;padding:7px 11px;width:206px}.exam-countdown-label{font-size:15px}.exam-countdown-date{font-size:12px}.exam-countdown-value{font-size:clamp(22px,7.6vw,26px)}}
 @media (max-height:700px){.exam-countdown{min-height:52px;padding:6px 10px}.exam-countdown-value{font-size:clamp(21px,7vw,25px)}}
 
@@ -806,13 +814,19 @@ body.editor-open .top-actions,body.transfer-open .top-actions{opacity:0;visibili
 .nav-item:active{transform:scale(.95);transition-duration:.08s}
 .nav-item.is-today{color:#fff;border:2px solid var(--day-today-border);background:linear-gradient(135deg,color-mix(in srgb,var(--pro-accent) 26%,transparent),var(--glass-fill-card) 78%)}
 .nav-item.is-tomorrow{color:#fff;border:2px solid var(--day-tomorrow-border);background:linear-gradient(135deg,color-mix(in srgb,var(--pro-secondary) 28%,transparent),var(--glass-fill-card) 78%)}
-/* .active always wins the fill when combined with is-today/is-tomorrow — the
-   selected tab reads as the solid pill; the today/tomorrow state only needs
-   its 2px border while browsing a different day, no additional shadow/ring
-   on top of it. No drop shadow anywhere on these buttons: iOS Safari was
-   rendering this pill with no shadow at all while desktop Chrome drew a soft
-   one, so any shadow layer is dropped everywhere to match the flatter look
-   consistently across platforms. */
+/* .active wins the fill when combined with is-today — the selected tab
+   reads as the solid pill; is-today only needs its 2px border while
+   browsing a different day, no additional shadow/ring on top of it.
+   is-tomorrow instead carries its own secondary-tinted fill through into
+   .active below: today defaults to the app's one accent color regardless,
+   but tomorrow is the one day tab that's already telling you apart from
+   today by hue (see is-tomorrow's own border above) - letting .active
+   silently paint over that with plain accent the moment you actually tap
+   into tomorrow's schedule would erase the one everyday moment this
+   secondary hue got to headline something. No drop shadow anywhere on
+   these buttons: iOS Safari was rendering this pill with no shadow at all
+   while desktop Chrome drew a soft one, so any shadow layer is dropped
+   everywhere to match the flatter look consistently across platforms. */
 /* Fixed dark text, not var(--pro-accent-text): that variable is picked
    against the *raw* accent color, but this pill's own background is that
    accent heavily bleached with white (58%/28% accent, the rest white) -
@@ -823,7 +837,11 @@ body.editor-open .top-actions,body.transfer-open .top-actions{opacity:0;visibili
    theme. */
 .nav-item.active{background:linear-gradient(135deg,color-mix(in srgb,var(--pro-accent) 58%,#ffffff),color-mix(in srgb,var(--pro-accent) 28%,#ffffff));color:#10171A}
 .nav-item.active.is-today{border-color:color-mix(in srgb,var(--pro-accent) 34%,transparent)}
-.nav-item.active.is-tomorrow{border-color:color-mix(in srgb,var(--pro-secondary) 72%,#ffffff 28%)}
+/* Same bleached-to-white formula as .active above, just on --pro-secondary
+   instead - keeps the fixed dark text (see that rule's own comment) correct
+   here too, since this is still always a light pill regardless of how dark
+   the user's own secondary color runs. */
+.nav-item.active.is-tomorrow{background:linear-gradient(135deg,color-mix(in srgb,var(--pro-secondary) 58%,#ffffff),color-mix(in srgb,var(--pro-secondary) 28%,#ffffff));border-color:color-mix(in srgb,var(--pro-secondary) 72%,#ffffff 28%)}
 @media (max-width:480px){.nav-bar{gap:6px;padding:4px}.nav-item{font-size:18px;padding:0 10px;min-height:44px}}
 @media (max-width:430px){.nav-bar{margin-bottom:10px;flex-basis:calc(10% - 10px)}}
 
