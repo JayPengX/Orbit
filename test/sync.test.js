@@ -382,7 +382,6 @@ describe('the destructive "resume shared style" direction backs up the local sty
     sync.setSyncKeepLocalStyle(true);
     state.applicationData.proAccent = '#111111';
     state.applicationData.proSecondary = '#222222';
-    state.applicationData.proTertiary = '#333333';
     state.applicationData.styleSlots = [{ name: 'Kept', primary: '#111111', secondary: '#222222' }];
 
     const checkbox = document.getElementById('sync-keep-local-style');
@@ -394,7 +393,6 @@ describe('the destructive "resume shared style" direction backs up the local sty
     const backup = sync.getStyleBackup();
     expect(backup.proAccent).toBe('#111111');
     expect(backup.proSecondary).toBe('#222222');
-    expect(backup.proTertiary).toBe('#333333');
     expect(backup.styleSlots[0]).toEqual({
       name: 'Kept',
       primary: '#111111',
@@ -411,7 +409,6 @@ describe('the destructive "resume shared style" direction backs up the local sty
     sync.orbitSyncRestoreStyleBackup();
     expect(state.applicationData.proAccent).toBe('#111111');
     expect(state.applicationData.proSecondary).toBe('#222222');
-    expect(state.applicationData.proTertiary).toBe('#333333');
     expect(state.applicationData.styleSlots[0]).toEqual({
       name: 'Kept',
       primary: '#111111',

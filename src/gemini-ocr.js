@@ -1591,7 +1591,6 @@ function activateOCRImporter() {
             reverseWeek: current.reverseWeek,
             proAccent: current.proAccent,
             proSecondary: current.proSecondary,
-            proTertiary: current.proTertiary,
             styleSlots: current.styleSlots
           });
           beginEditorImport(current, imported, { preserveStyle: true });

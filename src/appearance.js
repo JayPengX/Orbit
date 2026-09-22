@@ -30,9 +30,6 @@ function normalizeProAccent(value) {
 function normalizeProSecondary(value) {
   return normalizeHexColor(value, DEFAULT_STYLE_SECONDARY);
 }
-function normalizeProTertiary(value) {
-  return normalizeHexColor(value, '#91AE78');
-}
 // Picks black or white text for a solid-color badge/button/pill painted in
 // the user's own chosen accent color. This used to maximize WCAG 2's
 // gamma-linearized contrast ratio (whichever of black/white had the higher
@@ -125,11 +122,6 @@ function deriveProSupportColors(primary) {
       (hue + 28) % 360,
       Math.max(0.28, Math.min(0.66, saturation * 0.72)),
       Math.max(0.38, Math.min(0.56, lightness * 0.92))
-    ),
-    tertiary: hslToHex(
-      (hue + 190) % 360,
-      Math.max(0.18, Math.min(0.42, saturation * 0.48)),
-      Math.max(0.5, Math.min(0.7, lightness * 1.18))
     )
   };
 }
@@ -192,8 +184,7 @@ function getStyleDraftFromControls() {
   return {
     ...state.stylePanelDraft,
     proAccent: normalizeProAccent(primary?.value || state.stylePanelDraft.proAccent),
-    proSecondary: normalizeProSecondary(secondary?.value || state.stylePanelDraft.proSecondary),
-    proTertiary: normalizeProSecondary(secondary?.value || state.stylePanelDraft.proSecondary)
+    proSecondary: normalizeProSecondary(secondary?.value || state.stylePanelDraft.proSecondary)
   };
 }
 function previewStyleSettings() {
@@ -231,7 +222,6 @@ function confirmStyleSettings() {
   const next = cloneSettingsData(state.applicationData);
   next.proAccent = normalizeProAccent(state.stylePanelDraft.proAccent);
   next.proSecondary = normalizeProSecondary(state.stylePanelDraft.proSecondary);
-  next.proTertiary = next.proSecondary;
   next.styleSlots = normalizeStyleSlots(state.stylePanelDraft.styleSlots);
   state.pendingStyleSaveData = next;
   applyPendingStyleSave();
@@ -471,7 +461,6 @@ export {
   deriveProSupportColors,
   normalizeProAccent,
   normalizeProSecondary,
-  normalizeProTertiary,
   normalizeStyleSlots,
   openStylePanel,
   setStyleMode

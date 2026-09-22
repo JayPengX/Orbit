@@ -203,7 +203,6 @@ describe('v2 backup encode/decode round-trip', () => {
       reverseWeek: true,
       proAccent: '#123456',
       proSecondary: '#654321',
-      proTertiary: '#abcdef',
       styleSlots: []
     });
 
@@ -225,6 +224,69 @@ describe('v2 backup encode/decode round-trip', () => {
 
   it('rejects text that is not a valid backup', async () => {
     await expect(decodeTransferData('not a backup')).rejects.toThrow();
+  });
+
+  it('still decodes a pre-proTertiary-removal backup (11 positional fields, proTertiary between proSecondary and styleSlots)', async () => {
+    // Hand-builds a legacy v2 payload the way encodeTransferPayloadV2 used to
+    // shape it, back when it still carried proTertiary as its own array slot
+    // between proSecondary and styleSlotEntries. Exercises the length check
+    // in decodeTransferPayloadV2 that tells old backups (11 fields) from
+    // current ones (10) apart - without it, a legacy backup's proTertiary
+    // hex string would be misread as styleSlotEntries and its real
+    // styleSlotEntries would be dropped entirely.
+    const BASE91_ALPHABET =
+      '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+,-./:;<=>?@[]^_`{|}~';
+    function base91Encode(bytes) {
+      let b = 0,
+        n = 0,
+        out = '';
+      for (let i = 0; i < bytes.length; i++) {
+        b |= bytes[i] << n;
+        n += 8;
+        if (n > 13) {
+          let v = b & 8191;
+          if (v > 88) {
+            b >>= 13;
+            n -= 13;
+          } else {
+            v = b & 16383;
+            b >>= 14;
+            n -= 14;
+          }
+          out += BASE91_ALPHABET[v % 91] + BASE91_ALPHABET[Math.floor(v / 91)];
+        }
+      }
+      if (n > 0) {
+        out += BASE91_ALPHABET[b % 91];
+        if (n > 7 || b > 90) out += BASE91_ALPHABET[Math.floor(b / 91)];
+      }
+      return out;
+    }
+    const legacyArray = [
+      ['A'],
+      [['A', '數學', '王老師', '101']],
+      [[], ['A'], [], [], [], [], []],
+      [['08:00', '08:50']],
+      [],
+      [],
+      1,
+      '#123456',
+      '#654321',
+      '#abcdef', // legacy proTertiary, no longer a real field
+      [['Kept', '#111111', '#222222']] // real styleSlotEntries
+    ];
+    const raw = JSON.stringify(legacyArray);
+    const stream = new Blob([raw]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+    const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+    const legacyBackup = `[ORBIT]${base91Encode(bytes)}[/ORBIT]`;
+
+    const decoded = await decodeTransferData(legacyBackup);
+    expect(decoded.proAccent).toBe('#123456');
+    expect(decoded.proSecondary).toBe('#654321');
+    expect(decoded.proTertiary).toBeUndefined();
+    expect(decoded.styleSlots).toEqual([
+      { name: 'Kept', primary: '#111111', secondary: '#222222' }
+    ]);
   });
 });
 

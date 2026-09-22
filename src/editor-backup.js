@@ -13,7 +13,6 @@ import {
   deriveProSupportColors,
   normalizeProAccent,
   normalizeProSecondary,
-  normalizeProTertiary,
   normalizeStyleSlots
 } from './appearance.js';
 import { getCountdownEvents } from './dashboard.js';
@@ -115,7 +114,6 @@ function collectEditorFormState({ includeDraft = false } = {}) {
   const proSecondary = normalizeProSecondary(
     state.applicationData.proSecondary || derivedProColors.secondary
   );
-  const proTertiary = derivedProColors.tertiary;
   return {
     teacherDB: newDB,
     teacherOrder: Array.from(document.querySelectorAll('#teacher-list .teacher-card'))
@@ -129,7 +127,6 @@ function collectEditorFormState({ includeDraft = false } = {}) {
     reverseWeek,
     proAccent,
     proSecondary,
-    proTertiary,
     styleSlots: normalizeStyleSlots(state.applicationData.styleSlots),
     ...(includeDraft ? { teacherCardsDraft, bellRowsDraft, breakRowsDraft } : {})
   };
@@ -142,7 +139,6 @@ function editorFormSnapshotString() {
     countdownEvents: s.countdownEvents,
     proAccent: s.proAccent,
     proSecondary: s.proSecondary,
-    proTertiary: s.proTertiary,
     styleSlots: s.styleSlots,
     bellTimes: s.bellTimes,
     breakTimes: s.breakTimes,
@@ -335,7 +331,6 @@ function encodeTransferPayloadV2(data) {
     data.reverseWeek ? 1 : 0,
     data.proAccent,
     data.proSecondary,
-    data.proTertiary,
     styleSlotEntries
   ];
 }
@@ -350,9 +345,15 @@ function decodeTransferPayloadV2(array) {
     reverseWeekFlag,
     proAccent,
     proSecondary,
-    proTertiary,
-    styleSlotEntries
+    tenthSlot,
+    eleventhSlot
   ] = array;
+  // Backups made before proTertiary was dropped carry 11 positional fields,
+  // with styleSlotEntries pushed one slot later (proTertiary sat between
+  // proSecondary and it). Length tells old shape from new: 11 means the
+  // 10th slot is the now-discarded proTertiary and styleSlotEntries is the
+  // 11th; anything shorter means the 10th slot already is styleSlotEntries.
+  const styleSlotEntries = array.length >= 11 ? eleventhSlot : tenthSlot;
   const teacherDB = {},
     locationDB = {};
   (teacherEntries || []).forEach(([key, subject, teacher, location]) => {
@@ -385,7 +386,6 @@ function decodeTransferPayloadV2(array) {
     reverseWeek: !!reverseWeekFlag,
     proAccent,
     proSecondary,
-    proTertiary,
     styleSlots,
     __orbit: { app: ORBIT_APP_ID, schema: ORBIT_STORAGE_SCHEMA }
   };
@@ -510,7 +510,6 @@ function normalizeSettingsData(raw, { requireMarker = false } = {}) {
       typeof source.reverseWeek === 'boolean' ? source.reverseWeek : REVERSE_WEEK_LOGIC_DEFAULT,
     proAccent: normalizeProAccent(source.proAccent),
     proSecondary: normalizeProSecondary(source.proSecondary),
-    proTertiary: normalizeProTertiary(source.proTertiary),
     styleSlots: normalizeStyleSlots(source.styleSlots)
   };
 }
@@ -957,7 +956,6 @@ function mergeImportedSettings(current, imported, preserveStyle = false) {
   if (preserveStyle) {
     merged.proAccent = current.proAccent;
     merged.proSecondary = current.proSecondary;
-    merged.proTertiary = current.proTertiary;
     merged.styleSlots = normalizeStyleSlots(current.styleSlots).map(slot => ({ ...slot }));
   }
   return { data: normalizeSettingsData(merged), addedActions, mergedActions, replacedActions };
@@ -1001,7 +999,6 @@ function showEditorImportConfirm(current, next, isMerge, preserveStyle = false) 
       if (preserveStyle) {
         direct.proAccent = current.proAccent;
         direct.proSecondary = current.proSecondary;
-        direct.proTertiary = current.proTertiary;
         direct.styleSlots = cloneSettingsData(current.styleSlots || []);
       }
       result = { data: normalizeSettingsData(direct), actions: [] };
@@ -1062,7 +1059,6 @@ function applyEditorSettingsData(
   state.applicationData = cloneSettingsData(next);
   state.applicationData.proAccent = normalizeProAccent(state.applicationData.proAccent);
   state.applicationData.proSecondary = normalizeProSecondary(state.applicationData.proSecondary);
-  state.applicationData.proTertiary = normalizeProTertiary(state.applicationData.proTertiary);
   state.applicationData.styleSlots = normalizeStyleSlots(state.applicationData.styleSlots);
   saveData(state.applicationData);
   applyProAccent();

@@ -261,17 +261,17 @@ Gemini 偶爾回報 `AI 辨識請求失敗（400）：User location is not suppo
 
 全部收在瀏覽器 `localStorage` 同一把鍵（`classFocusData`），主要欄位：
 
-| 欄位                                         | 內容                                                          |
-| -------------------------------------------- | ------------------------------------------------------------- |
-| `teacherDB`                                  | 課程 → `[課程名稱, 教師, 教室]`                               |
-| `locationDB`                                 | 課程 → 教室（快速查表用）                                     |
-| `weeklySchedule`                             | 每個星期（`Date.getDay()` 0–6，0 是星期日）對應當天每節排的課 |
-| `bellTimes`                                  | 每節課的 `[開始時間, 結束時間]`                               |
-| `breakTimes`                                 | 特殊時段，每筆 `{name, start, end}`                           |
-| `countdownEvents`                            | 倒數事件，每筆 `{name, startDate, endDate}`                   |
-| `reverseWeek`                                | 單雙週對調開關                                                |
-| `proAccent` / `proSecondary` / `proTertiary` | 外觀主色與衍生色                                              |
-| `styleSlots`                                 | 自訂樣式儲存槽                                                |
+| 欄位                         | 內容                                                          |
+| ---------------------------- | ------------------------------------------------------------- |
+| `teacherDB`                  | 課程 → `[課程名稱, 教師, 教室]`                               |
+| `locationDB`                 | 課程 → 教室（快速查表用）                                     |
+| `weeklySchedule`             | 每個星期（`Date.getDay()` 0–6，0 是星期日）對應當天每節排的課 |
+| `bellTimes`                  | 每節課的 `[開始時間, 結束時間]`                               |
+| `breakTimes`                 | 特殊時段，每筆 `{name, start, end}`                           |
+| `countdownEvents`            | 倒數事件，每筆 `{name, startDate, endDate}`                   |
+| `reverseWeek`                | 單雙週對調開關                                                |
+| `proAccent` / `proSecondary` | 外觀主色與次色                                                |
+| `styleSlots`                 | 自訂樣式儲存槽                                                |
 
 每筆存檔夾帶內部 schema 版本標記，讀取時先檢查、格式對不上就先做相容性處理。存檔本身壞掉（非法 JSON、缺欄位、型別錯）時，直接清掉這把鍵改用預設課表，不留著壞資料讓下次又失敗一次。
 

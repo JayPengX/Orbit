@@ -2,12 +2,7 @@
 // Reads/writes/validates/normalizes localStorage data. No DOM, no other
 // src/ module may be assumed ready yet when this one's top-level code runs
 // (see state.js's comment on the circular-import TDZ this ran into).
-import {
-  normalizeProAccent,
-  normalizeProSecondary,
-  normalizeProTertiary,
-  normalizeStyleSlots
-} from './appearance.js';
+import { normalizeProAccent, normalizeProSecondary, normalizeStyleSlots } from './appearance.js';
 import { editorTimeToMinutes } from './editor-core.js';
 import {
   DEFAULT_STYLE_PRIMARY,
@@ -186,7 +181,6 @@ function getDefaultData() {
     reverseWeek: REVERSE_WEEK_LOGIC_DEFAULT,
     proAccent: DEFAULT_STYLE_PRIMARY,
     proSecondary: DEFAULT_STYLE_SECONDARY,
-    proTertiary: DEFAULT_STYLE_SECONDARY,
     styleSlots: normalizeStyleSlots([])
   };
 }
@@ -318,7 +312,6 @@ function loadData() {
         typeof parsed.reverseWeek === 'boolean' ? parsed.reverseWeek : REVERSE_WEEK_LOGIC_DEFAULT,
       proAccent: normalizeProAccent(parsed.proAccent),
       proSecondary: normalizeProSecondary(parsed.proSecondary),
-      proTertiary: normalizeProTertiary(parsed.proTertiary),
       styleSlots: normalizeStyleSlots(parsed.styleSlots)
     };
 

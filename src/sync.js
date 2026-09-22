@@ -164,7 +164,7 @@ function isSyncViewer() {
 }
 // A receiving device's own opt-out of the shared color scheme - once set,
 // pullSyncSnapshot (see below) keeps this device's own proAccent/
-// proSecondary/proTertiary/styleSlots untouched no matter what a manager
+// proSecondary/styleSlots untouched no matter what a manager
 // device publishes, while still applying every other synced change
 // normally. Most useful for a viewer (who never publishes style changes of
 // their own anyway), but not restricted to one - nothing about wanting your
@@ -184,7 +184,7 @@ function setLastKnownSharedStyle(data) {
 function getStyleBackup() {
   return readLocalJSON(STYLE_BACKUP_KEY);
 }
-// The four fields that make up "a style" everywhere in this file: the three
+// The three fields that make up "a style" everywhere in this file: the two
 // theme colors plus the five saved presets (styleSlots). Kept as one helper
 // so the backup, the shared-style cache, the equality check below and the
 // restore all agree on exactly what a style is - a preset the user saved
@@ -193,7 +193,6 @@ function styleFieldsOf(data) {
   return {
     proAccent: data?.proAccent,
     proSecondary: data?.proSecondary,
-    proTertiary: data?.proTertiary,
     styleSlots: data?.styleSlots
   };
 }
@@ -379,7 +378,6 @@ function snapshotForComparison(data) {
   const rest = { ...data };
   delete rest.proAccent;
   delete rest.proSecondary;
-  delete rest.proTertiary;
   delete rest.styleSlots;
   return JSON.stringify(rest);
 }
@@ -467,7 +465,6 @@ async function pullSyncSnapshot({ force = false, doc: prefetchedDoc = null } = {
     if (getSyncKeepLocalStyle()) {
       next.proAccent = state.applicationData.proAccent;
       next.proSecondary = state.applicationData.proSecondary;
-      next.proTertiary = state.applicationData.proTertiary;
       next.styleSlots = state.applicationData.styleSlots;
     }
     if (JSON.stringify(next) === JSON.stringify(state.applicationData)) {
