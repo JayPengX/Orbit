@@ -1853,9 +1853,24 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
    over instead of it sitting pinned to one edge (.dashboard's mobile margin
    is intentionally asymmetric by a couple px, which reads as "centered
    enough" on a narrow phone screen but is visibly off-center once there's
-   enough room on either side to notice). */
+   enough room on either side to notice).
+   Height needs the same treatment, and for the same reason: .dashboard/
+   .nav-bar's base flex-basis (40%/10% of BODY's height, see .dashboard's own
+   comment above) is tuned for a phone's roughly 1:2.2 width:height shape,
+   where 40% of the height comfortably matches what the card's own content
+   needs at its capped ~393px width. An iPad held upright is still caught by
+   this same min-width:700px query (portrait iPad widths run 744-1024px) but
+   is nowhere near that shape - 40% of a ~1200px-tall screen is nearly twice
+   the ~322px .dashboard actually needs at that same capped width, which
+   left a slab of dead black space inside the card instead of an off-by-a-
+   bit oversized one. max-height pins both back to what they measure at the
+   iPhone 15 Pro truth (with a little slack for longer class names/teacher
+   chips to still fit), the same way .list-container's own max-height
+   already stops IT from stretching down a tall screen - see its comment
+   just below. */
 @media (min-width:700px){
-  .dashboard{margin:6px auto 8px}
+  .dashboard{margin:6px auto 8px;max-height:330px}
+  .nav-bar{max-height:78px}
   /* .list-container's flex:1 1 auto (set above, for phones) always claims
      100% of whatever space is left over, which is exactly what you want
      filling a phone screen - but on a much taller tablet/desktop viewport a
