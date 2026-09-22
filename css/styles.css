@@ -372,6 +372,14 @@ body::before{
 
 .test-banner{position:fixed;top:0;left:0;width:100%;background:var(--warn);color:var(--pro-secondary-text);font-size:11px;font-weight:800;text-align:center;z-index:999;padding:6px max(8px,env(safe-area-inset-right)) 6px max(8px,env(safe-area-inset-left));padding-top:calc(6px + env(safe-area-inset-top));display:none}
 
+/* Exists purely as a CSS hook for the phone landscape layout far below,
+   which needs .dashboard+.nav-bar wrapped in one box to align a flex row
+   against (see that block's own comment for why). display:contents makes
+   this wrapper invisible to layout everywhere else - .dashboard/.nav-bar
+   lay out as if they were still direct children of body, unchanged from
+   before this wrapper existed. */
+.top-stack{display:contents}
+
 /* ============================================================================
    Dashboard card
    ========================================================================= */
@@ -1920,6 +1928,64 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
   .dashboard > .now-stack{min-height:96px}
   .nav-bar{flex:0 0 auto}
   .list-container{flex:0 0 auto;min-height:160px;max-height:none}
+}
+
+/* ============================================================================
+   Phone landscape layout
+   The short viewport fallback right above this makes a sideways phone
+   RENDER correctly (nothing overlaps or gets clipped) by falling back to
+   auto-height sections and letting the page scroll - but it keeps body's
+   three sections in the same single column a portrait phone uses, so a
+   landscape phone still ends up scrolling through what is essentially the
+   portrait layout squeezed sideways, never actually using the width a
+   sideways phone has plenty of. That's the "banned" feeling the fix below
+   is for: not a blocked/rotate-prompt screen (that was removed earlier -
+   see the short viewport fallback's own comment and the git history for
+   the interstitial it replaced), but a layout that never adapted to the
+   shape it was given, so landscape read as an unwelcome, scroll-through
+   downgrade from portrait instead of its own real layout.
+   At this width/height combination there's plenty of horizontal room and
+   comfortably too little vertical room for the portrait 40/10/50 stack, so
+   this switches body to a two-column row instead: .dashboard+.nav-bar keep
+   their normal stacked portrait shape in a fixed-width left column, and
+   .list-container fills the entire right column at whatever height that
+   stack ends up being, then scrolls its own overflow internally exactly
+   like it does in portrait - no page-level scroll needed, since there's no
+   leftover space below the two columns once both match height.
+   .top-stack (a plain wrapper around .dashboard+.nav-bar in index.html,
+   display:contents everywhere else - see its own rule below) exists so
+   .list-container can align-items:stretch to match it in an ordinary
+   2-item flex row. The first approach tried skipped the wrapper and made
+   BODY itself a 2-column/2-row CSS grid with .list-container spanning both
+   rows directly - simpler on paper, but a grid item spanning multiple
+   content-sized (or even minmax(0,Npx)-capped) tracks contributes its OWN
+   max-content size toward growing those tracks, and .list-container's
+   max-content is however tall the full unscrolled schedule is (600px+),
+   not the ~10 rows a phone screen fits. That measurably inflated
+   .dashboard/.nav-bar's rows past their own real content in testing (e.g.
+   .nav-bar rendered 78-94px tall against its own ~53-68px natural content,
+   and inconsistently across otherwise-similar phone sizes) - there is no
+   track sizing function that both sizes to content AND is excluded from
+   that spanning-growth step. A plain 2-item flex row has no such step to
+   trigger: .top-stack sizes to its own two children's content only,
+   .list-container stretches to match via ordinary cross-axis alignment,
+   and neither one's size is otherwise coupled to the other's content.
+   min-width keeps this from firing on a landscape phone narrow enough that
+   two columns would feel cramped (a use case for the fallback right above,
+   not this) - the widest phone-landscape widths this needs to actually
+   reach (iPhone SE ~667px, most Android phones ~740-800px, iPhone 15 Pro
+   852px) are comfortably above it. */
+@media (max-height:500px) and (min-width:560px){
+  body{
+    display:flex;flex-direction:row;align-items:stretch;column-gap:10px;
+    height:100dvh;min-height:100dvh;overflow:hidden;
+  }
+  .top-stack{
+    display:flex;flex-direction:column;flex:0 0 min(340px,42%);width:min(340px,42%);
+  }
+  .dashboard{width:100%;margin:0}
+  .nav-bar{width:100%;margin:0}
+  .list-container{flex:1 1 auto;width:auto;min-height:0;margin:0}
 }
 
 /* ============================================================================
