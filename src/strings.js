@@ -573,13 +573,20 @@ const STRINGS = {
     'common.save': 'Save',
     'common.show': 'Show',
     'common.unknown': 'Unknown',
-    'weekday.sunday': 'Sunday',
-    'weekday.monday': 'Monday',
-    'weekday.tuesday': 'Tuesday',
-    'weekday.wednesday': 'Wednesday',
-    'weekday.thursday': 'Thursday',
-    'weekday.friday': 'Friday',
-    'weekday.saturday': 'Saturday',
+    // Abbreviated (not "Sunday"/"Monday"/...) on purpose: every call site
+    // (nav-bar day tabs, editor day labels/tabs, schedule-row day badges)
+    // is a compact, fixed-width slot sized around the 2-character zh-TW
+    // originals (週三 etc.) - a full English weekday name overflows those
+    // slots and visually bleeds into the neighboring one (confirmed via a
+    // real screenshot, not just reasoning about width). Also just the
+    // normal convention for a calendar/schedule tab bar in English.
+    'weekday.sunday': 'Sun',
+    'weekday.monday': 'Mon',
+    'weekday.tuesday': 'Tue',
+    'weekday.wednesday': 'Wed',
+    'weekday.thursday': 'Thu',
+    'weekday.friday': 'Fri',
+    'weekday.saturday': 'Sat',
     'week.odd': 'Odd week',
     'week.even': 'Even week',
     'appearance.styleSaved': 'Style saved.',
