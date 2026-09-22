@@ -1998,17 +1998,18 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
   .exam-countdown-value{font-size:clamp(20px,5.5vw,24px)}
 }
 
-/* Sync / import-export sheet, phone landscape: the same fixed-height
-   floating card every other sheet uses (see .transfer-sheet's own height
-   comment) leaves it only ~200px tall here, comfortably fitting nothing,
-   so a viewer scrolls a tiny window despite the full screen sitting right
-   there unused. Landscape's short-but-wide viewport is exactly the shape a
-   bottom sheet doesn't fit, so this one sheet fills the screen instead. */
+/* Sync / import-export sheet, phone landscape: the same fixed height every
+   other viewport uses (see .transfer-sheet's own height comment) works out
+   to only ~200px tall here, comfortably fitting nothing, so a viewer
+   scrolled a tiny window despite the rest of the screen sitting unused.
+   Still the same floating rounded sheet every other sheet is - same width,
+   same inset from the edges - just tall enough to slide up near the top of
+   the screen instead of stopping partway, exactly like .editor-sheet and
+   .style-panel already do. */
 @media (max-height:500px) and (min-width:560px){
   .transfer-sheet{
-    width:100vw;max-width:100vw;height:100dvh;max-height:100dvh;
-    bottom:0;border-radius:0;
-    padding-top:calc(13px + env(safe-area-inset-top));
+    height:calc(100dvh - 20px - env(safe-area-inset-top));
+    max-height:calc(100dvh - 20px - env(safe-area-inset-top));
   }
 }
 
