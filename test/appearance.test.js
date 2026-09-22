@@ -21,9 +21,8 @@ const confirmVisible = () => confirmSheet().classList.contains('show');
 const confirmTitle = () => document.getElementById('editor-confirm-title').textContent;
 const clickConfirm = (index = 1) =>
   confirmSheet().querySelectorAll('.editor-confirm-btn')[index].onclick?.();
-const setDraftColors = (primary, secondary) => {
+const setDraftColors = primary => {
   document.getElementById('style-primary-input').value = primary;
-  document.getElementById('style-secondary-input').value = secondary;
   window.previewStyleSettings();
 };
 const isDirty = () =>
@@ -53,7 +52,7 @@ describe('style panel: saving a preset slot marks the draft dirty', () => {
   it('saving over an already-named slot also marks the panel dirty once confirmed', () => {
     window.saveStyleSlot(1);
     clickConfirm(); // 儲存 (new slot)
-    setDraftColors('#123456', '#654321');
+    setDraftColors('#123456');
     window.saveStyleSlot(1);
     clickConfirm(); // 覆寫
     expect(isDirty()).toBe(true);
@@ -86,7 +85,7 @@ describe('style slot confirmations only appear when something is at stake', () =
   it('overwriting an occupied slot confirms, naming what it replaces', () => {
     window.saveStyleSlot(3);
     clickConfirm(); // 儲存
-    setDraftColors('#AABBCC', '#CCBBAA');
+    setDraftColors('#AABBCC');
     window.saveStyleSlot(3);
     expect(confirmVisible()).toBe(true);
     expect(confirmTitle()).toMatch(/覆寫個人樣式/);
@@ -122,7 +121,7 @@ describe('style slot confirmations only appear when something is at stake', () =
     clickConfirm(); // 儲存
     window.closeStylePanel();
     clickConfirm(0); // 返回
-    setDraftColors('#0F0F0F', '#F0F0F0');
+    setDraftColors('#0F0F0F');
     window.loadStyleSlot(0);
     expect(confirmVisible()).toBe(true);
     expect(confirmTitle()).toMatch(/套用儲存樣式/);

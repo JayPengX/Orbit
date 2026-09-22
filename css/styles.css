@@ -1782,14 +1782,20 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
 .style-panel .style-color-well{border-color:var(--orbit-line)}
 .style-panel .style-cancel-btn{background:transparent;border-color:var(--orbit-line);color:var(--orbit-muted)}
 .style-panel .style-apply-btn{font-size:var(--action-btn-font);font-weight:700;background:color-mix(in srgb,var(--pro-accent) 78%,transparent);color:var(--pro-action-text,#092027);box-shadow:0 8px 18px color-mix(in srgb,var(--pro-accent) 18%,transparent)}
-.style-panel .style-preset-chip.default .style-preset-swatch{background:linear-gradient(110deg,#6C5DD3 0 48%,#E8497B 52% 100%)}
-.style-panel .style-preset-chip.rose .style-preset-swatch{background:linear-gradient(110deg,#F06F61 0 48%,#C44C78 52% 100%)}
-.style-panel .style-preset-chip.ocean .style-preset-swatch{background:linear-gradient(110deg,#18B7A0 0 48%,#2E6FD8 52% 100%)}
-.style-panel .style-preset-chip.midnight .style-preset-swatch{background:linear-gradient(110deg,#263B68 0 48%,#6A4C93 52% 100%)}
-.style-panel .style-preset-chip.graphite .style-preset-swatch{background:linear-gradient(110deg,#A7C957 0 48%,#557A3E 52% 100%)}
-.style-panel .style-preset-chip.amber .style-preset-swatch{background:linear-gradient(110deg,#E8A33D 0 48%,#B34A2C 52% 100%)}
-.style-panel .style-preset-chip.ruby .style-preset-swatch{background:linear-gradient(110deg,#E23D5B 0 48%,#7A1F3D 52% 100%)}
-.style-panel .style-preset-chip.lilac .style-preset-swatch{background:linear-gradient(110deg,#9B7EDE 0 48%,#D88FC2 52% 100%)}
+/* Each swatch is one hue now, not two unrelated ones split diagonally - the
+   second stop is the exact same lighter-tint formula
+   deriveSingleHueSecondary() computes at runtime (mix toward white 32%),
+   just precomputed since a preset's own two colors are static. Picking a
+   preset shows, in miniature, exactly the shade relationship the live
+   theme will actually use. */
+.style-panel .style-preset-chip.default .style-preset-swatch{background:linear-gradient(110deg,#6C5DD3 0 48%,#9B91E1 52% 100%)}
+.style-panel .style-preset-chip.rose .style-preset-swatch{background:linear-gradient(110deg,#F06F61 0 48%,#F59D94 52% 100%)}
+.style-panel .style-preset-chip.ocean .style-preset-swatch{background:linear-gradient(110deg,#18B7A0 0 48%,#62CEBE 52% 100%)}
+.style-panel .style-preset-chip.midnight .style-preset-swatch{background:linear-gradient(110deg,#263B68 0 48%,#6B7A98 52% 100%)}
+.style-panel .style-preset-chip.graphite .style-preset-swatch{background:linear-gradient(110deg,#A7C957 0 48%,#C3DA8D 52% 100%)}
+.style-panel .style-preset-chip.amber .style-preset-swatch{background:linear-gradient(110deg,#E8A33D 0 48%,#EFC07B 52% 100%)}
+.style-panel .style-preset-chip.ruby .style-preset-swatch{background:linear-gradient(110deg,#E23D5B 0 48%,#EB7B8F 52% 100%)}
+.style-panel .style-preset-chip.lilac .style-preset-swatch{background:linear-gradient(110deg,#9B7EDE 0 48%,#BBA7E9 52% 100%)}
 
 #style-editor-content{max-height:calc(100dvh - 150px);overflow-y:auto;overscroll-behavior:contain;padding-right:2px}
 #style-editor-content[hidden]{display:none}
@@ -1804,7 +1810,6 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
 .style-preset-chip:hover{border-color:var(--accent)}
 .style-preset-chip:active{transform:scale(.97)}
 .style-preset-swatch{width:24px;height:14px;border-radius:5px;background:#747E88}
-.style-color-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .style-color-well{display:grid;gap:6px;padding:9px;border:1px solid rgba(255,255,255,.1);border-radius:12px;color:var(--sub);font-size:10px;font-weight:800;background:var(--glass-fill-card);backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat));-webkit-backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat))}
 .style-color-well input{width:100%;height:34px;padding:2px;border:0;border-radius:8px;background:transparent;cursor:pointer}
 .style-slot-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;width:100%}

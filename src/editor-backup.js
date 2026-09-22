@@ -10,7 +10,6 @@ import {
 import { state } from './state.js';
 import {
   applyProAccent,
-  deriveProSupportColors,
   normalizeProAccent,
   normalizeProSecondary,
   normalizeStyleSlots
@@ -110,10 +109,7 @@ function collectEditorFormState({ includeDraft = false } = {}) {
     .filter(Boolean);
   const normalizedCountdownEvents = normalizeCountdownEvents(countdownEvents);
   const proAccent = normalizeProAccent(state.applicationData.proAccent);
-  const derivedProColors = deriveProSupportColors(proAccent);
-  const proSecondary = normalizeProSecondary(
-    state.applicationData.proSecondary || derivedProColors.secondary
-  );
+  const proSecondary = normalizeProSecondary(state.applicationData.proSecondary);
   return {
     teacherDB: newDB,
     teacherOrder: Array.from(document.querySelectorAll('#teacher-list .teacher-card'))

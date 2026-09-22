@@ -27,8 +27,8 @@ function normalizeHexColor(value, fallback) {
 function normalizeProAccent(value) {
   return normalizeHexColor(value, DEFAULT_STYLE_PRIMARY);
 }
-function normalizeProSecondary(value) {
-  return normalizeHexColor(value, DEFAULT_STYLE_SECONDARY);
+function normalizeProSecondary(value, fallback = DEFAULT_STYLE_SECONDARY) {
+  return normalizeHexColor(value, fallback);
 }
 // Picks black or white text for a solid-color badge/button/pill painted in
 // the user's own chosen accent color. This used to maximize WCAG 2's
@@ -70,74 +70,54 @@ function normalizeStyleSlots(value) {
   const slots = Array.isArray(value) ? value : [];
   return Array.from({ length: 5 }, (_, index) => {
     const source = slots[index] && typeof slots[index] === 'object' ? slots[index] : {};
+    const primary = normalizeProAccent(source.primary);
     return {
       name: String(source.name || '')
         .trim()
         .slice(0, 12),
-      primary: normalizeProAccent(source.primary),
-      secondary: normalizeProSecondary(source.secondary)
+      primary,
+      // An explicitly stored secondary (a legacy slot synced in from before
+      // the app went single-hue) is preserved as-is, never silently
+      // rewritten - but an empty/unfilled slot's preview swatch now falls
+      // back to a shade of ITS OWN primary instead of the old app-wide
+      // default pink, so five empty slots don't show five copies of a
+      // two-tone combo nothing on screen still uses.
+      secondary: normalizeProSecondary(source.secondary, deriveSingleHueSecondary(primary))
     };
   });
 }
-function deriveProSupportColors(primary) {
+// The app is single-hue now: there's one color the person picks (proAccent),
+// and everywhere the UI needs a second tone for contrast/emphasis (the
+// countdown card, the toolbar hub, "next up" vs "happening now", ...) that
+// tone is this - the same hue, mixed 32% toward white, rather than an
+// independently chosen second color. Plain per-channel mix (not an HSL
+// round-trip) so it's the exact same math as the CSS `color-mix(in srgb,
+// var(--pro-accent) 100%, white 32%)` shade used to preview this everywhere
+// else in the design - the two never had to be re-tuned to agree with each
+// other.
+function deriveSingleHueSecondary(primary) {
   const color = normalizeProAccent(primary).slice(1);
-  const rgb = [0, 2, 4].map(index => parseInt(color.slice(index, index + 2), 16) / 255);
-  const max = Math.max(...rgb),
-    min = Math.min(...rgb),
-    delta = max - min;
-  let hue = 0;
-  if (delta) {
-    if (max === rgb[0]) hue = 60 * (((rgb[1] - rgb[2]) / delta) % 6);
-    else if (max === rgb[1]) hue = 60 * ((rgb[2] - rgb[0]) / delta + 2);
-    else hue = 60 * ((rgb[0] - rgb[1]) / delta + 4);
-  }
-  if (hue < 0) hue += 360;
-  const lightness = (max + min) / 2;
-  const saturation = delta ? delta / (1 - Math.abs(2 * lightness - 1)) : 0;
-  const toHex = value =>
-    Math.round(value * 255)
-      .toString(16)
-      .padStart(2, '0')
-      .toUpperCase();
-  const hslToHex = (h, s, l) => {
-    const chroma = (1 - Math.abs(2 * l - 1)) * s;
-    const x = chroma * (1 - Math.abs(((h / 60) % 2) - 1));
-    const match =
-      h < 60
-        ? [chroma, x, 0]
-        : h < 120
-          ? [x, chroma, 0]
-          : h < 180
-            ? [0, chroma, x]
-            : h < 240
-              ? [0, x, chroma]
-              : h < 300
-                ? [x, 0, chroma]
-                : [chroma, 0, x];
-    const matchMin = l - chroma / 2;
-    return `#${match.map(value => toHex(value + matchMin)).join('')}`;
-  };
-  return {
-    secondary: hslToHex(
-      (hue + 28) % 360,
-      Math.max(0.28, Math.min(0.66, saturation * 0.72)),
-      Math.max(0.38, Math.min(0.56, lightness * 0.92))
-    )
-  };
+  const rgb = [0, 2, 4].map(index => parseInt(color.slice(index, index + 2), 16));
+  const toHex = value => Math.round(value).toString(16).padStart(2, '0').toUpperCase();
+  return `#${rgb.map(channel => toHex(channel + (255 - channel) * 0.32)).join('')}`;
 }
 const PRO_PALETTE_PRESETS = {
-  default: { primary: DEFAULT_STYLE_PRIMARY, secondary: DEFAULT_STYLE_SECONDARY },
-  rose: { primary: '#F06F61', secondary: '#C44C78' },
-  ocean: { primary: '#18B7A0', secondary: '#2E6FD8' },
-  midnight: { primary: '#263B68', secondary: '#6A4C93' },
-  graphite: { primary: '#A7C957', secondary: '#557A3E' },
-  amber: { primary: '#E8A33D', secondary: '#B34A2C' },
-  ruby: { primary: '#E23D5B', secondary: '#7A1F3D' },
-  lilac: { primary: '#9B7EDE', secondary: '#D88FC2' }
+  default: DEFAULT_STYLE_PRIMARY,
+  rose: '#F06F61',
+  ocean: '#18B7A0',
+  midnight: '#263B68',
+  graphite: '#A7C957',
+  amber: '#E8A33D',
+  ruby: '#E23D5B',
+  lilac: '#9B7EDE'
 };
 function applyProAccent(data = state.applicationData) {
   const accent = normalizeProAccent(data.proAccent);
-  const secondary = normalizeProSecondary(data.proSecondary);
+  // Always derived from accent, never read off data.proSecondary - see
+  // deriveSingleHueSecondary's own comment. That field still exists in
+  // storage/sync/import payloads for backward compatibility, but nothing
+  // that actually paints the UI looks at it any more.
+  const secondary = deriveSingleHueSecondary(accent);
   document.body.style.setProperty('--pro-accent', accent);
   document.body.style.setProperty('--pro-secondary', secondary);
   document.body.style.setProperty('--pro-accent-text', getReadableTextColor(accent));
@@ -171,20 +151,18 @@ function renderStylePanel() {
     styleSlots: normalizeStyleSlots(state.applicationData.styleSlots)
   };
   const primary = document.getElementById('style-primary-input');
-  const secondary = document.getElementById('style-secondary-input');
   if (primary) primary.value = normalizeProAccent(state.applicationData.proAccent);
-  if (secondary) secondary.value = normalizeProSecondary(state.applicationData.proSecondary);
   document.getElementById('style-panel')?.classList.remove('style-draft-dirty');
   renderStyleSlots();
   setStylePanelMode('editor');
 }
 function getStyleDraftFromControls() {
   const primary = document.getElementById('style-primary-input');
-  const secondary = document.getElementById('style-secondary-input');
+  const proAccent = normalizeProAccent(primary?.value || state.stylePanelDraft.proAccent);
   return {
     ...state.stylePanelDraft,
-    proAccent: normalizeProAccent(primary?.value || state.stylePanelDraft.proAccent),
-    proSecondary: normalizeProSecondary(secondary?.value || state.stylePanelDraft.proSecondary)
+    proAccent,
+    proSecondary: deriveSingleHueSecondary(proAccent)
   };
 }
 function previewStyleSettings() {
@@ -255,24 +233,21 @@ function renderStyleSlots() {
     .join('');
 }
 // True when `style` is one of the built-in palette presets - i.e. a color
-// pair the user picked off the shelf rather than one they mixed themselves.
+// the user picked off the shelf rather than one they mixed themselves.
 // Losing one of these costs a single tap to get back, which is what lets
 // loadStyleSlot below skip its "目前的樣式將被替換" warning: a warning about
 // discarding something nobody authored is a popup with nothing behind it.
+// Comparing proAccent alone is enough now that proSecondary is always a
+// pure function of it - two styles can never agree on one and disagree on
+// the other.
 function isBuiltInPresetStyle(style) {
   const primary = normalizeProAccent(style?.proAccent);
-  const secondary = normalizeProSecondary(style?.proSecondary);
   return Object.values(PRO_PALETTE_PRESETS).some(
-    preset =>
-      normalizeProAccent(preset.primary) === primary &&
-      normalizeProSecondary(preset.secondary) === secondary
+    presetPrimary => normalizeProAccent(presetPrimary) === primary
   );
 }
 function sameSlotColors(slot, style) {
-  return (
-    normalizeProAccent(slot?.primary) === normalizeProAccent(style?.proAccent) &&
-    normalizeProSecondary(slot?.secondary) === normalizeProSecondary(style?.proSecondary)
-  );
+  return normalizeProAccent(slot?.primary) === normalizeProAccent(style?.proAccent);
 }
 // Both directions of "am I about to lose a color I mixed myself" get a
 // confirmation, and neither asks when the answer is obviously no:
@@ -361,7 +336,6 @@ function applyPendingStyleSlot() {
   )[state.pendingStyleSlotIndex];
   if (!slot || !slot.name) return;
   document.getElementById('style-primary-input').value = slot.primary;
-  document.getElementById('style-secondary-input').value = slot.secondary;
   state.pendingStyleSlotIndex = null;
   hideEditorDiscardConfirm();
   previewStyleSettings();
@@ -433,13 +407,10 @@ function discardStyleChangesAndClose() {
   document.getElementById('style-panel')?.classList.remove('style-draft-dirty');
 }
 function applyStylePreset(name) {
-  const preset = PRO_PALETTE_PRESETS[name];
-  if (!preset) return;
+  const presetPrimary = PRO_PALETTE_PRESETS[name];
+  if (!presetPrimary) return;
   const primary = document.getElementById('style-primary-input');
-  const secondary = document.getElementById('style-secondary-input');
-  if (primary) primary.value = preset.primary;
-  if (secondary)
-    secondary.value = preset.secondary || deriveProSupportColors(preset.primary).secondary;
+  if (primary) primary.value = presetPrimary;
   previewStyleSettings();
 }
 
@@ -458,7 +429,6 @@ window.toggleStylePanel = toggleStylePanel;
 export {
   applyProAccent,
   closeStylePanel,
-  deriveProSupportColors,
   normalizeProAccent,
   normalizeProSecondary,
   normalizeStyleSlots,
