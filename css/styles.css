@@ -36,12 +36,13 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   --orbit-muted:#9db1b5;
   --orbit-radius-lg:26px;
   --orbit-radius-md:16px;
-  /* Matches .exam-countdown's own min-height (see its own rule) so the tool
-     button reads as the same size block sitting next to the countdown card,
-     not a small icon floating next to a much taller one - the two
-     breakpoints that shrink the card's height override this token right
-     alongside it, so the match holds there too. */
-  --v31-hub-size:60px;
+  /* Matches .top-actions-menu's own sub-buttons (see
+     .top-actions-menu .top-action-btn) so the hub button toggles into the
+     same size row it opens, instead of visibly shrinking from a bigger
+     circle into smaller ones every time it's tapped. Sized noticeably
+     smaller than .exam-countdown next to it - full height-matching was
+     tried and made this mismatch with its own sub-buttons instead. */
+  --v31-hub-size:44px;
   --v31-radius-xl:24px;
 
   /* Shared size for every full-width "primary action" button (confirm-sheet
@@ -524,8 +525,8 @@ body.orbit-booting .dashboard-boot-loader{visibility:visible;display:flex;positi
 .exam-countdown-dots[hidden]{display:none}
 .exam-countdown-dot{width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.28);transition:background .2s,width .2s}
 .exam-countdown-dot.active{width:10px;border-radius:3px;background:var(--pro-secondary)}
-@media (max-width:360px){:root{--v31-hub-size:54px}.exam-countdown{min-height:54px;padding:7px 11px;min-width:190px}.exam-countdown-label{font-size:15px}.exam-countdown-date{font-size:12px}.exam-countdown-value{font-size:clamp(22px,7.6vw,26px)}}
-@media (max-height:700px){:root{--v31-hub-size:52px}.exam-countdown{min-height:52px;padding:6px 10px}.exam-countdown-value{font-size:clamp(21px,7vw,25px)}}
+@media (max-width:360px){.exam-countdown{min-height:54px;padding:7px 11px;min-width:190px}.exam-countdown-label{font-size:15px}.exam-countdown-date{font-size:12px}.exam-countdown-value{font-size:clamp(22px,7.6vw,26px)}}
+@media (max-height:700px){.exam-countdown{min-height:52px;padding:6px 10px}.exam-countdown-value{font-size:clamp(21px,7vw,25px)}}
 
 .top-actions{position:relative;margin-left:auto;flex:0 0 auto;align-self:center;display:flex;align-items:center;flex-direction:row;padding:0;z-index:20}
 .top-action-btn{
@@ -568,7 +569,13 @@ body.orbit-booting .dashboard-boot-loader{visibility:visible;display:flex;positi
 .top-actions-menu #btn-transfer.top-action-btn{color:var(--pro-blend)}
 .top-actions-menu .top-action-btn:active{transform:scale(.9)}
 .top-actions-menu .top-action-btn.active{box-shadow:0 0 0 2px currentColor,0 6px 16px rgba(0,0,0,.22)}
-body.editor-open .top-actions,body.transfer-open .top-actions{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .2s,visibility .2s}
+/* Used to fade out entirely while the editor/sync sheet was open - dropped
+   because that made it vanish outright instead of just dimming behind the
+   sheet's own overlay like the rest of the dashboard does (most visible in
+   phone landscape, where the sheet doesn't cover the dashboard column at
+   all and the button's slot just went blank). The overlay's own z-index
+   already sits above .top-actions (see .test-panel-overlay), so it still
+   isn't clickable through the sheet - this only stops it from disappearing. */
 
 /* Now-stack: current class title + meta chips */
 /* Redesigned around one centered axis instead of a left title / right tag-
