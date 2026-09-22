@@ -1,52 +1,67 @@
 # Orbit Class
 
-**🚀 [開啟 Orbit Class](https://jaypengx-collab.github.io/Orbit/)**
+A browser-based class-schedule dashboard that tells you what's happening right now, not just what your timetable says.
 
-Orbit Class 是跑在瀏覽器裡的課表儀表板：不只顯示課表，而是即時算出「現在是哪一堂、還剩幾分鐘、下一堂在哪」，打開就有答案，不用自己對照時間表。純前端靜態網站，沒有帳號、沒有後端資料庫，課表預設只存在你自己瀏覽器裡。
-
-AI 辨識課表照片、AI 課表編輯、跨裝置同步是三個選用功能，各接一個部署站台已設定好的共用服務（Cloudflare Workers 代理、Firestore 專案），讓使用者不用自己申請 Gemini API Key 或建 Firebase 專案。三者都選在「免費方案本身有額度上限、不用信用卡」的服務上——被濫用的最壞結果是額度用完、功能暫停，不會產生帳單。安全細節見下方對應章節與〈限制〉。
+> **Live site: [https://jaypengx-collab.github.io/Orbit/](https://jaypengx-collab.github.io/Orbit/)** — Try it now, no install required.
 
 ---
 
-## 目錄
+## Table of Contents
 
-- [核心體驗](#核心體驗)
-- [安裝與啟動](#安裝與啟動)
-- [課表怎麼建立](#課表怎麼建立)
-- [單雙週是怎麼判斷的](#單雙週是怎麼判斷的)
-- [外觀系統](#外觀系統)
-- [事件倒數](#事件倒數)
-- [時間模擬](#時間模擬)
-- [AI 辨識課表照片](#ai-辨識課表照片)
-- [AI 課表編輯（自然語言指令）](#ai-課表編輯自然語言指令)
-- [備份、匯出與跨裝置轉移](#備份匯出與跨裝置轉移)
-- [跨裝置同步](#跨裝置同步)
-- [資料存在哪裡、存了什麼](#資料存在哪裡存了什麼)
-- [程式怎麼組織的](#程式怎麼組織的)
-- [畫面每秒都在算什麼](#畫面每秒都在算什麼)
-- [響應式與無障礙細節](#響應式與無障礙細節)
-- [隱私](#隱私)
-- [修改這個專案時的注意事項](#修改這個專案時的注意事項)
-- [限制](#限制)
-- [目前狀態](#目前狀態)
-
----
-
-## 核心體驗
-
-- 最上面永遠是「現在」：課程、教師、教室、剩餘時間（進度條 + 倒數），下面接下一堂預告，再下面是整天課表清單，點一節看詳細資訊卡。
-- 下課、換堂、換天全部自動算出來，不用重新整理或手動點下一堂。
-- 午休、打掃這類非上課時段，主畫面會直接顯示該時段名稱與倒數，不會硬套課程資訊。
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [Getting Started](#getting-started)
+- [How Schedules Are Built](#how-schedules-are-built)
+- [Odd/Even Week Detection](#oddeven-week-detection)
+- [Appearance & Theming](#appearance--theming)
+- [Time Simulation](#time-simulation)
+- [AI Schedule-Photo Import](#ai-schedule-photo-import)
+- [AI Natural-Language Schedule Editing](#ai-natural-language-schedule-editing)
+- [Backup, Export & Device Transfer](#backup-export--device-transfer)
+- [Cross-Device Sync](#cross-device-sync)
+- [Data Storage](#data-storage)
+- [Project Structure / Architecture](#project-structure--architecture)
+- [The Per-Second Update Loop](#the-per-second-update-loop)
+- [Responsive Design & Accessibility](#responsive-design--accessibility)
+- [Privacy](#privacy)
+- [Contributing / Notes for Modifying This Project](#contributing--notes-for-modifying-this-project)
+- [Known Limitations](#known-limitations)
+- [Current Status](#current-status)
+- [Related Projects](#related-projects)
 
 ---
 
-## 安裝與啟動
+## Overview
 
-純前端專案，執行期沒有伺服器、沒有資料庫；開發期用 [Vite](https://vitejs.dev/) 打包 `src/` 底下的 ES module，並提供開發伺服器與測試跑器。
+Orbit Class is a class-schedule dashboard that runs entirely in the browser. It doesn't just display a timetable — it continuously computes which period is happening right now, how many minutes are left, and what's coming up next, so opening the page gives you the answer immediately instead of making you cross-reference a printed schedule yourself.
 
-**線上使用**：直接開 [jaypengx-collab.github.io/Orbit](https://jaypengx-collab.github.io/Orbit/)，不用安裝。`main` 一有更新，`.github/workflows/static.yml` 就會跑測試、建置、部署——測試沒過不會部署。
+It's a purely static front-end site: no accounts, no backend database. By default, your schedule lives only in your own browser's local storage.
 
-**本機開發**：
+Three features are optional and each talks to a shared service the deployment site has already configured (a Cloudflare Workers proxy, a Firestore project), so that individual users never need to sign up for a Gemini API key or set up their own Firebase project themselves:
+
+- **AI schedule-photo import** (OCR via Gemini)
+- **AI natural-language schedule editing**
+- **Cross-device sync**
+
+All three are deliberately built on top of services whose free tier has a hard usage cap and requires no credit card. The worst case if the shared infrastructure is abused is that the quota runs out and the feature pauses until it resets — never an unexpected bill. Security details for each feature are covered in their respective sections below, and overall caveats are summarized in [Known Limitations](#known-limitations).
+
+---
+
+## Key Features
+
+- **"Right now" front and center**: the top of the dashboard always shows the current class, teacher, room, and time remaining (progress bar + countdown), followed by a preview of the next period, then the full day's schedule list — tap any period for a detail card.
+- **Fully automatic transitions**: period changes, day changes, and end-of-class all recompute automatically — no manual refresh or "next period" button needed.
+- **Non-class periods handled properly**: lunch break, cleaning time, and similar special periods are shown by name with their own countdown on the main screen, rather than being forced into the "class" display format.
+
+---
+
+## Getting Started
+
+This is a purely front-end project — no server, no database at runtime. During development, [Vite](https://vitejs.dev/) bundles the ES modules under `src/` and provides a dev server and test runner.
+
+**Online use**: just open [jaypengx-collab.github.io/Orbit](https://jaypengx-collab.github.io/Orbit/) — nothing to install. Every push to `main` triggers `.github/workflows/static.yml`, which runs tests, builds, and deploys — a failing test blocks deployment.
+
+**Local development**:
 
 ```bash
 git clone https://github.com/jaypengx-collab/Orbit.git
@@ -55,341 +70,345 @@ npm install
 npm run dev
 ```
 
-開瀏覽器連到終端機顯示的網址（預設 `http://localhost:5173/`），存檔即時更新。
+Open the URL printed in the terminal (default `http://localhost:5173/`) — changes hot-reload on save.
 
-**其他指令**：
+**Other commands**:
 
 ```bash
-npm test           # 跑 Vitest 測試套件
-npm run build       # 建置正式版到 dist/
-npm run preview     # 本機預覽 dist/ 建置結果
-npm run lint         # ESLint 檢查 src/
-npm run format       # Prettier 格式化（不含 index.html／css/styles.css）
+npm test           # run the Vitest test suite
+npm run build       # build the production bundle into dist/
+npm run preview     # preview the dist/ build locally
+npm run lint         # run ESLint over src/
+npm run format       # run Prettier (excludes index.html and css/styles.css)
 ```
 
 ---
 
-## 課表怎麼建立
+## How Schedules Are Built
 
-點右上角工具選單的編輯課表圖示，打開設定面板：
+Click the schedule-editor icon in the top-right tools menu to open the settings panel:
 
-- **教師 / 課程清單**：每筆記錄課程名稱、教師、教室，排課時從這份清單選，不用每節重打一次。
-- **排課**：抽屜式介面，一次選一天、逐節指定。
-- **鐘聲時間**：設定每節開始／結束時間，格式錯誤或跟其他節重疊會被擋下。
-- **特殊時段**：午休、打掃等。
-- **倒數事件**：見下方〈事件倒數〉。
+- **Teacher / course list**: each entry records a course name, teacher, and room. When building the schedule you pick from this list rather than retyping it for every period.
+- **Scheduling**: a drawer-style interface — pick one day at a time and assign each period.
+- **Bell times**: set the start/end time for each period; malformed times or overlaps with other periods are rejected.
+- **Special periods**: lunch break, cleaning time, and similar.
+- **Countdown events**: see the "Countdown events" note further down this section.
 
-編輯器會記住上次儲存的狀態；表單內容跟那個狀態不一樣就算「有未儲存的變更」，這時要關閉編輯器或做匯出/匯入都會先跳出確認，避免手滑蓋掉修改。
+The editor remembers the last saved state. Any difference between the current form contents and that saved state counts as "unsaved changes" — closing the editor or doing an export/import in that state triggers a confirmation prompt first, to avoid accidentally overwriting your edits.
 
----
-
-## 單雙週是怎麼判斷的
-
-用當下日期算出 ISO 週數，偶數/奇數對應雙週/單週（可用「單雙週對調」開關反過來配合學校實際起算方式），不用手動切換。同一節單雙週上不同課的話，用 `國文/公民` 這種斜線寫法一次填兩科，系統會依當下算出的單雙週自動挑對應那一半顯示。
+**Countdown events** are a list independent of the schedule itself: each entry records a name and a date (a single day, or a range — e.g. a three-day exam week). The dashboard shows the nearest upcoming events and the days remaining, sorted soonest-first.
 
 ---
 
-## 外觀系統
+## Odd/Even Week Detection
 
-外觀跟課表資料分開存，互不影響。可切淺色/深色、選預設配色、或自訂主色（次要色與輔助色會自動推算出可讀的搭配）。調色有「預覽」跟「確定套用」兩階段，按確定才真的存檔。另外有幾個自訂樣式儲存槽，可以存起來一鍵切換。
-
----
-
-## 事件倒數
-
-獨立於課表之外的清單，每筆記錄名稱和日期（單日或一段區間，例如連續三天的考試週）。畫面顯示最近即將到來的事件與剩餘天數，由近到遠排序。
+The app computes the ISO week number from the current date and maps even/odd to a "second week / first week" designation (a "swap odd/even" toggle is available to flip this to match how your school actually counts weeks) — no manual switching required. For a period that alternates between two different subjects on odd vs. even weeks, use a slash notation like `Chinese/Civics` to fill both subjects into one slot; the system automatically picks the correct half to display based on the currently computed week parity.
 
 ---
 
-## 時間模擬
+## Appearance & Theming
 
-不是頂部工具列的常駐按鈕，刻意收在「同步 / 匯入匯出」面板最下面一個預設收合的「進階：時間模擬」子項目裡，展開後按「開啟時間模擬」才會打開——避免一般使用情境不小心點到，同時也不佔用工具列版面（工具列固定只有編輯課表、同步 / 匯入匯出、樣式工具三顆按鈕）。
-
-時間模擬面板可以直接指定任意星期、任意時間，整個畫面（進度條、倒數、下一堂預告、特殊時段判斷）就照那個假設時間重算並顯示，離開模擬模式才恢復真實時間——不用真的等到那個時間點才能測試邊界情境。
-
-`npm test` 的自動化測試套件用同一組模擬旗標（`window.MANUALLY_TEST`／`TEST_DAY`／`TEST_TIME_SEC`）在 jsdom 裡跑過一輪邊界時間點；時間模擬面板負責互動式手動檢查，測試套件負責擋回歸。
-
-時間模擬面板版本號旁邊有兩顆小按鈕：「更新」強制重新抓取最新版本（清掉 Service Worker 快取），「重設」則是把這台裝置上的 Orbit Class 資料（課表、樣式、同步設定）整個清空、回到最初的開始畫面，按下去會先跳出確認提示，不會一按就直接清除，也不影響其他有加入同步的裝置。
+Appearance settings are stored separately from schedule data and don't affect each other. You can switch between light/dark mode, pick a preset color scheme, or choose a custom accent color (secondary and supporting colors are automatically derived to stay readable). Color changes go through a two-step "preview" then "confirm apply" flow — nothing is actually saved until you confirm. There are also several custom style save-slots you can switch between with one click.
 
 ---
 
-## AI 辨識課表照片
+## Time Simulation
 
-拍一張課表照片或截圖，讓 AI 自動判讀，不用一節一節手動輸入：
+This is a debugging tool, deliberately *not* a persistent button in the top toolbar. It's tucked inside a collapsed-by-default "Advanced: Time Simulation" sub-section at the bottom of the "Sync / Import-Export" panel, and only opens once you expand it and click "Open Time Simulation" — this avoids accidental activation during normal use, and keeps the toolbar limited to its fixed three buttons (Edit Schedule, Sync / Import-Export, Style Tools).
 
-1. 選檔案 → 支援 JPG／PNG／WebP、iPhone 的 HEIC／HEIF，以及 PDF（學校公告的課表檔可以直接丟）。瀏覽器解得開的圖片會先畫進畫布並限制長邊像素、重新壓成 JPEG（避免傳太大張、辨識變慢）；HEIC 跟 PDF 瀏覽器多半解不開，就原檔直接送——Gemini 本來就讀得懂這兩種格式，不用為此塞一個 PDF 解析器給每個使用者。辨識進行中「選擇檔案」按鈕會鎖住，避免中途換檔案讓進行中的請求變得沒有意義（沒辦法取消，只會白白浪費一次額度）。
-2. **一次可以選多個檔案（最多 6 個），而且它們會被當成同一份課表一起讀**，不是各跑一次再拼起來——這正是重點：先給一張欄位是代號或通用名稱的課表照片，再給一張選課系統的截圖，同一個請求裡模型就能拿第二張的科目與老師名稱去補第一張的空格。順序有意義：後面的檔案用來補充或修正前面的，兩者對同一格有衝突時以後者為準。
-3. 送給 Gemini，提示詞要求模型只讀「看得到」的內容——不確定的鐘聲時間回空陣列，不用常見時間去猜；讀不到教師/教室就留空，不瞎掰（把兩個檔案的資訊對起來不算瞎掰，兩個檔案都沒有的才算）。回應格式由代理端的 Structured Output Schema 約束，模型沒辦法回 markdown 圍籬、前言或別的形狀，省下實測平均約 6% 的輸出 token，**但實測下來對等待時間本身沒有明顯幫助**（拿同一個模型、同一張照片跑多輪 A/B，有無 schema 的平均耗時幾乎打平，甚至偶爾還慢一點點）——網路上「schema 可以省略思考」的說法沒有在這裡得到驗證，真正的價值在別處：schema 保證回應一定是能剖析的合法 JSON，讓 parseResponse() 的容錯剝殼邏輯不再是常態路徑，而且這次改動過程中它還當場抓到一個原本會讓功能整個壞掉的真實問題（見下方「怎麼測出來的」）。單雙週對調則完全不受 AI 影響：一張照片本來就無法可靠判斷是單週還雙週拍的，這個設定永遠維持目前值，AI 辨識到什麼都不會覆蓋它。
-4. 依序嘗試多個 Gemini 模型，**最快的排最前面、最強的排最後**；除了前面的模型連線／HTTP 失敗會換下一個，回來的結果結構上不能用（例如一堂課都沒讀到）也會自動往上換更強的模型再試一次，全部都不行才把最後一次的結果連同錯誤一起交給使用者手動修。等待時顯示一個**固定不動的預估秒數**（依檔案數量計算，不倒數——倒數只會把注意力吸到最容易估錯的那一刻，歸零了還沒好更像壞掉）；真的超出預估太多才改顯示「比預估久一點，仍在辨識中…」。旁邊另外有一個較小、較淡的「已等待 N 秒」計時器持續跳動——回答的是不同的問題（「這個還活著嗎」而不是「還要多久」），刻意做得比預估文字不顯眼，而且不在螢幕報讀器的播報範圍內（`aria-hidden`），不會像舊版倒數那樣每秒念一次數字。
-5. 回傳結果跟手動輸入資料走同一套驗證/正規化流程，顯示成可檢查、可修改的預覽。
-6. 預覽畫面同時跑第二輪**內容層級的檢查**（`src/gemini-ocr.js` 的 `detectScheduleAnomalies()`）——上一步的驗證只確認格式合法（鐘聲時間是有效時間、`weeklySchedule` 形狀正確、至少辨識到一堂課或一個倒數活動），不代表內容合理；這一輪純本機運算、不額外呼叫 Gemini，找的是「格式合法但內容可疑」的情況：兩節鐘聲時間互相重疊、某節課的時間落在午休/打掃這類特殊時段範圍內卻仍排了課、同一天兩節時間重疊卻各自排了不同課（衝堂）、某節課長度短到像誤讀（例如兩分鐘）或長到不合理。每一條都只是啟發式判斷，可能誤判（例如學校真的有兩條互相重疊的鐘聲時間表），所以一律顯示成預覽畫面裡「可能需要注意」的提醒清單，**永遠不會因此擋下或隱藏匯入按鈕**——擋下匯入是上一步硬性驗證失敗時才做的事。
-7. 使用者確認後才真正匯入（覆蓋或合併現有課表）——AI 結果不會未經確認就生效。
+The time simulation panel lets you specify any weekday and any time directly; the entire dashboard (progress bar, countdown, next-period preview, special-period detection) recomputes and displays as if that were the real time. Leaving simulation mode restores the real clock — no need to wait for an actual point in time to test edge cases.
 
-**速度**：一開始碰到檔案選擇器（還在挑檔案的時候）就先對代理發一個什麼都不做的暖機請求，把 DNS、TLS 跟 Worker 初始化的成本挪到使用者反正要花的那幾秒裡，而不是留在按下匯入之後的關鍵路徑上；代理拿到 Gemini 的回應也是直接串流轉發，不在 Worker 裡整份收完再重新序列化。圖片編碼改用非同步的 `canvas.toBlob`（原本的 `toDataURL` 會在主執行緒上同步跑完整個 JPEG 編碼，大張照片按下去就是一段畫面凍結，看起來像當掉）。瀏覽器 Console 會留下 `GeminiEncode`／`GeminiCall:<模型>`／`GeminiParse:<模型>` 三段計時，慢的時候可以直接看出是卡在編碼、網路還是前端解析，不用猜。
+The automated test suite run by `npm test` uses the same simulation flags (`window.MANUALLY_TEST` / `TEST_DAY` / `TEST_TIME_SEC`) to exercise a set of boundary time points in jsdom. The time simulation panel handles interactive, manual spot-checks; the automated suite guards against regressions.
 
-**怎麼測出來的**：上面這些速度數字不是憑感覺寫的——拿一組合成的課表照片＋選課系統截圖，直接對正式 Gemini API（略過還沒部署的 Worker，用同一份 prompt／schema／generationConfig）跑了幾十次真實請求量測，過程中連帶抓到兩個原本會讓這個功能在正式環境直接壞掉的問題：
-
-- 一開始用 `additionalProperties` 描述 `teacherDB` 這種「鍵是模型自己取名」的自由格式物件，結果 Gemini 的 `response_schema`（其實是 OpenAPI 3.0 的子集）根本不支援這個關鍵字，每次請求都是還沒送進模型就先被 400 打回票——這在文件裡查不到，只有拿真的金鑰打一次才會發現。改成拿掉限制的純 `type: 'object'` 又矯枉過正：模型看不到任何結構提示，乾脆整個欄位留空。最後把 `teacherDB`／`locationDB` 這兩個表改成 `classes` 陣列（每筆是 `{key, subject, teacher, location}`），才是唯一同時滿足「schema 合法」又「模型真的會填」的做法——`src/gemini-ocr.js` 的 `normalizeAIOutput()` 現在同時看得懂新的陣列格式跟舊版地圖格式，用意跟同一支檔案裡其他 `LEGACY_*` 相容層一樣，是在防呆滾動部署時客戶端／代理版本沒對齊的空窗期。
-- `maxOutputTokens: 8192` 在 schema 約束加上多檔輸入的情況下太緊：`gemini-3.6-flash` 曾經真的卡住 94 秒，燒光輸出上限後才回傳一段從中間被截斷、完全不是合法 JSON 的內容（`finishReason: MAX_TOKENS`）。調高到 24576 後同一個請求 4 秒內正常結束，而且實際只用了不到 1000 個 token——它不是真的想講更多話，只是需要多一點餘裕才能好好收尾，上限調高並不會讓模型講更久。這個模型後來在多份獨立測試裡又重現了另一種完全不同的失敗（只讀出 1 堂課而不是應有的 12 堂），判斷是這個模型版本在 schema 約束解碼下本身不穩定，因此直接從候選名單移除，不只是往後排——一個可能悄悄卡 94 秒又失敗的候補模型，比完全沒有候補還糟。同一輪測試也確認 `gemini-2.5-flash` 對新的呼叫者已經回 404（Google 端已下架），從清單拿掉；`gemini-3.8-flash`（最新版）連續三次帶退避重試都回 503（服務過載中），目前還不夠穩定，先不用。
-
-實測下來（單張照片、多輪跑分）`gemini-3.5-flash-lite` 穩定落在 2–3 秒，兩張照片一起送也差不多、沒有明顯變慢，橋接功能也如預期正確運作——確實在原本設下的「10 秒以內、理想上 5 秒以內」目標之內，但這是拿目前的候選模型清單、這份 prompt／schema、以及測試當下 Google 端的容量狀況量到的一次性結果，不是永久保證：模型可用性、負載、甚至模型本身的行為都可能之後又變。
-
-需要網路連線；沒有網路，其他所有功能不受影響（這是可跳過的選用功能）。打開編輯器（設定）時會檢查連線狀態，沒有連線的話 AI 匯入跟跨裝置同步的建立/加入按鈕會直接鎖住變暗，避免點了才發現失敗；連線恢復後不用重新整理，鎖定會自動解除。這個檢查只抓得到「完全沒有網路」（例如飛航模式），抓不到「有網路但連不上外部服務」，後者還是要靠實際發送請求失敗才會被發現。
-
-### 金鑰在哪、安全性怎麼樣
-
-一般使用者**完全不需要**自己申請或輸入 Gemini API Key。部署站台已設定好伺服器端代理（獨立的 [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) 這個 repo 的 `worker.js`，`/gemini` 路徑——這支 Worker 同時也服務跨裝置同步的 `/sync` 路徑，見下方〈跨裝置同步〉），真正的 Key 只存成該 Worker 的加密 Secret，永遠不進客戶端程式碼。
-
-代理不是單純的轉發水管，客戶端只能傳 `{model, files}`（檔案數量、單檔與總量大小、可用的 MIME 類型都在 Worker 端擋掉），實際送去 Gemini 的提示詞、回應 Schema 與生成參數是 Worker 自己寫死的——即使有人挖出 Worker 網址（它本來就在公開的前端程式碼裡）直接發請求，也只能拿它跑「辨識這張圖裡的課表」，沒辦法把它當成通用的免費 AI 代理去問別的問題。這是刻意設計成這樣，因為 Worker 網址從來就不是秘密。
-
-**每小時請求數限制**：綁定 KV 命名空間（`RATE_LIMIT_KV`，見下方設定步驟）後，是跨邊緣節點共用的真計數器，不是單一執行個體內的軟性統計——不綁的話會退回成單一執行個體記憶體計數，Cloudflare 邊緣會平行跑很多個實例，容易被分散請求繞過。不管有沒有綁 KV，這一層都只能擋到「單一 IP 短時間內大量請求」，擋不住分散在很多 IP 的濫用，也不是密碼學意義上的安全機制。
-
-真正不可能被繞過的硬性防線是 **Cloudflare Workers 免費方案本身的每日請求上限**：超過額度就是失敗到隔天重置，不需要額外設定，也不可能產生帳單（除非有人自行把 Gemini 金鑰接上付費帳單，見〈限制〉）。
-
-沒有網路無法辨識，沒有代理則整個功能直接不可用（`PROXY_URL` 留空或整個 Worker 沒部署），不會退回成使用者自備 Key 的舊流程——課表其他功能完全不受影響。
-
-### 部署者一次性設定
-
-這支 Worker 的原始碼、部署方式與詳細設定步驟（Cloudflare 帳號設定、`GEMINI_API_KEY`、KV 流量限制、`[placement] region` 為什麼要這樣設、GitHub Actions 自動部署）都已經搬到獨立的 [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) 這個 repo——因為這支 Worker從一開始就同時服務 Orbit、Orbit Vocab、Match Find 三個各自獨立的網站，放在 Orbit 自己的 repo 裡反而讓「要改代理該去哪個 repo」變成一個問題。完整步驟見該 repo 的 README。
-
-部署好之後，這個 repo 這邊只需要一步：
-
-1. 複製 Worker 網址（`https://<worker 名稱>.<子網域>.workers.dev`）——**不要加路徑**。這一支 Worker 同時服務 AI 匯入（`/gemini`）、AI 課表編輯（`/nl-edit`，見下方）、跨裝置同步（`/sync`，見下方）三個功能，路徑是前端程式碼自己寫死補上的（見 `src/proxy-config.js`），設定值只需要 Worker 本身的網址。
-2. GitHub 專案 Settings → Secrets and variables → Actions → **Variables**（不是 Secrets，這個值本來就會進公開前端程式碼），新增 `PROXY_URL`，值就是上一步複製的 Worker 網址。下次推送到 `main`，站台就會改用代理——同時開通這三個功能（後兩個功能是否真的可用，還要看 shared-proxy 那邊有沒有另外設定它們各自需要的 Secret，見該 repo README）。
-
-Gemini 偶爾回報 `AI 辨識請求失敗（400）：User location is not supported for the API use.`（見 `src/gemini-ocr.js`）時，客戶端本身會自動重送整輪請求（最多重試 2 次，`/nl-edit` 用的是同一套重試邏輯——見下方〈AI 課表編輯（自然語言指令）〉），錯誤訊息裡也會帶一個 Cloudflare 節點代碼（`X-Worker-Colo` 標頭，例如 `（節點：IAD）`）方便回報問題；這個錯誤實際發生的原因、以及 shared-proxy 那邊怎麼設定來避免它，見該 repo README 的 `[placement]` 說明。
+Next to the version number in the time simulation panel are two small buttons: "Update" forces a fresh fetch of the latest version (clearing the Service Worker cache), and "Reset" wipes all of this device's Orbit Class data (schedule, styles, sync settings) and returns to the initial start screen — this always prompts for confirmation first rather than clearing immediately, and does not affect any other device that's part of the same sync.
 
 ---
 
-## AI 課表編輯（自然語言指令）
+## AI Schedule-Photo Import
 
-跟 AI 辨識課表照片是兩個獨立的功能（各自的請求、驗證、失敗處理互不相干），但共用同一個 `PROXY_URL`、同一支部署好的 Worker，與同一把 `GEMINI_API_KEY`——`PROXY_URL` 一旦設定，`/gemini` 與 `/nl-edit` 兩個路徑會**一起**開通，沒有辦法只開一個、關掉另一個（Worker 本身有沒有實作該路徑才是真正的開關，見下方部署設定）。
+Take a photo or screenshot of a class schedule and let AI read it automatically, instead of entering every period by hand:
 
-「編輯課表」面板的〈課表〉頁最上面（不是「同步 / 匯入匯出」面板——課表編輯器才是實際改課表的地方，這個工具直接編輯課表，放在這裡而不是同步面板）有一個「AI 課表編輯」輸入框：打一句話（或一次講好幾件事）描述想改的課表內容，例如「把我週二第三節改成物理」「把週三第一節搬到週四第一節」，或一次講多件事「把週二第三節改物理，然後把週四第一節清空」，按送出後 AI 會把這句話翻成一個或多個結構化的修改動作，套用前一定會先跳出差異預覽讓你確認——跟 AI 匯入的預覽/確認流程是同一套（`describeSettingsDiff()`／`showEditorSaveConfirm` 的同一條路徑），不會有「送出就直接改到課表」這種事。
+1. **Pick a file** → supports JPG/PNG/WebP, iPhone HEIC/HEIF, and PDF (a school-issued schedule file can be dropped in directly). Images the browser can decode are drawn onto a canvas, capped on their longest edge, and re-compressed as JPEG (to avoid sending huge files and slowing down recognition); HEIC and PDF are usually not decodable in-browser, so those are sent as-is — Gemini already understands both formats natively, so there's no need to bundle a PDF parser for every user. While recognition is in progress the "Choose File" button is locked, so switching files mid-flight can't leave an in-flight request pointless (it can't be cancelled, so switching would just waste a quota unit).
+2. **Up to 6 files can be selected at once, and they are read together as one schedule** — not processed separately and stitched together afterward. This is the key part: you can give it one photo of a schedule whose columns use codes or generic subject names, then a second file — a screenshot from a course-registration system — and within the same request the model can use the second file's subject and teacher names to fill in the blanks left by the first. Order matters: later files supplement or correct earlier ones; when both files disagree about the same slot, the later file wins.
+3. **Sent to Gemini** with a prompt that instructs the model to only report what it can actually see — uncertain bell times come back as an empty array rather than a guessed common schedule; teachers/rooms it can't read are left blank rather than invented (cross-referencing information between the two files doesn't count as inventing — only filling in something neither file contains does). The response format is constrained server-side by a Structured Output Schema, so the model can't return markdown fences, preambles, or any other shape — this measured about a 6% average reduction in output tokens in testing, **but had no measurable effect on latency itself** (A/B runs of the same model and photo, with and without the schema, came out essentially tied, occasionally even slightly slower with the schema). The claim that "a schema lets the model skip reasoning" didn't hold up here — the schema's real value is elsewhere: it guarantees the response is always parseable JSON, so `parseResponse()`'s fallback shell-stripping logic is no longer on the normal path, and during this change it caught a real bug that would otherwise have broken the feature outright (see "How this was measured" below). The odd/even-week toggle is entirely unaffected by AI import: a single photo can never reliably tell you whether it was taken during an odd or even week, so this setting always keeps its current value — whatever the AI recognizes never overrides it.
+4. **Multiple Gemini models are tried in order — fastest first, strongest last.** Beyond connection/HTTP failures triggering a fallback to the next model, a structurally unusable result (e.g. zero classes recognized) also automatically triggers a retry with a stronger model further up the chain; only if all of them fail does the app hand the last attempt's result and error to the user for manual correction. While waiting, the UI shows a **fixed, non-counting estimated duration** (computed from file count, not a countdown — a countdown draws attention to exactly the moment it's most likely to be wrong, and hitting zero without finishing looks broken). Only once the wait significantly exceeds the estimate does the message change to "Taking a bit longer than expected, still recognizing…". A separate, smaller and dimmer "Waited N seconds" counter ticks alongside it — it answers a different question ("is this still alive?" rather than "how much longer?"), and is deliberately made less prominent than the estimate text and excluded from screen-reader announcements (`aria-hidden`), unlike the old countdown that used to announce a new number every second.
+5. **Results go through the same validation/normalization pipeline as manual input**, and are shown as an editable, checkable preview.
+6. **The preview screen also runs a second, content-level check** (`detectScheduleAnomalies()` in `src/gemini-ocr.js`) — the prior step only confirms the result is *structurally* valid (bell times are valid times, `weeklySchedule` has the right shape, at least one class or countdown event was recognized), not that the content actually makes sense. This second pass runs entirely locally — no additional Gemini call — and looks for cases that are structurally legal but suspicious: two bell times overlapping each other, a period whose time falls inside a special period like lunch or cleaning time yet still has a class assigned, two overlapping periods on the same day each assigned a different class (a scheduling conflict), or a class duration that's implausibly short (e.g. two minutes) or implausibly long. Each of these is only a heuristic and can produce false positives (a school might genuinely have two overlapping bell schedules), so they are always shown as a "might need attention" list in the preview and **never block or hide the import button** — blocking import is reserved for the hard validation failure in the prior step.
+7. **Nothing is applied until the user confirms** (overwrite or merge into the existing schedule) — AI output never takes effect without explicit confirmation.
 
-- **不是固定動作集，是一份精簡的修改清單（patch）**：早期版本只認得「改某節課／搬某節課／對調兩節課／清空某節課」四種固定動作，遇到「加一個新班級」「多開一節課」「加一段下課時間」這類請求會直接沒有對應動作可用；後來改成 AI 讀到全部可編輯欄位、回傳這些欄位「套用完指令之後」的完整內容，雖然解決了動作不夠用的問題，但代表 AI 每次都要把沒改到的課程、排課格子逐字抄一遍——而 AI 偶爾會在抄寫過程中抄錯字，變成一個跟指令毫無關係的欄位也悄悄被改掉，本來要診斷都不知道從何找起。現在的設計是折衷的第三種形狀：AI 一次讀到全部可編輯欄位（跟以前一樣），但回傳的只有它實際要新增/修改的課程（`classUpserts`）、要刪除的課程代碼（`deletedClassKeys`）、要變動的排課格子（`scheduleEdits`，一格一筆），以及鐘聲時間／特殊時段／倒數事件／單雙週各自一個「有沒有變」旗標＋變動後的完整內容。新增課程、新增/移除鐘聲節次、加一段特殊時段、加一個倒數事件、切換單雙週，一樣是同一個回傳格式自然涵蓋的情況；差別是不再需要、也不被允許回傳任何指令沒提到的東西。
-- **指令沒提到的部分，AI 完全不會在回傳內容裡看到，也就沒有東西可以抄錯**：伺服器端的提示詞明確要求「只列出實際要新增、修改、刪除的部分，其餘一律不要出現在回傳內容裡」；客戶端收到這份精簡清單後，直接疊加在目前資料上（沒被清單提到的課程、排課格子、鐘聲/特殊時段/倒數事件維持原樣，一個位元組都不會變），再用套用前後的差異決定確認畫面要顯示什麼——這樣一來，「AI 沒被要求改的東西卻變了」在結構上就不可能發生，不用再靠提示詞寫得多仔細來避免。一次指令裡講好幾件事（例如「把週二第三節改物理，再加一段午休 12:00-13:00」）也是一次送出、一次回傳，AI 在同一次回覆裡把全部改動的清單一起列出來。
-- **送出的內容只有這句話，加上目前課表全部可編輯欄位**（`classes`／`weeklySchedule`／`bellTimes`／`breakTimes`／`countdownEvents`／`reverseWeek`——不含樣式、同步設定等其他資料），讓 AI 能解析「我週二第三節」「物理老師那堂課」這類指稱，也有足夠的資料可以真的加東西進去，而不是被迫瞎猜或做不到。
-- **看不懂或指稱不存在都是清楚的失敗狀態，不是當機**：AI 回傳「看不懂這個指令」時會用一句話說明原因；回傳「指的東西不存在」時同樣會說明（例如課表根本沒有第九節）。兩者都跳出可關閉的提示視窗，不會拋出錯誤畫面，也不會有任何資料變動。
-- **伺服器回傳的內容一律視為不可信、要重新驗證**：客戶端先做一次形狀檢查（回傳的是不是預期的欄位、型別），再把結果餵進 `normalizeSettingsData()`——跟手動儲存、AI 匯入、備份還原共用的同一套內容層級驗證與淨化——任何結構不合理的內容都會在套用前被擋下、顯示錯誤，不會把不合理的建議送進確認畫面。指令沒有實際造成任何欄位變動時，會顯示「沒有變更」而不是空白的確認畫面。
-- **Gemini 偶爾回報「User location is not supported」時會自動重試整輪請求**：這個錯誤是 Google 根據 Cloudflare Worker 出口 IP 判斷地區、而不是使用者實際所在地區，同一個使用者換一次 Cloudflare 邊緣節點結果可能就不一樣。遇到這個錯誤時客戶端會自動重送整輪請求（不是同一個節點內重試），最多重試 2 次，仍然失敗才會顯示錯誤——不會讓使用者自己手動重按送出。跟 AI 匯入（`gemini-ocr.js`）用的是同一套重試邏輯。
-- **這是可選功能，未部署/未設定時直接不可用**：`PROXY_URL` 留空的話，輸入框顯示「AI 課表編輯功能尚未設定，請聯絡課表管理者。」，不會有退回模式；跟 AI 匯入、跨裝置同步一致。同步為僅接收身份的裝置根本打不開課表編輯器，自然也用不到這個功能（跟其他編輯器功能同一道鎖——見下方〈管理者／僅接收身份〉）。
+**Speed**: as soon as the user reaches the file picker (while they're still choosing a file), the app fires an empty warm-up request to the proxy, shifting the cost of DNS, TLS, and Worker cold-start into the seconds the user was going to spend picking a file anyway, rather than leaving it on the critical path after the user hits import. The proxy streams Gemini's response straight through rather than buffering the full response in the Worker and re-serializing it. Image encoding uses the asynchronous `canvas.toBlob` instead of `toDataURL` (which runs the entire JPEG encode synchronously on the main thread — for a large photo, that shows up as a frozen UI that looks like a crash). The browser console logs three timing segments — `GeminiEncode` / `GeminiCall:<model>` / `GeminiParse:<model>` — so a slow run can be diagnosed as an encoding, network, or front-end parsing bottleneck without guesswork.
 
-### 部署者一次性設定
+**How this was measured**: the speed numbers above aren't guesses — a synthetic set of schedule photos plus course-registration screenshots was run directly against the real Gemini API (bypassing the not-yet-deployed Worker, using the same prompt/schema/generationConfig) for several dozen real requests. That process caught two bugs that would have broken this feature outright in production:
 
-跟 AI 匯入用的是**同一支** shared-proxy Worker、**同一把** `GEMINI_API_KEY`、**同一個** `PROXY_URL`（見上方〈AI 辨識課表照片〉的部署設定）——已經照那一節設定過的話，這裡不需要再做任何事，`/nl-edit` 路徑已經寫在該 Worker 的 `worker.js` 裡，`PROXY_URL` 一設定就會一起生效。
+- The initial design used `additionalProperties` to describe `teacherDB`, an object whose keys are subject names the model itself invents. It turns out Gemini's `response_schema` (actually a subset of OpenAPI 3.0) doesn't support that keyword at all — every request was rejected with a 400 before it even reached the model. This isn't documented anywhere; it only surfaces when you make a real request with a real key. Simply removing the constraint down to a bare `type: 'object'` overcorrected: with no structural hint at all, the model just left the field empty. The fix that was both schema-legal *and* actually got populated by the model was replacing the `teacherDB`/`locationDB` maps with a `classes` array (each entry `{key, subject, teacher, location}`). `normalizeAIOutput()` in `src/gemini-ocr.js` now understands both the new array format and the old map format, for the same reason as the other `LEGACY_*` compatibility shims in that file: to guard against the window where a client and proxy version are momentarily out of sync during a rolling deploy.
+- `maxOutputTokens: 8192` turned out to be too tight once schema constraints were combined with multi-file input: `gemini-3.6-flash` once stalled for 94 seconds, burned through the output cap, and returned content truncated mid-stream — not valid JSON (`finishReason: MAX_TOKENS`). Raising the cap to 24576 let the same request finish cleanly in 4 seconds, using fewer than 1000 tokens in the end — the model wasn't trying to say more, it just needed more headroom to wrap up properly; raising the cap doesn't make it talk longer. That same model later reproduced a completely different failure mode across several independent test runs (reading only 1 class instead of the expected 12), suggesting this model version is simply unstable under schema-constrained decoding — it was removed from the candidate list entirely rather than just reordered, since a fallback model that might silently hang for 94 seconds and then fail anyway is worse than no fallback at all. The same round of testing also found `gemini-2.5-flash` now returns 404 for new callers (Google has retired it) and was dropped from the list; `gemini-3.8-flash` (the newest version) returned 503 (overloaded) three times in a row even with backoff retries and isn't stable enough to use yet.
 
-沒有部署這個 Worker、或 `PROXY_URL` 留空的話，這個功能直接不可用，不影響 AI 匯入、跨裝置同步或課表其他功能。
+In practice (single photo, multiple runs) `gemini-3.5-flash-lite` consistently lands at 2–3 seconds; sending two photos together doesn't noticeably slow this down, and the bridging behavior between files works as intended — comfortably inside the target of "under 10 seconds, ideally under 5." That said, this is a one-time measurement against the current candidate model list, this prompt/schema, and whatever capacity Google's infrastructure happened to have at test time — not a permanent guarantee. Model availability, load, and even model behavior itself can change later.
 
----
+An internet connection is required; without one, every other feature is unaffected (this is a skippable, optional feature). Opening the editor (settings) checks connectivity, and if there's no connection, the AI import and cross-device sync create/join buttons are grayed out and locked immediately, rather than letting you find out after clicking. The lock clears automatically once connectivity returns — no refresh needed. This check can only detect "no network at all" (e.g. airplane mode) — it can't detect "network present but can't reach the external service," which still only surfaces once an actual request fails.
 
-## 備份、匯出與跨裝置轉移
+### Where the key lives, and how secure it is
 
-資料只存在單一瀏覽器，換裝置/瀏覽器或想留存檔都靠匯出/匯入：匯出時把課表資料攤平、用 raw DEFLATE 壓縮、再轉成一段可複製貼上的文字。貼到另一台裝置匯入時，一樣先列出差異讓你確認過才套用，不會無聲蓋掉原本課表。舊版（未壓縮 JSON）備份仍讀得進來，新匯出一律用新格式。
+Ordinary users **never need** to obtain or enter their own Gemini API key. The deployment site already has a server-side proxy configured (`worker.js` in the separate [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) repo, at the `/gemini` path — the same Worker also serves the `/sync` path for cross-device sync; see [Cross-Device Sync](#cross-device-sync) below). The real key exists only as that Worker's encrypted secret and never ships in client-side code.
 
----
+The proxy isn't a dumb pass-through: the client can only send `{model, files}` (file count, per-file and total size limits, and allowed MIME types are all enforced Worker-side); the actual prompt, response schema, and generation parameters sent to Gemini are hardcoded in the Worker itself. Even if someone extracts the Worker URL (it's already sitting in public front-end code) and calls it directly, all they can do is run "recognize the schedule in this image" — they cannot repurpose it as a general-purpose free AI proxy for arbitrary questions. This is deliberate, since the Worker URL was never meant to be secret.
 
-## 跨裝置同步
+**Hourly request limits**: when bound to a KV namespace (`RATE_LIMIT_KV`, see deployment steps below), this becomes a real counter shared across edge nodes, not a soft per-instance tally — without it, the count falls back to in-memory per-instance state, and since Cloudflare's edge runs many parallel instances, that's trivially bypassed by spreading requests across them. Whether or not KV is bound, this layer can only catch "a lot of requests from one IP in a short window" — it can't stop abuse spread across many IPs, and it isn't a cryptographic security mechanism.
 
-選用功能，把課表自動同步到多台裝置，不用每次手動匯出/匯入。點右上角工具選單的「同步 / 匯入匯出」圖示，會打開一個獨立於課表編輯器之外的面板——同步是**預設看到的第一個選項**；手動備份流程還在，收進同個面板裡一個預設收合的「手動備份（舊版）」子項目。這個面板跟課表編輯器是分開的兩個工具，僅接收裝置也一定打得開（見下方〈管理者／僅接收身份〉）。
+The real, un-bypassable backstop is the **Cloudflare Workers free-tier daily request cap**: exceeding it simply fails until the next day's reset, requires no extra configuration, and cannot generate a bill (unless someone deliberately attaches their own Gemini key to a paid, credit-card-backed billing account — see [Known Limitations](#known-limitations)).
 
-一般使用者**完全不需要**自己申請或設定任何東西。部署站台已設定好伺服器端代理（[jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) 這個 repo 的 `worker.js`，`/sync` 路徑——這支 Worker 同時也服務 AI 匯入的 `/gemini` 路徑，見上方〈AI 辨識課表照片〉），瀏覽器不直接碰 Firestore，全部讀寫都先經過這個會計數、擋格式錯誤代碼的 Worker，Worker 才用自己的 Firebase 服務帳戶去存取共用的 Firestore 專案。裝置數量沒有上限，拿到同一組配對代碼就會加入同一份共享文件。
+Without internet, recognition simply can't happen; without a deployed proxy, the whole feature is unavailable (`PROXY_URL` left empty, or the Worker never deployed) — it does not fall back to a bring-your-own-key flow. All other schedule features are unaffected.
 
-沒有部署這個 Worker（`PROXY_URL` 留空，例如自建 fork）的話，跨裝置同步整個功能不可用——編輯器會顯示「跨裝置同步功能尚未設定」，不會退回成直連 Firestore 的舊流程，課表其他功能完全不受影響。
+### One-Time Deployment Setup
 
-**一般使用者**：裝置 A 按「建立新同步」——按下去不會立刻建立，會先跳出一次確認，說明這會在共用伺服器上建立一份新文件、用掉這個功能有限的建立額度，避免手滑或純粹好奇點一下就真的建立一份用不到的同步——確認後才會一次拿到一組「同步代碼」跟一組「管理者密碼」。同步代碼可以自由分享——任何裝置拿到都能加入接收更新，只是這組代碼本身不能拿來編輯課表；管理者密碼才是編輯課表的唯一憑證，只給想讓它也能編輯的裝置。裝置 B 貼上同步代碼按「加入同步」，預設就是僅接收；想讓它也能編輯的話，另外展開「我有管理者密碼，也想要能編輯課表」這個收合區塊、填入管理者密碼，伺服器驗證正確才會以管理者身份加入——這組密碼不填、填錯都只會是僅接收，不會有中間狀態。配對/解除配對後畫面立刻切換，不用重新整理。按下「加入同步」時系統會先確認代碼真的存在（以及密碼是否正確，如果有填）：代碼打錯、對方根本沒建立過，或管理者密碼不對，都會直接顯示錯誤並中止，不會誤報成功；確認沒問題後才會跳出警告——加入會立刻用該代碼下的課表取代這台裝置目前的課表且無法復原（建立同步的裝置不受影響）。
+The Worker's source code, deployment steps, and detailed configuration (Cloudflare account setup, `GEMINI_API_KEY`, KV rate limiting, why `[placement] region` is set the way it is, GitHub Actions auto-deploy) have all moved to the separate [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) repo — because this one Worker has served Orbit, Orbit Vocab, and Match Find (three independent sites) from day one, and keeping it inside Orbit's own repo would make "which repo do I change the proxy in" an open question. Full steps are in that repo's README.
 
-**管理者／僅接收身份**：
+Once the Worker is deployed, this repo only needs one step:
 
-- 建立新同步時，系統會隨機產生一組同步代碼跟一組彼此無關的管理者密碼，兩者互相不能推算出對方。管理者密碼**只會在建立當下顯示一次**，畫面會要求先存好才能繼續；同步代碼則會一直留在已配對畫面上，隨時看得到。這台裝置（建立同步的那台）之後也能在已配對畫面按「顯示」重新看到自己的管理者密碼，分享給想讓它也能編輯的其他裝置——真正遺失、無法再找回的只有這組密碼本身，一旦這台裝置也忘記了，就只能整個刪除同步重建。
-- 是不是管理者，純粹看這台裝置本機有沒有存著正確的管理者密碼——不是使用者自己說了算，也不是加入時選一次就定型：沒有密碼，或密碼不對，一律是僅接收；已經僅接收的裝置之後想編輯，隨時可以在已配對畫面輸入管理者密碼取得編輯權限，不需要解除同步重新加入。而且**這次是真的擋得住**：沒有正確密碼，連繞過介面直接發請求都無法寫入或刪除（見下方安全性一節），不是像以前一樣單純靠介面上鎖住幾顆按鈕。
-- 僅接收裝置的「編輯課表」按鈕直接鎖住、按了沒反應（跟下面樣式工具的鎖法一樣，不是打開後才整頁變暗）——課表編輯器裡已經沒有僅接收裝置需要用到的東西了，同步狀態、解除同步、AI／手動匯入、取得編輯權限都在獨立的「同步 / 匯入匯出」面板，這個面板兩種身份都打得開。面板裡的 AI 匯入、手動「匯入」按鈕會個別鎖住（手動「匯出」不受影響）；儲存功能也直接拒絕，當作繞過鎖定按鈕之後的第二道防線。頂部工具列的「樣式工具」按鈕也一併鎖住——還在接收同步樣式的僅接收裝置改了也沒用，下次同步就會被蓋掉；勾選「不同步樣式顏色」後才會解鎖。
-- 僅接收裝置想自己改課表，按「解除同步」即可，本機課表不受影響，之後可再用同一組同步代碼重新加入。
-- 「解除同步」只是這台裝置自己忘記自己手上的代碼（如果是管理者，也會一併忘記管理者密碼），伺服器上的共用課表跟其他已配對的裝置完全不受影響，這組代碼也還能拿去重新加入；跳出確認時可以先按「複製代碼」存起來備用（管理者的話會連同管理者密碼一起複製）。管理者另外看得到「整個刪除同步」——這個會透過 Worker 把伺服器上那份共用課表整個刪掉，同步代碼與這組管理者密碼會一起立刻失效：所有讀取這組代碼的裝置（不只按下按鈕的這台）之後同步時都會發現代碼已不存在，各自變回自己最後一次收到的本機課表，且無法復原（詳見下方安全性一節的 `DELETE /sync`）。僅接收裝置看不到這顆按鈕，而且即使繞過介面直接呼叫，Worker 也會先確認密碼對不對——不對的話直接拒絕，不會像以前一樣照樣執行。這個確認不提供複製代碼——代碼一旦刪除就整組失效，複製下來也沒用。
-- 加入同步（不是建立）那一刻，會先把這台裝置當下的本機課表備份起來，才套用加入進來的共用課表——「加入會立刻用該代碼下的課表取代這台裝置目前的課表且無法復原」這句警告說的正是這個時刻。之後不管是「解除同步」還是「整個刪除同步」一旦真的執行，只要這份備份還沒處理掉，就會立刻跳出一個對話框問「找回加入同步前的課表？」，可以選「換回加入前的課表」拿回加入同步前的本機課表，或按「繼續使用目前課表」直接丟掉備份、留著目前這份（原本共用、現在變回本機）的課表——是解除/刪除那一刻的彈出視窗，不是留在面板上等著被看到的提示。如果加入當下共用課表其實跟本機課表一樣（沒有實際覆蓋掉任何東西），就不會產生這份備份，也就不會跳出這個對話框。
-- 課表編輯器、樣式工具上的鎖定仍然只是介面引導，方便使用者自己不會手滑誤觸——真正擋住寫入與刪除的是 Worker 那端對管理者密碼的檢查（見下方安全性），介面鎖定不是唯一的防線，但也不是萬能的：密碼本身沒有使用者身分驗證，密碼外流的風險原封不動（見下方安全性）。
-- 「加入現有同步」跟「取得編輯權限」這兩處輸入管理者密碼的地方都收在可收合的區塊裡（跟「手動備份（舊版）」「進階：時間模擬」同一種收合樣式），預設收起來，不會平白佔位置。不管是按 × 關閉、切到其他工具，還是重新整理，只要離開「同步 / 匯入匯出」這個面板，裡面打過的同步代碼、管理者密碼欄位就會自動清空、收合區塊也會收回去——純粹是不要讓打過的密碼一直留在畫面上的整理習慣，跟安全性沒有直接關係（真正的防線在 Worker 那端，見下方安全性）。
-- 已配對的裝置（管理者、僅接收都可以）可以另外勾選「不同步樣式顏色」——之後這台裝置的主色／次色／個人樣式完全跟共用文件脫鉤，雙向都不受影響：不會被別人的配色蓋過，這台裝置自己改的配色也不會反過來蓋掉共用的樣式（管理者存檔時，樣式欄位會照樣上傳「目前共用的樣式」，不會夾帶這台裝置自己保留的配色）；課表內容則照常雙向同步。管理者本來就不受〈僅接收裝置〉那條樣式鎖定影響，這個勾選框對管理者的意義純粹是「我的配色不跟大家一樣，但不想每次存檔都把大家的配色蓋掉」。勾選或取消勾選都會先跳出確認——取消勾選尤其要小心：下次同步時，這台裝置目前保留的配色會立刻被共用樣式取代且無法復原，所以兩個方向都先問過一次，取消確認的話勾選框會恢復原狀，不會誤觸就切換。確認後不論哪個方向都會立刻檢查一次同步，不用等下一次碰螢幕才生效。取消勾選（恢復接收共用樣式）這個真正會覆蓋資料的方向，**確認的當下就會把共用的配色與樣式預設直接套用上去**，不是等下一次同步——以前只是把開關關掉就交給下次輪詢處理，但輪詢看到文件版本沒變就會跳過，結果要等到別台裝置剛好改了別的東西才會生效。同一時間系統會先把這台裝置目前的配色與樣式預設備份到本機——備份不受配對狀態影響，換代碼、解除同步都還在。
+1. Copy the Worker URL (`https://<worker-name>.<subdomain>.workers.dev`) — **without a path suffix**. This one Worker serves AI import (`/gemini`), AI schedule editing (`/nl-edit`, see below), and cross-device sync (`/sync`, see below) — the path is appended by the front-end code itself (see `src/proxy-config.js`); the config value only needs to be the Worker's base URL.
+2. In the GitHub project's Settings → Secrets and variables → Actions → **Variables** (not Secrets — this value is meant to end up in public front-end code), add `PROXY_URL` with the value copied above. On the next push to `main`, the deployed site starts using the proxy — enabling all three features at once (whether the latter two are actually usable also depends on shared-proxy having its own required secrets configured — see that repo's README).
 
-備份不會變成面板上一塊常駐的提示（那種東西沒人會滾回去看），而是在**下次重新勾選「不同步樣式顏色」時**才問——那正是「這台裝置又不想跟大家一樣了」的時刻，跟解除同步後才問要不要換回舊課表是同一個做法。可以選「換回保留的配色」（連同樣式預設一起還原）或「繼續使用目前配色」（丟掉備份）。如果備份的內容跟現在畫面上的完全一樣（例如根本沒改過配色就切了開關），就直接安靜丟掉、不問——兩個選項做的事一模一樣的問題不值得問。
-
-**第一次使用**：瀏覽器從沒存過課表、也沒設定同步的話，開啟後會跳出一次性提示，問要不要輸入配對代碼加入現有同步；選不用的話接著問要「前往設定手動建立」還是「用 AI 辨識照片」。只出現一次（`orbitOnboardingSeen`），不論最後選哪個或直接關掉。
-
-**同步怎麼運作**：按下「儲存」的當下就會立刻上傳，不用等——存檔即同步。接收端這邊沒有背景計時器一直輪詢：只有實際碰這台裝置（點擊、按鍵、觸控）才會檢查遠端有沒有更新版本，而且同一台裝置每次檢查之間至少間隔 5 秒，避免連續操作時每個動作都各發一次請求。放著不動、完全沒人碰的裝置就完全不會發送任何檢查請求——不會像固定輪詢那樣持續消耗讀取次數。重新整理、分頁從背景切回前景，或第一次打開頁面時，一定會立即檢查一次（不受上面 5 秒間隔限制），確保不用特地點一下畫面才能看到最新版本。代價：一台完全沒人碰的接收裝置（例如純粹放著顯示課表、沒人手動操作）要等到有人真的碰它（或重新整理／切回分頁）才會拿到最新版本，不是被動就能自動更新。編輯器有未儲存變更時同步暫停讀寫；分頁在背景時不發請求。
-
-**衝突處理**：**最後寫入者獲勝（last-write-wins）**，沒有欄位層級合併，沒有版本分支。
-
-- 一台編輯、其他裝置只顯示（最常見）：管理者按下儲存後立刻上傳，其他裝置要等到真的被碰一下（或重新整理／切回分頁）才會拉到，沒有衝突。
-- 兩台真的同時編輯：不會合併，較晚上傳的整份覆蓋較早的，無提示無留底。正常「A 存完再開 B」的用法不太會撞上。
-- 編輯中還沒存檔：不上傳也不套用遠端版本，正在打的內容不會被蓋掉；按下「儲存」那刻才是參與比較的版本。
-
-這是為「同一人、多台裝置輪流用」設計的，不是給「多人即時協作編輯同一份課表」用的。
-
-### 安全性：密碼只管得到寫入，還是沒有使用者身分驗證
-
-同步代碼是讀取的唯一門檻，管理者密碼是寫入／刪除的唯一門檻——兩者職責分開，而且分開之後的規則是伺服器真的會檢查的：
-
-- 拿到**同步代碼**的人可以永久讀取該份課表——這個代碼本身不能拿來寫入，純粹是「知道要看哪一份共用文件」的識別碼。拿到**管理者密碼**（連同同步代碼）的人可以寫入（`PATCH`）與整個刪除（`DELETE`）該份課表；沒有密碼，或密碼不對，這兩個操作一律被 Worker 拒絕、回傳 403——這是 Worker 端真的會檢查、真的會擋下來的規則，不是介面上「僅接收裝置看不到按鈕」那種單純的引導：管理者身份不再只活在裝置本機的 `localStorage` 裡，伺服器自己會核對密碼才准許寫入（見 shared-proxy repo 的 `worker.js` 裡的 `handleSyncRequest`）。這是這一版跟最早期設計最大的差別：以前任何人只要有代碼，繞過 UI 直接發 HTTP 請求就能寫入或刪除；現在沒有正確的管理者密碼，在伺服器這一層就辦不到。
-- 但代碼與密碼依然只是憑證，**使用者身分驗證依然不存在**——伺服器只認密碼本身，不認是誰在用它，也不知道用的人是不是本人。管理者密碼外流，任何人都能無限期竄改課表；同步代碼外流，任何人都能無限期讀到課表內容——兩者都沒有到期機制，密碼也無法單獨換發（只能整個刪除同步重建，代碼跟密碼一起作廢）。
-- 管理者密碼只在建立當下由 Worker 回傳一次，資料庫裡只存它的 SHA-256 雜湊（`managerPasscodeHash`），密碼原文完全不會被存下來——即使 Firestore 裡的資料外洩（例如專案存取權限設錯、備份外流），對方也只會拿到雜湊值，沒辦法反推回原始密碼、也就沒辦法冒充管理者去寫入。文件的 ID 就是同步代碼本身（讀取本來就不設防，這點沒必要藏），只有管理者密碼才走雜湊比對。
-- 建立同步後沒有自動過期或清除：不再使用的配對會永遠留在資料庫裡，除非有人主動按「整個刪除同步」（或直接對代碼+管理者密碼發 `DELETE`）——這是目前唯一真正把文件從資料庫移除的方式（見〈限制〉）。
-
-瀏覽器不直接碰 Firestore：全部請求先經過會計數、擋格式錯誤代碼、擋超大 payload 的 Worker，Worker 才用自己的服務帳戶去存取 Firestore；Firestore 規則則整個設成拒絕直接存取，關掉原本任何人都能直接打的那道門。這樣才有真正跨請求的流量上限（見 Worker 檔案裡的數字——建立、`DELETE`，以及帶密碼驗證身份的 `GET` 都有自己更嚴格的每小時上限，跟一般讀寫分開計算），管理者密碼的檢查也是在這一層真正做的（見上面第一點），但**使用者身分驗證依然不存在**——代碼與密碼還是唯一憑證，上面幾點風險原封不動。
-
-在意這個風險就不建議開啟跨裝置同步；接受風險才繼續下面的部署設定。
-
-### 部署者一次性設定
-
-跟 AI 匯入用的是**同一支** shared-proxy Worker——Firebase 專案建立、服務帳戶金鑰、`FIREBASE_PROJECT_ID`／`FIREBASE_CLIENT_EMAIL`／`FIREBASE_PRIVATE_KEY`、KV 流量限制、Firestore 安全規則等完整設定步驟都在 [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) 這個 repo 的 README（「Sync features」一節），已經因為 AI 匯入部署過這支 Worker 的話直接照那節設定即可，不用再建一個新 Worker。
-
-完成後，這個 repo 這邊只需要確認 `PROXY_URL` 已設定（見上方〈AI 辨識課表照片〉的部署設定）——`/sync` 路徑跟 `/gemini`、`/nl-edit` 共用同一個值，已經設定過的話不用再做任何事。
-
-沒做這套設定（`PROXY_URL` 留空，例如自建 fork）的話，跨裝置同步這整個功能就不可用——不會退回成直連 Firestore 的舊模式（那個模式已經移除：Firestore 規則沒辦法計數請求次數，等於形同虛設的流量限制）。
-
-### 這支 Worker 也同時服務兩個姊妹網站
-
-除了 `/sync`、`/gemini`、`/nl-edit` 之外，同一支 Worker 還服務兩個姊妹靜態網站，純粹是把已經部署好、已經設定好 Firebase／Gemini 的這支 Worker 當成共用基礎設施重複利用，不用為了另一個網站再申請一次 Firebase 專案、再部署一支 Worker、再重新調一次流量限制。每個路徑都是自己獨立的 Firestore collection 或自己獨立的流量計數器（見 shared-proxy repo README 的路徑總表），彼此、以及跟 Orbit 自己的 `/sync`／`/gemini`／`/nl-edit`，都不會互相干擾額度：
-
-- **[Orbit Vocab](https://github.com/jaypengx-collab/Orbit-Vocab)** 的跨裝置學習進度同步（`/vocab-sync`）與個人化記憶法（`/vocab-ai`，依這個學習者自己實際打錯過的拼法即時產生記憶法）。
-- **[Match Find](https://github.com/jaypengx-collab/Match-Find)** 的「今天該看哪場比賽」AI 推薦（`/match-recommend`、`/match-recommend-refine`）與跨裝置設定同步（`/match-find-sync`）。
-
-這都是單向依賴：Orbit 完全不需要知道這兩個網站的存在也能正常運作，這些路徑不會出現在 Orbit 自己的網頁或程式碼裡。細節（各自的配對機制、payload 上限、為什麼需要兩次獨立的 Gemini 呼叫等等）見 shared-proxy repo 的 README 與 `worker.js` 裡對應路徑的註解，不在這裡重複一份容易和原始碼兜不起來的說明。
+Gemini occasionally reports `AI recognition request failed (400): User location is not supported for the API use.` (see `src/gemini-ocr.js`). The client automatically retries the whole request when this happens (up to 2 retries; `/nl-edit` uses the same retry logic — see [AI Natural-Language Schedule Editing](#ai-natural-language-schedule-editing) below). The error message also includes a Cloudflare colo code (`X-Worker-Colo` header, e.g. "colo: IAD") to help with bug reports. Why this error actually happens, and how shared-proxy is configured to avoid it, is documented in that repo's README under `[placement]`.
 
 ---
 
-## 資料存在哪裡、存了什麼
+## AI Natural-Language Schedule Editing
 
-全部收在瀏覽器 `localStorage` 同一把鍵（`classFocusData`），主要欄位：
+This is a separate feature from AI schedule-photo import (independent requests, validation, and failure handling), but shares the same `PROXY_URL`, the same deployed Worker, and the same `GEMINI_API_KEY` — once `PROXY_URL` is set, the `/gemini` and `/nl-edit` paths are enabled **together**, with no way to turn on just one (whether the Worker actually implements a given path is the real switch — see the deployment setup below).
 
-| 欄位                         | 內容                                                          |
-| ---------------------------- | ------------------------------------------------------------- |
-| `teacherDB`                  | 課程 → `[課程名稱, 教師, 教室]`                               |
-| `locationDB`                 | 課程 → 教室（快速查表用）                                     |
-| `weeklySchedule`             | 每個星期（`Date.getDay()` 0–6，0 是星期日）對應當天每節排的課 |
-| `bellTimes`                  | 每節課的 `[開始時間, 結束時間]`                               |
-| `breakTimes`                 | 特殊時段，每筆 `{name, start, end}`                           |
-| `countdownEvents`            | 倒數事件，每筆 `{name, startDate, endDate}`                   |
-| `reverseWeek`                | 單雙週對調開關                                                |
-| `proAccent` / `proSecondary` | 外觀主色與次色                                                |
-| `styleSlots`                 | 自訂樣式儲存槽                                                |
+At the top of the **Schedule** tab in the "Edit Schedule" panel (not the "Sync / Import-Export" panel — the schedule editor is where the schedule is actually changed, so this tool lives here rather than in the sync panel) there is an "AI Schedule Edit" text input. Type a sentence (or several requests at once) describing what you want changed — e.g. "change Tuesday's third period to Physics," "move Wednesday's first period to Thursday's first period," or several things at once: "change Tuesday's third period to Physics, then clear Thursday's first period." After submitting, the AI translates the sentence into one or more structured edit operations, and applying them always shows a diff preview for confirmation first — the same preview/confirm flow used for AI import (the same `describeSettingsDiff()` / `showEditorSaveConfirm` path) — there's no such thing as a submission that changes the schedule directly.
 
-每筆存檔夾帶內部 schema 版本標記，讀取時先檢查、格式對不上就先做相容性處理。存檔本身壞掉（非法 JSON、缺欄位、型別錯）時，直接清掉這把鍵改用預設課表，不留著壞資料讓下次又失敗一次。
+- **Not a fixed set of actions — a compact edit patch**: an earlier version only recognized four fixed actions ("change a period," "move a period," "swap two periods," "clear a period"), so requests like "add a new class," "add another period," or "add a break period" had no matching action at all. It was then changed to have the AI read every editable field and return those fields' *complete* content "after applying the instruction" — this solved the missing-action problem, but meant the AI had to copy out every untouched class and every untouched schedule slot verbatim on every request, and it would occasionally miscopy a character during that process, silently corrupting a field the instruction never mentioned — with no obvious starting point for diagnosing it. The current design is a middle ground: the AI still reads every editable field (as before), but the response contains only what it's actually adding or changing — the classes to add/update (`classUpserts`), the class keys to delete (`deletedClassKeys`), the schedule slots to change (`scheduleEdits`, one entry per slot), plus a changed/unchanged flag for each of bell times, special periods, countdown events, and odd/even-week setting, with the new full content included only when changed. Adding a class, adding/removing a bell period, adding a special period, adding a countdown event, or toggling odd/even week are all naturally covered by this same response shape — the only difference is that anything the instruction didn't mention is no longer allowed to appear in the response at all.
+- **Anything the instruction doesn't mention never appears in the response, so there's nothing left to miscopy**: the server-side prompt explicitly instructs the model to "list only what is actually being added, changed, or deleted — everything else must not appear in the response." The client takes this compact patch and layers it directly onto the current data (anything not mentioned — classes, schedule slots, bell times, special periods, countdown events — stays byte-for-byte unchanged), then computes the confirmation screen's diff from the before/after state. This makes "something the AI wasn't asked to change gets changed anyway" structurally impossible, rather than something that depends on a carefully worded prompt to avoid. A single instruction covering several things at once (e.g. "change Tuesday's third period to Physics, and add a lunch break from 12:00–13:00") is still one request and one response — the AI lists all the changes together in the same reply.
+- **What's sent is just this one instruction, plus the schedule's full set of editable fields** (`classes` / `weeklySchedule` / `bellTimes` / `breakTimes` / `countdownEvents` / `reverseWeek` — not styling, sync settings, or other data), giving the AI enough context to resolve references like "my Tuesday third period" or "the Physics teacher's class," and enough data to actually add something rather than being forced to guess or fail.
+- **A misunderstood instruction, or a reference to something that doesn't exist, are both clean failure states, not crashes**: when the AI returns "couldn't understand this instruction," it explains why in one sentence; when it returns "the thing you're referring to doesn't exist" (e.g. the schedule has no ninth period), it explains that too. Both cases show a dismissible message dialog — no error screen, and no data changes.
+- **Anything the server returns is treated as untrusted and re-validated**: the client first does a shape check (are the expected fields present, with the expected types), then feeds the result into `normalizeSettingsData()` — the same content-level validation and sanitization shared with manual save, AI import, and backup restore. Any structurally implausible content is rejected before it reaches the confirmation screen; an unreasonable AI suggestion is never shown to the user as something to confirm. If the instruction produces no actual field changes, the UI shows "no changes" instead of an empty confirmation screen.
+- **Automatic retry on Gemini's "User location is not supported" error**: this error comes from Google inferring a region from the Cloudflare Worker's egress IP rather than the user's actual location, so the same user can get a different result simply because Cloudflare routed them to a different edge node. On this error, the client automatically retries the whole request (not a retry within the same node), up to 2 times, before showing an error — the user never has to manually re-click submit. This uses the same retry logic as AI import (`gemini-ocr.js`).
+- **This is an optional feature and is simply unavailable when not deployed/configured**: with `PROXY_URL` empty, the input box shows "AI schedule editing is not configured yet — please contact your schedule administrator," with no fallback mode — consistent with AI import and cross-device sync. A read-only sync device can't open the schedule editor at all, so this feature is naturally unreachable for it too (the same lock as the rest of the editor — see [Manager vs. Read-Only Role](#cross-device-sync) below).
 
-其他獨立的鍵：
+### One-Time Deployment Setup
 
-- `orbitSyncCode` / `orbitSyncManagerPasscode` / `orbitSyncLastUpdateTime`——跨裝置同步配對資訊，沒開同步就不存在；`orbitSyncManagerPasscode` 是空字串代表這台裝置是僅接收，非空字串就是它存著的管理者密碼（見〈跨裝置同步〉的〈管理者／僅接收身份〉）。舊版直連 Firestore 模式留下的 `orbitSyncProjectId`、更早的兩代碼設計留下的 `orbitSyncRole`，一律在下次配對/解除配對時清掉。
-- `orbitOnboardingSeen`——是否看過第一次使用提示，值只會是 `1` 或不存在。
+This uses the **same** shared-proxy Worker, the **same** `GEMINI_API_KEY`, and the **same** `PROXY_URL` as AI import (see the deployment setup under [AI Schedule-Photo Import](#ai-schedule-photo-import) above) — if you've already set that up, there's nothing else to do here. The `/nl-edit` path is already implemented in that Worker's `worker.js`, and setting `PROXY_URL` enables it automatically.
+
+If the Worker isn't deployed, or `PROXY_URL` is left empty, this feature is simply unavailable — it doesn't affect AI import, cross-device sync, or any other schedule feature.
 
 ---
 
-## 程式怎麼組織的
+## Backup, Export & Device Transfer
 
-瀏覽器只讀到靜態檔案：`index.html`、`css/styles.css`、建置後的一支 JS。原本四千五百行的 `js/app.js` 已拆成 `src/` 底下的 ES module，用 `import`/`export` 明確表達相依關係：
+Data lives in a single browser only. Moving to another device/browser, or keeping an archival copy, relies on export/import: export flattens the schedule data, compresses it with raw DEFLATE, and turns it into a copy-pasteable text block. Pasting it into another device to import always shows a diff for confirmation before applying — it never silently overwrites the existing schedule. Older (uncompressed JSON) backups still import fine; new exports always use the new format.
+
+---
+
+## Cross-Device Sync
+
+An optional feature that automatically syncs the schedule across multiple devices, without manual export/import each time. Clicking the "Sync / Import-Export" icon in the top-right tools menu opens a panel independent of the schedule editor — sync is the **default, first option shown**; the manual backup flow is still there too, tucked into a collapsed-by-default "Manual Backup (legacy)" sub-section in the same panel. This panel is a separate tool from the schedule editor, and it's always reachable even from a read-only device (see [Manager vs. Read-Only Role](#manager-vs-read-only-role) below).
+
+Ordinary users **never need** to sign up for or configure anything themselves. The deployment site already has a server-side proxy configured (the `/sync` path of `worker.js` in the [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) repo — the same Worker that also serves AI import's `/gemini` path; see [AI Schedule-Photo Import](#ai-schedule-photo-import) above). The browser never touches Firestore directly — every read and write goes through this Worker first, which counts requests and rejects malformed payloads, and the Worker uses its own Firebase service account to access the shared Firestore project. There's no cap on the number of devices; any device with the same pairing code joins the same shared document.
+
+Deploying without this Worker (`PROXY_URL` left empty, e.g. on a self-hosted fork) means cross-device sync is entirely unavailable — the editor shows "cross-device sync is not configured," with no fallback to a direct-Firestore flow. All other schedule features are unaffected.
+
+**Typical use**: Device A clicks "Create New Sync" — this doesn't create anything immediately; it first shows a one-time confirmation explaining that this will create a new document on the shared server and consume some of this feature's limited creation quota, to avoid accidentally (or just out of curiosity) creating a sync that never gets used. After confirming, the device receives a "sync code" and a "manager passcode" in one shot. The sync code can be shared freely — any device with it can join and receive updates, though the code alone cannot be used to edit the schedule. The manager passcode is the sole credential for editing, and should only be given to devices you want to also be able to edit. Device B pastes the sync code and clicks "Join Sync" — by default this joins as read-only; to also allow editing, it must expand the collapsed "I have the manager passcode and want to be able to edit too" section and enter the passcode — only a server-verified correct passcode grants manager access. There's no in-between state: leaving the passcode blank or entering it wrong both simply mean read-only. Pairing/unpairing updates the screen immediately, no refresh needed. Clicking "Join Sync" first confirms the code actually exists (and that the passcode is correct, if one was entered): a mistyped code, a code nobody ever created, or a wrong passcode all show a clear error and stop there rather than reporting a false success. Only once that check passes does a warning appear — joining will immediately and irreversibly replace this device's current schedule with the one under that code (the device that created the sync is unaffected).
+
+### Manager vs. Read-Only Role
+
+- When a new sync is created, the system generates a random sync code and an unrelated random manager passcode — neither can be derived from the other. The manager passcode is **shown exactly once**, at creation time, and the UI requires you to confirm you've saved it before continuing; the sync code, by contrast, stays visible on the paired screen at all times. The device that created the sync can later click "Show" on the paired screen to see its own manager passcode again, to share with other devices it wants to also be able to edit — the only thing that's ever truly unrecoverable is the passcode itself; if the creating device also forgets it, the only option is to delete the sync entirely and start over.
+- Whether a device is "manager" is determined purely by whether it currently holds the correct manager passcode locally — it's not something the user simply declares, and it's not fixed at the moment of joining. No passcode, or a wrong one, always means read-only; a read-only device can enter the manager passcode at any later point from the paired screen to gain edit access, without needing to unpair and rejoin. And critically, **this is now actually enforced**: without the correct passcode, even a request sent directly to the API bypassing the UI cannot write or delete (see the security section below) — it's not just a matter of a few buttons being grayed out in the interface, as it used to be.
+- A read-only device's "Edit Schedule" button is simply locked and does nothing when clicked (the same style of lock used for the style tools below — not something that opens and then dims the whole page). There's nothing a read-only device would need inside the schedule editor anymore: sync status, unpairing, AI/manual import, and requesting edit access all live in the separate "Sync / Import-Export" panel, which both roles can always open. Within that panel, AI import and the manual "Import" button are individually locked (manual "Export" is unaffected); the save function itself also refuses, as a second line of defense in case the locked buttons are bypassed. The top toolbar's "Style Tools" button is likewise locked — a read-only device that's still receiving synced styling would have any local style edit overwritten on the next sync anyway; checking "Don't sync style/colors" unlocks it.
+- A read-only device that wants to edit its own schedule independently just clicks "Unsync" — the local schedule is unaffected, and the device can rejoin later using the same sync code.
+- "Unsync" only makes this one device forget the code it's holding (and, if it was the manager, its manager passcode too) — the shared schedule on the server and every other paired device are completely unaffected, and the code can still be used to rejoin later. The confirmation dialog offers a "Copy code" button first, to save it for later (for a manager, this copies the manager passcode alongside it). Managers additionally see "Delete Sync Entirely" — this uses the Worker to delete the shared schedule document on the server outright, immediately invalidating both the sync code and this manager passcode: every device holding that code (not just the one that clicked the button) will discover on its next sync attempt that the code no longer exists, and each reverts to whatever local schedule it last had — irreversibly (see the `DELETE /sync` note in the security section below for details). Read-only devices don't see this button at all, and even a bypassed direct API call is rejected by the Worker if the passcode is wrong — unlike the old behavior, where it would simply execute. This particular confirmation doesn't offer a "copy code" option — once deleted, the code is entirely void and copying it serves no purpose.
+- The moment a device *joins* a sync (not creates one), its current local schedule is backed up before the shared schedule is applied — this is exactly the moment referenced by the warning "joining will immediately and irreversibly replace this device's current schedule." Later, the first time "Unsync" or "Delete Sync Entirely" is actually triggered — as long as that backup hasn't already been consumed — a dialog pops up asking "Restore the schedule from before you joined?" You can choose "Restore pre-join schedule" to get back the local schedule from before joining, or "Keep current schedule" to discard the backup and keep the current (formerly shared, now local) schedule. This is a pop-up that appears exactly at the moment of unsync/delete, not something left sitting in the panel waiting to be noticed. If the shared schedule at join time happened to be identical to the local one (nothing was actually overwritten), no backup is created and this dialog never appears.
+- The locks on the schedule editor and style tools remain purely a UI convenience to keep users from accidentally triggering something — the real barrier against writes and deletes is the Worker's manager-passcode check (see the security section below). The UI lock isn't the only line of defense, but it isn't the whole story either: the passcode itself carries no user identity, and the risk of a leaked passcode is unchanged (see security below).
+- Both places where a manager passcode is entered — "Join Existing Sync" and "Get Edit Access" — are tucked into collapsible sections (the same collapse style as "Manual Backup (legacy)" and "Advanced: Time Simulation"), collapsed by default so they don't take up space unnecessarily. Whether you close the panel with ×, switch to another tool, or refresh the page, leaving the "Sync / Import-Export" panel automatically clears any sync code / manager passcode fields you typed into it and re-collapses those sections — this is purely tidiness, to avoid leaving a typed passcode sitting on screen, and has no direct bearing on actual security (the real defense is on the Worker side — see security below).
+- Any paired device (manager or read-only) can additionally check "Don't sync style/colors" — after which this device's accent/secondary color and personal styling are fully decoupled from the shared document in both directions: this device's own color choices won't be overwritten by anyone else's, and won't overwrite the shared style either (when a manager saves, the style fields uploaded are still whatever the shared style currently is — this device's own retained colors are never included in that upload); schedule content still syncs normally in both directions. Managers are already unaffected by the read-only style lock described above; for a manager, this checkbox simply means "my colors are different from everyone else's, but I don't want every save to overwrite everyone else's colors." Checking or unchecking this always shows a confirmation first — unchecking it in particular deserves caution: on the next sync, this device's currently-retained colors will be immediately and irreversibly replaced by the shared style, so both directions are confirmed before applying; declining the confirmation reverts the checkbox to its previous state rather than silently toggling. Confirming either direction triggers an immediate sync check rather than waiting for the next interaction. For the direction that actually overwrites data — unchecking (switching back to receiving the shared style) — **the shared colors and style defaults are applied the moment you confirm**, not on the next sync — the earlier behavior just flipped the toggle and left it to the next poll, but a poll that saw no document version change would simply skip applying anything, so it would silently do nothing until some other device happened to change something else first. At the same time, this device's current colors and style defaults are backed up locally — this backup is independent of pairing state and survives changing codes or unsyncing.
+
+This backup is never surfaced as a persistent on-panel prompt (nobody scrolls back to check for those) — instead, it's only asked about **the next time "Don't sync style/colors" is re-checked** — that's exactly the moment "this device doesn't want to match everyone else again," the same pattern used for the unsync-restore prompt above. You can choose "Restore saved colors" (restoring the style defaults along with it) or "Keep current colors" (discard the backup). If the backup is identical to what's currently on screen (e.g. the colors were never actually changed before the toggle was flipped), it's silently discarded with no prompt at all — there's no point asking when both options do the exact same thing.
+
+**First-time use**: if a browser has never stored a schedule and never configured sync, opening the app shows a one-time prompt asking whether to enter a pairing code to join an existing sync. Declining leads to a follow-up choice: "go to settings and build manually" or "use AI photo recognition." This only appears once (tracked by `orbitOnboardingSeen`), regardless of which option is chosen or if the prompt is simply dismissed.
+
+**How sync actually works**: hitting "Save" uploads immediately — saving *is* syncing, with no delay. On the receiving side there's no background polling timer running constantly: a check for a newer remote version only happens when the device is actually touched (click, keypress, tap), and the same device won't check again within 5 seconds of its last check, to avoid firing a request for every single action during a burst of activity. A device that's completely untouched sends no check requests at all — unlike fixed-interval polling, it doesn't continuously consume read quota. A refresh, switching a background tab back to foreground, or opening the page for the first time always triggers an immediate check (ignoring the 5-second throttle), so you don't have to specifically tap the screen just to see the latest version. The trade-off: a receiving device that's genuinely untouched (e.g. just sitting there displaying the schedule, with nobody interacting) has to wait until someone actually touches it (or a refresh/tab switch) before it picks up the latest version — it isn't a passive push. While the editor has unsaved changes, sync reads/writes are paused; a backgrounded tab sends no requests at all.
+
+**Conflict resolution**: **last-write-wins**, with no field-level merging and no branching.
+
+- One device edits, others only display (the most common case): the manager saves and it uploads immediately; other devices pick it up once actually touched (or refreshed/foregrounded) — no conflict.
+- Two devices genuinely editing at the same time: no merge happens — whichever upload lands later completely overwrites the earlier one, silently, with nothing preserved. Normal usage ("A finishes saving, then B opens") rarely hits this.
+- Mid-edit, not yet saved: nothing is uploaded and no remote version is applied while you're typing — what you're working on is never overwritten mid-edit; only the moment you click "Save" is the version that participates in the comparison.
+
+This is designed for "one person using several devices in turn," not for "multiple people simultaneously co-editing the same schedule."
+
+### Security: The Passcode Only Gates Writes — There's Still No User Identity Verification
+
+The sync code is the sole gate for reading; the manager passcode is the sole gate for writing/deleting. These are separate responsibilities, and the rules are actually enforced server-side:
+
+- Anyone with the **sync code** can read that schedule indefinitely — the code itself cannot be used to write; it's purely an identifier for "which shared document to look at." Anyone with the **manager passcode** (along with the sync code) can write (`PATCH`) to, or entirely delete (`DELETE`), that schedule. Without the correct passcode, both operations are always rejected by the Worker with a 403 — this is a rule the Worker genuinely checks and genuinely enforces, not merely a UI convention like "read-only devices don't see the button." Manager status no longer lives only in the device's local `localStorage`; the server itself verifies the passcode before permitting a write (see `handleSyncRequest` in the shared-proxy repo's `worker.js`). This is the biggest difference from the earliest design: previously, anyone with the sync code could bypass the UI and send an HTTP request directly to write or delete; now, without the correct manager passcode, that's simply not possible at the server layer.
+- That said, the code and passcode remain nothing more than credentials — **there is still no real user identity verification**. The server only checks the passcode itself, not who is using it, and has no way to confirm the person entering it is who they claim to be. If the manager passcode leaks, anyone holding it can tamper with the schedule indefinitely; if the sync code leaks, anyone can read the schedule indefinitely. Neither has an expiration mechanism, and neither can be individually reissued — the only recourse is deleting the sync entirely and recreating it, which invalidates both the code and the passcode together.
+- The manager passcode is returned by the Worker exactly once, at creation time; the database only ever stores its SHA-256 hash (`managerPasscodeHash`) — the plaintext passcode is never persisted anywhere. Even if the Firestore data were to leak (e.g. a misconfigured project permission, a leaked backup), an attacker would only obtain the hash, which cannot be reversed back into the original passcode and therefore cannot be used to impersonate the manager and write. The document's ID is the sync code itself (reading was never meant to be gated in the first place, so there's no need to hide it) — only the manager passcode goes through a hash comparison.
+- Created syncs never expire or get cleaned up automatically: a pairing that's no longer used stays in the database forever unless someone actively clicks "Delete Sync Entirely" (or sends a `DELETE` directly with the code plus manager passcode) — this is currently the only real way to remove a document from the database (see [Known Limitations](#known-limitations)).
+
+The browser never touches Firestore directly: every request goes first through the Worker, which counts requests, rejects malformed payloads, and rejects oversized payloads — the Worker then uses its own service account to access Firestore; Firestore's own security rules are set to reject all direct access outright, closing the door that used to let anyone hit it directly. This is what makes a genuine cross-request rate limit possible at all (see the numbers in the Worker source — creation, `DELETE`, and password-verified `GET` all have their own tighter hourly limits, tracked separately from general reads/writes), and it's also the layer where the manager-passcode check genuinely happens (see the first bullet above) — but **there is still no user identity verification**: the code and passcode remain the sole credentials, and every risk listed above remains unchanged.
+
+If this risk profile is a concern, don't enable cross-device sync; if it's acceptable, proceed to the deployment setup below.
+
+### One-Time Deployment Setup
+
+This uses the **same** shared-proxy Worker as AI import — the full setup for the Firebase project, service account key, `FIREBASE_PROJECT_ID` / `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY`, KV rate limiting, and Firestore security rules is documented in the [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) repo's README (the "Sync features" section). If you've already deployed this Worker for AI import, follow that section directly — there's no need to stand up a second Worker.
+
+Once that's done, this repo only needs to confirm `PROXY_URL` is set (see the deployment setup under [AI Schedule-Photo Import](#ai-schedule-photo-import) above) — `/sync` shares the same value as `/gemini` and `/nl-edit`; nothing else to do if it's already configured.
+
+Without that setup (`PROXY_URL` left empty, e.g. on a self-hosted fork), cross-device sync is entirely unavailable — it does not fall back to a direct-Firestore mode (that mode has been removed: Firestore rules can't count requests, so a rate limit built on them alone would be meaningless).
+
+### This Worker Also Serves Two Sibling Sites
+
+Beyond `/sync`, `/gemini`, and `/nl-edit`, the same Worker also serves two sibling static sites — this simply reuses an already-deployed Worker (with Firebase and Gemini already configured) as shared infrastructure, instead of setting up a whole new Firebase project and a whole new Worker deployment, and re-tuning rate limits from scratch, for each additional site. Each path has its own independent Firestore collection and its own independent rate-limit counter (see the full path table in the shared-proxy repo's README) — none of them, including Orbit's own `/sync` / `/gemini` / `/nl-edit`, share or compete for quota with each other:
+
+- **[Orbit Vocab](https://github.com/jaypengx-collab/Orbit-Vocab)**'s cross-device learning-progress sync (`/vocab-sync`) and personalized mnemonics (`/vocab-ai`, generated on the fly based on the specific spelling mistakes that particular learner has actually made).
+- **[Match Find](https://github.com/jaypengx-collab/Match-Find)**'s "which game should I watch today" AI recommendation (`/match-recommend`, `/match-recommend-refine`) and cross-device settings sync (`/match-find-sync`).
+
+This is a one-way dependency: Orbit works completely normally with no knowledge that these two sites exist, and none of their paths appear anywhere in Orbit's own web pages or source code. Details (each site's own pairing mechanism, payload limits, why some need two independent Gemini calls, etc.) live in the shared-proxy repo's README and in the comments next to each path in `worker.js`, rather than being duplicated here where they'd risk drifting out of sync with the actual source.
+
+---
+
+## Data Storage
+
+Everything is stored under a single browser `localStorage` key, `classFocusData`. Main fields:
+
+| Field | Contents |
+| ----- | -------- |
+| `teacherDB` | course → `[course name, teacher, room]` |
+| `locationDB` | course → room (fast lookup table) |
+| `weeklySchedule` | each weekday (`Date.getDay()` 0–6, 0 = Sunday) mapped to that day's scheduled periods |
+| `bellTimes` | each period's `[start time, end time]` |
+| `breakTimes` | special periods, each `{name, start, end}` |
+| `countdownEvents` | countdown events, each `{name, startDate, endDate}` |
+| `reverseWeek` | odd/even-week swap toggle |
+| `proAccent` / `proSecondary` | appearance accent and secondary colors |
+| `styleSlots` | custom style save-slots |
+
+Every save carries an internal schema-version marker, checked on read; a mismatch triggers compatibility handling first. A corrupted save (invalid JSON, missing fields, wrong types) is discarded outright in favor of the default schedule, rather than keeping broken data around to fail again next time.
+
+Other independent keys:
+
+- `orbitSyncCode` / `orbitSyncManagerPasscode` / `orbitSyncLastUpdateTime` — cross-device sync pairing info; absent entirely when sync isn't enabled. An empty string for `orbitSyncManagerPasscode` means this device is read-only; a non-empty string is the manager passcode it holds (see [Manager vs. Read-Only Role](#manager-vs-read-only-role) above). Leftovers from the old direct-Firestore mode (`orbitSyncProjectId`) and an even earlier two-code design (`orbitSyncRole`) are cleared out on the next pair/unpair.
+- `orbitOnboardingSeen` — whether the first-time-use prompt has been shown; the value is only ever `1` or absent.
+
+---
+
+## Project Structure / Architecture
+
+The browser only ever loads static files: `index.html`, `css/styles.css`, and one built JS bundle. The original 4,500-line `js/app.js` has been split into ES modules under `src/`, using `import`/`export` to make dependencies explicit:
 
 ```text
-src/data.js            資料的讀寫、驗證、正規化，localStorage 存取
-src/schedule.js        把設定資料組成「執行中課表」，星期／週次計算
-src/schedule-calc.js   純計算：現在該顯示哪堂課／哪個時段
-src/appearance.js      主題色與深淺色模式
-src/dashboard.js       主畫面即時更新核心，含 update() 狀態機
-src/editor-backup.js   備份匯出／匯入、v2 傳輸格式編碼解碼
-src/editor-core.js     課表編輯器主流程、未儲存變更偵測
-src/editor-teachers.js 教師／課程清單編輯
-src/editor-schedule.js 每週排課介面
-src/dashboard-render.js 主畫面實際的 DOM 渲染
-src/gemini-ocr.js      檔案前處理（圖片／HEIC／PDF）與 Gemini 代理呼叫
-src/editor-nl-edit.js  AI 課表編輯：自然語言指令解析、驗證與套用前預覽
-src/sync.js            跨裝置同步：透過 Worker 代理讀寫、輪詢
-src/onboarding.js      第一次使用的提示流程
-src/bootstrap.js       啟動流程：讀資料、建課表、開每秒計時器
-src/testsim-runtime.js 時間模擬狀態機
-src/state.js           跨模組共用的可變狀態
-src/constants.js       跨模組共用的常數（星期名稱、預設色）
-src/strings.js         畫面文字對照表
-src/main.js            進入點，依序 import 以上每個模組
+src/data.js              Data read/write, validation, normalization, localStorage access
+src/schedule.js          Assembles settings data into a "running schedule," weekday/week-parity computation
+src/schedule-calc.js     Pure computation: which class/period should be shown right now
+src/appearance.js        Theme color and light/dark mode
+src/dashboard.js         Main-screen live-update core, including the update() state machine
+src/editor-backup.js     Backup export/import, v2 transfer-format encode/decode
+src/editor-core.js       Schedule editor main flow, unsaved-changes detection
+src/editor-teachers.js   Teacher/course list editing
+src/editor-schedule.js   Weekly scheduling interface
+src/dashboard-render.js  Actual DOM rendering for the main screen
+src/gemini-ocr.js        File pre-processing (image/HEIC/PDF) and Gemini proxy calls
+src/editor-nl-edit.js    AI schedule editing: natural-language instruction parsing, validation, pre-apply preview
+src/sync.js              Cross-device sync: reads/writes via the Worker proxy, polling
+src/onboarding.js        First-time-use prompt flow
+src/bootstrap.js         Startup flow: load data, build schedule, start the per-second timer
+src/testsim-runtime.js   Time simulation state machine
+src/state.js             Shared mutable state across modules
+src/constants.js         Shared constants across modules (weekday names, default colors)
+src/strings.js           UI text lookup table
+src/main.js              Entry point, imports every module above in order
 ```
 
-伺服器端的程式碼（`/gemini`、`/sync` 等路徑）不在這個 repo 裡——那支 Cloudflare Worker 現在是獨立的 [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) repo，不屬於 `src/` 的相依圖，當然也不會被 Vite 打包。沒部署/沒設定對應環境變數，該功能就直接不可用，不會有退回模式。
+Server-side code (the `/gemini`, `/sync`, etc. paths) does not live in this repo — that Cloudflare Worker is now the independent [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) repo, is not part of `src/`'s dependency graph, and is naturally not bundled by Vite. Without it deployed and its environment variables configured, the corresponding feature is simply unavailable — there is no fallback mode.
 
-每個檔案開頭有一行註解說明職責。改程式碼前值得知道的幾個約定：
+Each file starts with a one-line comment describing its responsibility. A few conventions worth knowing before changing code:
 
-- **`src/state.js` 是共用可變狀態容器**。跨模組共用、會被多處寫入的狀態放進 `state.js` 匯出的物件（`state.xxx = ...`），不要另開模組層級的 `let`——ES module 的 `import` 綁定是唯讀的，沒辦法讓另一個模組直接賦值。
-- **`window.update()` 是刻意的動態呼叫**。`testsim-runtime.js` 執行期會把它換成包了時間模擬邏輯的包裝函式。要觸發重新渲染一律呼叫 `window.update()`，不要 `import { update }`，否則會呼叫到還沒被換掉的版本，時間模擬會失效。`window.openTestPanel` 同理。
-- **`update()` 分成純計算與渲染兩層**：`schedule-calc.js` 的 `computeDashboardViewModel()` 不碰 DOM，只吐出畫面該長怎樣的物件；`dashboard.js` 的 `renderDashboard()` 再把結果寫進畫面（跟上一輪比對，沒變的欄位不重寫）。改課表計算邏輯通常改 `schedule-calc.js`，可以直接針對這個純函式寫測試。
-- **`src/strings.js` 是文字對照表**，目前只有 `zh-TW`，透過 `t('some.key')` 取用。不是要馬上做多語系，是先把文字跟邏輯分開；新增畫面文字比照這個慣例加進去。
-- **`src/constants.js` 放跨模組共用的常數**，而且刻意不 import 任何東西——`data.js` 跟 `appearance.js` 互相 import，常數放在其中一邊會踩到循環 import 的 TDZ 錯誤。星期名稱（`WEEKDAY_LABELS`）跟兩種星期順序（`WEEKDAYS_DISPLAY_ORDER` 週一開頭、用於畫面；`WEEKDAYS_INDEX_ORDER` 週日開頭、對應 `Date.getDay()` 與儲存格式）都在這裡，需要時 import，不要在各檔案裡重新寫一份。
+- **`src/state.js` is the shared mutable-state container.** State that's shared across modules and written from multiple places belongs in the object `state.js` exports (`state.xxx = ...`) — don't create another module-level `let` for it. ES module `import` bindings are read-only, so another module can't assign to it directly.
+- **`window.update()` is a deliberately dynamic call.** At runtime, `testsim-runtime.js` swaps it out for a wrapper that layers in time-simulation logic. To trigger a re-render, always call `window.update()` rather than `import { update }` — importing it directly would call the original, un-swapped version, silently breaking time simulation. The same applies to `window.openTestPanel`.
+- **`update()` is split into a pure-computation layer and a rendering layer**: `computeDashboardViewModel()` in `schedule-calc.js` never touches the DOM — it only produces a plain object describing what the screen should look like; `renderDashboard()` in `dashboard.js` then writes that result into the page (diffing against the previous render so unchanged fields aren't rewritten). Changes to schedule-computation logic usually belong in `schedule-calc.js`, and can be unit-tested directly as a pure function.
+- **`src/strings.js` is the text lookup table**, currently only containing `zh-TW`, accessed via `t('some.key')`. This isn't in preparation for immediate multi-language support — it's just keeping text separate from logic; new UI text should follow this same convention.
+- **`src/constants.js` holds constants shared across modules, and deliberately imports nothing.** `data.js` and `appearance.js` import each other, so putting shared constants in either one would create a circular-import TDZ error. Weekday labels (`WEEKDAY_LABELS`) and the two weekday orderings (`WEEKDAYS_DISPLAY_ORDER`, Monday-first, used for display; `WEEKDAYS_INDEX_ORDER`, Sunday-first, matching `Date.getDay()` and the storage format) both live here — import them as needed rather than redefining them per file.
 
 ---
 
-## 畫面每秒都在算什麼
+## The Per-Second Update Loop
 
-啟動時掛一個每秒執行的計時器，每次整輪重算：
+On startup, a timer runs once per second, fully recomputing every time:
 
 ```text
-拿目前時間 → 換算星期 → 換算單雙週 → 撈今天的課表
-    → 找出目前是哪一堂（或特殊時段）→ 找出下一堂
-    → 更新剩餘時間／倒數數字 → 畫到畫面上
+get current time → derive weekday → derive odd/even week → look up today's schedule
+    → determine current period (or special period) → determine next period
+    → update remaining time / countdown numbers → render to screen
 ```
 
-整輪重算而非在舊狀態上小修小補，所以「下課」「換天」這類邊界不需要額外例外邏輯。
+Because the whole state is recomputed from scratch every tick, rather than patched incrementally on top of the previous state, edge cases like "class just ended" or "day just changed" need no special-case handling at all.
 
-「重新算」跟「寫進畫面」是兩件事：計算永遠整輪重算，但寫入 DOM 那一步會跟上一輪結果比對，只有真的變動的欄位才寫入（倒數數字、進度條寬度本來就每秒變除外）——同一堂課通常幾十分鐘課程名稱都不變，沒必要每秒重寫觸發瀏覽器重算樣式。
-
----
-
-## 響應式與無障礙細節
-
-手機上是觸控優先版面：按鈕加大、卡片重排、底部彈出選單取代側邊欄，處理 iOS 安全區域，並尊重系統「減少動態效果」偏好。
-
-平板/桌機不是另一套版面，是同一份手機優先畫面等比放大置中——卡片寬度上限隨螢幕變寬分段放大（`≥700px`、`≥1024px`），畫面比內容高時整組垂直置中。
-
-「加入主畫面」提供專屬圖示（`public/icons/`），不是系統自動擷取的縮圖。
+"Recomputing" and "writing to the screen" are two separate steps: computation always runs in full every tick, but the DOM-write step diffs against the previous render and only writes fields that actually changed (countdown numbers and progress-bar width change every second by nature and are excluded from this diffing). A given class's name, for instance, typically stays the same for tens of minutes at a stretch — there's no reason to rewrite it every second and trigger unnecessary browser style recalculation.
 
 ---
 
-## 隱私
+## Responsive Design & Accessibility
 
-一般使用（建課表、看主畫面、備份匯出匯入）完全在本機進行，沒有資料離開裝置。兩個例外，且部署站台預設都啟用：
+On mobile, the layout is touch-first: larger buttons, reflowed cards, a bottom sheet menu in place of a sidebar, iOS safe-area handling, and respect for the system's "reduce motion" preference.
 
-- **AI 辨識**：選的檔案會送到代理再轉給 Gemini（代理不保存檔案，但檔案內容確實離開瀏覽器）。需要選檔案、按下匯入才會送出；碰到檔案選擇器時發出的暖機請求不含任何檔案內容。
-- **AI 課表編輯**：輸入的指令文字，連同目前課表全部可編輯欄位（課程清單、排課、鐘聲時間、特殊時段、倒數事件、單雙週設定，見〈AI 課表編輯（自然語言指令）〉），會送到代理再轉給 Gemini。需要自己打字、按下送出才會發生。
-- **跨裝置同步**：課表存到共用 Firebase 專案，Firestore 規則沒有身分驗證（見〈跨裝置同步〉的安全性小節）。需要自己按「建立新同步」或「加入同步」才會啟用。
+Tablet/desktop don't get a separate layout — they're the same mobile-first design scaled up and centered proportionally, with card width capped in stages as the viewport widens (`≥700px`, `≥1024px`), and the whole layout centered vertically when the screen is taller than the content.
 
-自建 fork 沒設定對應環境變數時：以上功能各自直接不可用，沒有退路。
+"Add to Home Screen" provides a dedicated icon (`public/icons/`), rather than relying on a system-generated thumbnail.
 
 ---
 
-## 修改這個專案時的注意事項
+## Privacy
 
-執行期沒有框架、沒有後端；開發期用 Vite + Vitest + ESLint/Prettier。
+Ordinary use — building a schedule, viewing the dashboard, backup export/import — happens entirely on-device; no data leaves the device. There are two exceptions, both enabled by default on the deployed site:
 
-- 不要加前端框架（React/Vue 之類）——Vite 在這裡只是打包器/開發伺服器/測試跑器。
-- 新功能放進語意最接近的既有模組（見〈程式怎麼組織的〉）；跨模組共用的可變狀態走 `state.js`。
-- 新的 `localStorage` 欄位比照 `src/data.js` 裡 `normalize*`/`validate*`/`sanitize*` 的寫法：先驗證再存，考慮舊資料讀進來不要爆炸。
-- 改課表計算或倒數邏輯後先跑 `npm test`；沒被自動化測試覆蓋的情境（多數編輯器 UI、樣式面板、AI 匯入流程）用時間模擬面板手動確認邊界時間點。
-- 改樣式記得同時檢查深色模式跟手機寬度。
-- 改完跑 `npm run build`，確認 `dist/` 是完整能跑的網站，不只是開發模式沒出錯。
+- **AI recognition**: a selected file is sent to the proxy and forwarded to Gemini (the proxy doesn't retain files, but the file's contents genuinely do leave the browser). This only happens once you select a file and click import; the warm-up request fired when the file picker opens carries no file content.
+- **AI schedule editing**: the instruction text you type, along with every editable field of the current schedule (course list, scheduling, bell times, special periods, countdown events, odd/even-week setting — see [AI Natural-Language Schedule Editing](#ai-natural-language-schedule-editing)), is sent to the proxy and forwarded to Gemini. This only happens once you type something and click submit.
+- **Cross-device sync**: the schedule is stored in a shared Firebase project; Firestore's own security rules have no user-identity verification (see the security section under [Cross-Device Sync](#cross-device-sync)). This only happens once you click "Create New Sync" or "Join Sync."
 
----
-
-## 限制
-
-- 資料預設綁在單一瀏覽器；沒開同步的話，清掉瀏覽器網站資料會連課表一起清掉，建議偶爾匯出備份。
-- 沒有帳號系統，沒有多人協作；跨裝置同步不是即時推播——存檔會立即上傳，但接收端要實際被碰一下（點擊/按鍵/觸控，或重新整理、切回分頁）才會檢查有沒有更新，完全沒人碰的裝置不會自動抓到新版本。
-- 跨裝置同步跟 AI 代理（辨識課表照片、課表編輯）都沒有使用者身分驗證，配對代碼／Worker 網址是唯一門檻——不是為了保護隱私設計的，在意這點不建議開啟（詳見對應章節的安全性小節）。
-- AI 課表編輯一次讀取並重寫整份可編輯資料（課程、排課、鐘聲、特殊時段、倒數事件、單雙週），看不懂/指的東西不存在一律不猜，套用前一定要看過差異預覽再確認；跟 AI 辨識一樣需要網路連線，且共用同一個每小時請求數限制。
-- 不再使用的同步配對代碼不會自動過期，也不會被動清除——會一直留在 Firestore 裡累積，除非管理者主動按「整個刪除同步」把那一份文件刪掉。
-- 「同步代碼＋管理者密碼」是這個 Worker 改版後才有的資料格式（見〈跨裝置同步〉的安全性小節）；在這個改版**之前**建立的舊配對（不論是最早的單一代碼設計，還是中間短暫存在過的管理者／接收者兩組代碼設計），Worker 端都已經找不到對應的文件，代碼會直接變成「找不到這組配對代碼」，需要重新按「建立新同步」。
-- AI 辨識、AI 課表編輯與跨裝置同步背後都是部署者的共用服務，額度算在部署者頭上；被濫用的最壞情況是額度用完、功能暫停，不是帳單——除非部署者自行把 Gemini 金鑰接上有信用卡的付費帳單。
-- AI 辨識準確度取決於照片清晰度與課表版型，匯入前務必看過預覽再確認；需要網路連線。為了縮短等待時間，預設先用最快的模型，結構上不能用才往上換更強的——比起以前一律先用大模型，一般情況快很多，但同樣清晰度的照片偶爾會多一兩個要手動修的欄位。
-- 自動化測試涵蓋課表計算、資料驗證、備份格式、同步模組與 AI 代理邏輯，但編輯器 UI 流程、樣式面板、AI 辨識實際準確度仍主要靠時間模擬與手動驗證。
+On a self-hosted fork without the corresponding environment variables configured, each of these features is simply unavailable — there's no fallback.
 
 ---
 
-## 目前狀態
+## Contributing / Notes for Modifying This Project
 
-課表顯示、排課、單雙週切換、鐘聲時間、特殊時段、事件倒數、外觀自訂、時間模擬、備份匯出入、AI 圖片辨識（含匯入預覽的內容層級異常提醒）、AI 課表編輯、跨裝置同步都完整可用、彼此獨立——課表相關功能不依賴網路或 AI，AI 與同步都是選用功能。`js/app.js` 已拆成 `src/` 底下的 ES module，並有涵蓋課表計算、資料驗證、備份格式、同步模組、AI 代理邏輯（含自然語言編輯的驗證與異常偵測）的自動化測試；之後可能繼續往編輯器 UI 流程補測試。
+There's no framework and no backend at runtime; development uses Vite + Vitest + ESLint/Prettier.
+
+- Don't add a front-end framework (React/Vue/etc.) — Vite here is purely a bundler/dev-server/test-runner.
+- Put new features into whichever existing module is the closest semantic fit (see [Project Structure / Architecture](#project-structure--architecture)); mutable state shared across modules belongs in `state.js`.
+- New `localStorage` fields should follow the pattern already used by the `normalize*`/`validate*`/`sanitize*` functions in `src/data.js`: validate before storing, and make sure old data loading in won't blow up.
+- After changing schedule-computation or countdown logic, run `npm test` first; scenarios not covered by automated tests (most editor UI, the style panel, the AI import flow) should be manually spot-checked at boundary times using the time simulation panel.
+- After a style change, check both dark mode and mobile width.
+- After finishing a change, run `npm run build` and confirm `dist/` is a fully working site, not just something that runs fine in dev mode.
 
 ---
 
-**[jaypengx-collab.github.io/Orbit](https://jaypengx-collab.github.io/Orbit/)** — 開瀏覽器就能用。
+## Known Limitations
+
+- Data defaults to a single browser; without sync enabled, clearing the browser's site data wipes the schedule along with it — periodic export backups are recommended.
+- No account system, no real-time multi-user collaboration. Cross-device sync is not push-based: a save uploads immediately, but a receiving device only checks for updates once it's actually touched (click/key/tap, or a refresh/tab switch) — a device nobody touches never picks up a new version on its own.
+- Neither cross-device sync nor the AI proxy features (photo recognition, schedule editing) have user identity verification — the pairing code / Worker URL is the sole gate. This isn't designed to protect privacy; if that matters to you, don't enable it (see the security subsection in the relevant sections above for details).
+- AI schedule editing reads and rewrites the entire set of editable data at once (classes, scheduling, bell times, special periods, countdown events, odd/even-week setting); anything it doesn't understand, or that refers to something nonexistent, is never guessed at, and a diff preview must be reviewed and confirmed before anything applies. Like AI import, it requires an internet connection and shares the same hourly request limit.
+- Unused sync pairing codes never expire and are never passively cleaned up — they accumulate in Firestore indefinitely until a manager actively clicks "Delete Sync Entirely" to remove that document.
+- The "sync code + manager passcode" model is a data format that only exists after this Worker's redesign (see the security subsection under [Cross-Device Sync](#cross-device-sync)); any pairing created **before** that redesign (whether under the original single-code design, or the brief intermediate two-code manager/receiver design) no longer has a corresponding document on the Worker side — its code will simply come back as "pairing code not found," and a new sync must be created.
+- AI recognition, AI schedule editing, and cross-device sync all run on the deployer's shared infrastructure, and quota is counted against the deployer, not the individual user; the worst case of abuse is the quota running out and the feature pausing, not a bill — unless the deployer has personally attached their Gemini key to a paid, credit-card-backed billing account.
+- AI recognition accuracy depends on photo clarity and schedule layout — always review the preview before confirming an import; an internet connection is required. To keep wait times short, the fastest model is tried first, with escalation to stronger models only when the result is structurally unusable — this is much faster on average than always starting with the largest model, though occasionally a couple of extra fields may need manual correction even at the same photo quality.
+- Automated tests cover schedule computation, data validation, backup format, the sync module, and the AI proxy logic, but editor UI flows, the style panel, and actual AI-recognition accuracy still rely primarily on time simulation and manual verification.
+
+---
+
+## Current Status
+
+Schedule display, scheduling, odd/even-week switching, bell times, special periods, countdown events, appearance customization, time simulation, backup export/import, AI photo recognition (including content-level anomaly warnings in the import preview), AI schedule editing, and cross-device sync are all fully functional and independent of one another — the core schedule features never depend on network access or AI; AI and sync are both optional. `js/app.js` has been fully split into ES modules under `src/`, with automated tests covering schedule computation, data validation, backup format, the sync module, and the AI proxy logic (including natural-language-edit validation and anomaly detection); test coverage of the editor UI flows may be extended further going forward.
+
+---
+
+## Related Projects
+
+- **[Shared-Proxy](https://github.com/jaypengx-collab/Shared-Proxy)** — the shared Cloudflare Worker backend behind AI recognition, AI schedule editing, and cross-device sync.
+- **[Orbit-Vocab](https://github.com/jaypengx-collab/Orbit-Vocab)** — a sibling site sharing the same Worker infrastructure (vocabulary learning-progress sync and personalized mnemonics).
+- **[Match-Find](https://github.com/jaypengx-collab/Match-Find)** — a sibling site sharing the same Worker infrastructure (game recommendations and settings sync).
+
+---
+
+**[jaypengx-collab.github.io/Orbit](https://jaypengx-collab.github.io/Orbit/)** — open it in a browser and start using it.
