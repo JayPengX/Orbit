@@ -345,15 +345,8 @@ function decodeTransferPayloadV2(array) {
     reverseWeekFlag,
     proAccent,
     proSecondary,
-    tenthSlot,
-    eleventhSlot
+    styleSlotEntries
   ] = array;
-  // Backups made before proTertiary was dropped carry 11 positional fields,
-  // with styleSlotEntries pushed one slot later (proTertiary sat between
-  // proSecondary and it). Length tells old shape from new: 11 means the
-  // 10th slot is the now-discarded proTertiary and styleSlotEntries is the
-  // 11th; anything shorter means the 10th slot already is styleSlotEntries.
-  const styleSlotEntries = array.length >= 11 ? eleventhSlot : tenthSlot;
   const teacherDB = {},
     locationDB = {};
   (teacherEntries || []).forEach(([key, subject, teacher, location]) => {
