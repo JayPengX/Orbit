@@ -424,30 +424,19 @@ body.orbit-booting .dashboard{visibility:hidden}
 body.orbit-booting .dashboard-boot-loader{visibility:visible;display:flex;position:absolute;inset:0;align-items:center;justify-content:center;background:linear-gradient(145deg,#2c2c2e,#1c1c1e);border-radius:var(--v31-radius-xl);z-index:5}
 .dashboard-boot-spinner{width:26px;height:26px;border-radius:50%;border:3px solid rgba(255,255,255,.18);border-top-color:rgba(255,255,255,.78);animation:orbit-boot-spin .8s linear infinite}
 
-/* Label row: week badge, exam countdown, tool menu */
-.dashboard > .label-row{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr) 38px;gap:8px;align-items:center;min-height:40px;padding:0}
+/* Label row: exam countdown (leading, anchored left) + tool menu (trailing,
+   anchored right via .top-actions' own margin-left:auto). The week-parity
+   badge used to live here as a cramped top-left pill; it now sits in the
+   class editor's own header instead, next to "編輯課表", since that's where
+   the odd/even setting actually gets changed. */
+.dashboard > .label-row{position:relative;display:flex;align-items:center;gap:10px;min-height:40px;padding:0}
 .label{font-weight:700;text-transform:uppercase;color:var(--sub);display:flex;align-items:center;gap:6px;font-size:10px;letter-spacing:.45px}
-.dashboard > .label-row > .label{min-width:0;height:28px;padding:0 5px;border:1px solid color-mix(in srgb,var(--orbit-line) 82%,#fff 5%);border-radius:8px;background:var(--glass-fill-card);backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat)) brightness(var(--glass-bright));-webkit-backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat)) brightness(var(--glass-bright))}
-.dashboard > .label-row > .label #week-display-main{display:block;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* The week-parity badge used to be its own one-off here: a bare
-   border-bottom underline instead of the tinted pill (.week-label,
-   further down) every OTHER 單/雙週 badge in the app already uses (the
-   schedule rows' own copy). That mismatch read as a stray leftover
-   underline rather than a real badge, and meant "the odd/even color"
-   looked different depending on where on screen you saw it. Sizing
-   overrides only now - the fill/text color and the dot both come
-   straight from .week-label/.label-odd/.label-even below, so this badge
-   is pixel-for-pixel the same chip as the one in the list, just smaller. */
-.dashboard > .label-row > .label .label-odd,
-.dashboard > .label-row > .label .label-even{gap:4px;height:20px;min-height:0;padding:0 7px;border-radius:999px;font-size:10px;letter-spacing:.04em}
-.dashboard > .label-row > .label .label-odd::before,
-.dashboard > .label-row > .label .label-even::before{content:"";display:inline-block;flex:0 0 auto;width:5px;height:5px;border-radius:50%;background:currentColor}
 .status-dot{width:9px;height:9px;border-radius:50%;background:var(--sub);box-shadow:0 0 0 4px color-mix(in srgb,var(--pro-secondary) 16%,transparent),0 0 14px color-mix(in srgb,var(--pro-secondary) 48%,transparent)}
 .status-active{background:var(--pro-secondary);box-shadow:0 0 0 5px color-mix(in srgb,var(--pro-secondary) 18%,transparent),0 0 20px color-mix(in srgb,var(--pro-secondary) 32%,transparent)}
 .status-wait{background:var(--pro-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--pro-accent) 16%,transparent),0 0 14px color-mix(in srgb,var(--pro-accent) 42%,transparent)}
 
 .exam-countdown{
-  touch-action:pan-y;cursor:grab;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;justify-self:center;
+  touch-action:pan-y;cursor:grab;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;
   gap:10px;padding:8px 13px;min-height:60px;width:clamp(210px,60vw,248px);max-width:100%;
   border-radius:16px;
   /* Glass, on the app's own tokens rather than its former one-off blur
