@@ -1879,17 +1879,23 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
 @media (min-width:700px){
   .dashboard{margin:6px auto 8px;max-height:330px}
   .nav-bar{max-height:78px}
-  /* .list-container's flex:1 1 auto (set above, for phones) always claims
-     100% of whatever space is left over, which is exactly what you want
-     filling a phone screen - but on a much taller tablet/desktop viewport a
-     short schedule (a light day, or a weekend) then stretches the
-     otherwise-empty container down the page instead of leaving the balanced
-     top/bottom margin `justify-content:center` would give the whole group.
-     Capping its growth and centering the group instead means a short list
-     sits centered like everything else, while a long list still scrolls
-     internally exactly as it does on a phone. */
-  body{justify-content:center}
-  .list-container{flex:0 1 auto;max-height:min(50vh,460px)}
+  /* .list-container keeps the SAME flex:1 1 50% the base phone rule above
+     already gives it (nothing to override here any more) - it claims all
+     leftover vertical space in the column exactly like it does on a phone,
+     which is what actually removes the dead top/bottom margin a portrait
+     tablet/desktop window gets once .dashboard/.nav-bar are height-capped
+     above: capping the list too (an earlier version of this block did,
+     with body{justify-content:center} centering the shorter resulting
+     group) pushed that same leftover space OUTSIDE the card group instead
+     of inside it - centering it evenly rather than removing it doesn't
+     read as "natural" on a screen tall enough that the gap runs into the
+     hundreds of px (a portrait iPad/Android tablet/Surface, or just a
+     narrow-but-tall desktop window - checked across all of them). A short
+     schedule (a light day, or a weekend) still ends up with empty space
+     at the bottom of .list-container's own card instead - exactly what
+     already happens on a phone with the same short schedule, so it reads
+     as "this card is mostly empty today" rather than "this app doesn't
+     fill its window", which is the more natural of the two. */
 }
 
 /* ============================================================================
