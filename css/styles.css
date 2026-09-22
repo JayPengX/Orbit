@@ -242,12 +242,15 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
    button is the whole button, which turns the lens into a flat wash. */
 .top-action-btn::after{--glass-rim:9px}
 .top-actions-menu::after{--glass-rim:11px}
-/* The hub is the one .top-action-btn that isn't glass: it's a solid accent
-   gradient, the app's single primary action. A refraction band has nothing
-   real to refract there, and because the open state rotates the button 45°
-   the band's four bright edges land on the diagonals and turn a soft
-   squircle into a hard-edged diamond. Its own accent glow already does the
-   job the rim does elsewhere. */
+/* The hub used to be the one .top-action-btn that wasn't glass at all (a
+   flat opaque accent gradient) - the one solid shape in a screen built
+   entirely from translucent panels, so it read as pasted on top of the
+   material rather than part of it. It's tinted glass now, same family as
+   every other button here, and still keeps the rim disabled: the open
+   state rotates the button 45°, and the band's four bright edges would
+   land on the diagonals and turn a soft squircle into a hard-edged
+   diamond. Its own tinted border + glow already read as "the primary
+   action" without it. */
 #btn-menu.top-action-btn::after{display:none}
 /* .style-panel is the one .test-panel variant that scrolls its own box
    instead of an inner -body element, so an absolutely-positioned rim inside
@@ -454,21 +457,29 @@ body.orbit-booting .dashboard-boot-loader{visibility:visible;display:flex;positi
 /* Label row: week badge, exam countdown, tool menu */
 .dashboard > .label-row{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr) 38px;gap:8px;align-items:center;min-height:40px;padding:0}
 .label{font-weight:700;text-transform:uppercase;color:var(--sub);display:flex;align-items:center;gap:6px;font-size:10px;letter-spacing:.45px}
-.dashboard > .label-row > .label{min-width:0;height:28px;padding:0 8px;border:1px solid color-mix(in srgb,var(--orbit-line) 82%,#fff 5%);border-radius:8px;background:var(--glass-fill-card);backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat)) brightness(var(--glass-bright));-webkit-backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat)) brightness(var(--glass-bright))}
-.dashboard > .label-row > .label #week-display-main{display:block;max-width:58px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;font-weight:900;letter-spacing:.04em}
-.dashboard > .label-row > .label .label-odd{position:relative;background:transparent;border:0;border-bottom:2px solid var(--pro-accent);border-radius:0;padding:0 0 2px;color:var(--pro-accent-readable)}
-.dashboard > .label-row > .label .label-even{position:relative;background:transparent;border:0;border-bottom:2px solid var(--pro-secondary);border-radius:0;padding:0 0 2px;color:var(--pro-secondary-readable)}
+.dashboard > .label-row > .label{min-width:0;height:28px;padding:0 5px;border:1px solid color-mix(in srgb,var(--orbit-line) 82%,#fff 5%);border-radius:8px;background:var(--glass-fill-card);backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat)) brightness(var(--glass-bright));-webkit-backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat)) brightness(var(--glass-bright))}
+.dashboard > .label-row > .label #week-display-main{display:block;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The week-parity badge used to be its own one-off here: a bare
+   border-bottom underline instead of the tinted pill (.week-label,
+   further down) every OTHER 單/雙週 badge in the app already uses (the
+   schedule rows' own copy). That mismatch read as a stray leftover
+   underline rather than a real badge, and meant "the odd/even color"
+   looked different depending on where on screen you saw it. Sizing
+   overrides only now - the fill/text color and the dot both come
+   straight from .week-label/.label-odd/.label-even below, so this badge
+   is pixel-for-pixel the same chip as the one in the list, just smaller. */
+.dashboard > .label-row > .label .label-odd,
+.dashboard > .label-row > .label .label-even{gap:4px;height:20px;min-height:0;padding:0 7px;border-radius:999px;font-size:10px;letter-spacing:.04em}
 .dashboard > .label-row > .label .label-odd::before,
-.dashboard > .label-row > .label .label-even::before{content:"";display:inline-block;width:5px;height:5px;margin:0 5px 1px 0;border-radius:50%;background:currentColor;vertical-align:middle}
+.dashboard > .label-row > .label .label-even::before{content:"";display:inline-block;flex:0 0 auto;width:5px;height:5px;border-radius:50%;background:currentColor}
 .status-dot{width:9px;height:9px;border-radius:50%;background:var(--sub);box-shadow:0 0 0 4px color-mix(in srgb,var(--pro-secondary) 16%,transparent),0 0 14px color-mix(in srgb,var(--pro-secondary) 48%,transparent)}
 .status-active{background:var(--pro-secondary);box-shadow:0 0 0 5px color-mix(in srgb,var(--pro-secondary) 18%,transparent),0 0 20px color-mix(in srgb,var(--pro-secondary) 32%,transparent)}
 .status-wait{background:var(--pro-accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--pro-accent) 16%,transparent),0 0 14px color-mix(in srgb,var(--pro-accent) 42%,transparent)}
 
 .exam-countdown{
   touch-action:pan-y;cursor:grab;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;justify-self:center;
-  gap:10px;padding:8px 12px;min-height:60px;width:clamp(210px,60vw,248px);max-width:100%;
-  border-left:3px solid var(--pro-secondary);
-  border-radius:0 14px 14px 0;
+  gap:10px;padding:8px 13px;min-height:60px;width:clamp(210px,60vw,248px);max-width:100%;
+  border-radius:16px;
   /* Glass, on the app's own tokens rather than its former one-off blur
      values - it floats over the dashboard's backdrop the same way every
      other floating control does, and the secondary tint in the fill is what
@@ -480,7 +491,14 @@ body.orbit-booting .dashboard-boot-loader{visibility:visible;display:flex;positi
      counting down to 下課, .row.is-next's own next-up highlight). Also the
      one persistent, always-on card in the whole dashboard that isn't itself
      a class/break state, so it's the one place a second brand hue can live
-     full-time instead of waiting for a break to flash by. */
+     full-time instead of waiting for a break to flash by.
+     A uniform tinted border instead of the flat left bar this used to carry
+     - the bar read as a notification-strip cut into the card's edge, the one
+     hard-edged shape in a screen otherwise built entirely from soft rounded
+     glass. A border all the way round is the same "this card is tinted
+     secondary" cue every other tinted glass surface in the app (the toolbar
+     hub, .assign-box.assigned, ...) uses. */
+  border:1px solid color-mix(in srgb,var(--pro-secondary) 30%,transparent);
   background:linear-gradient(135deg,color-mix(in srgb,var(--pro-secondary) 15%,transparent),var(--glass-fill-card) 70%);
   backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat)) brightness(var(--glass-bright));
   -webkit-backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat)) brightness(var(--glass-bright));
@@ -552,8 +570,8 @@ body.orbit-booting .dashboard-boot-loader{visibility:visible;display:flex;positi
    its original 38-40% - that read as a neon sign next to the rest of the
    app's now much quieter chrome, once every other button stopped competing
    with its own saturated glow. */
-#btn-menu.top-action-btn{width:var(--v31-hub-size);height:var(--v31-hub-size);border-radius:18px;background:linear-gradient(145deg,color-mix(in srgb,var(--pro-accent) 82%,transparent),color-mix(in srgb,var(--pro-accent) 55%,transparent) 70%);color:var(--pro-accent-text);font-size:20px;box-shadow:0 12px 28px color-mix(in srgb,var(--pro-accent) 28%,transparent),0 4px 12px rgba(0,0,0,.3);font-weight:900;line-height:1;backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%)}
-.top-actions.open #btn-menu.top-action-btn{transform:rotate(45deg) scale(.96);color:var(--pro-secondary-text);background:linear-gradient(145deg,color-mix(in srgb,var(--pro-secondary) 85%,transparent),color-mix(in srgb,var(--pro-secondary) 58%,transparent) 70%);box-shadow:0 12px 28px color-mix(in srgb,var(--pro-secondary) 26%,transparent),0 4px 12px rgba(0,0,0,.3)}
+#btn-menu.top-action-btn{width:var(--v31-hub-size);height:var(--v31-hub-size);border-radius:18px;border:1px solid color-mix(in srgb,var(--pro-accent) 48%,transparent);background:linear-gradient(145deg,color-mix(in srgb,var(--pro-accent) 46%,transparent),color-mix(in srgb,var(--pro-accent) 18%,transparent) 70%),var(--glass-fill-strong);color:var(--pro-accent-text);font-size:20px;box-shadow:var(--glass-shadow-soft),0 10px 24px color-mix(in srgb,var(--pro-accent) 26%,transparent);font-weight:900;line-height:1;backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%)}
+.top-actions.open #btn-menu.top-action-btn{transform:rotate(45deg) scale(.96);color:var(--pro-secondary-text);border-color:color-mix(in srgb,var(--pro-secondary) 48%,transparent);background:linear-gradient(145deg,color-mix(in srgb,var(--pro-secondary) 50%,transparent),color-mix(in srgb,var(--pro-secondary) 20%,transparent) 70%),var(--glass-fill-strong);box-shadow:var(--glass-shadow-soft),0 10px 24px color-mix(in srgb,var(--pro-secondary) 24%,transparent)}
 .top-actions-menu{
   position:absolute;top:calc(var(--v31-hub-size) + 8px);right:0;flex-direction:column;display:flex;gap:7px;padding:7px;
   border-radius:20px;opacity:0;visibility:hidden;pointer-events:none;
