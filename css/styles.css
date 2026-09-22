@@ -372,44 +372,6 @@ body::before{
 
 .test-banner{position:fixed;top:0;left:0;width:100%;background:var(--warn);color:var(--pro-secondary-text);font-size:11px;font-weight:800;text-align:center;z-index:999;padding:6px max(8px,env(safe-area-inset-right)) 6px max(8px,env(safe-area-inset-left));padding-top:calc(6px + env(safe-area-inset-top));display:none}
 
-/* Blocks landscape on a phone-sized screen: this layout is designed around
-   a tall, narrow card, and turning a phone sideways squeezes every row down
-   to a sliver instead of actually showing more. Rather than trying to
-   relayout for a shape the design was never meant to fit, tell the person
-   to rotate back - the same tradeoff a lot of native phone apps make.
-   max-height:500px (checked against landscape's swapped axes, so this is
-   really the phone's short dimension) is what separates this from a
-   landscape TABLET or laptop, both of which have plenty of room - but
-   height alone can't actually tell a phone turned sideways apart from a
-   desktop/laptop browser window that just happens to be resized short
-   (split-screen, a small floating window, docked devtools, ...), and the
-   short-viewport fallback further down (see "Short viewport fallback" in
-   the large-screens section) means a short WIDE window - the tablet/
-   laptop case - now renders itself instead of needing this at all.
-   pointer:coarse (true on a phone/tablet's touchscreen, false on a mouse/
-   trackpad-driven desktop) is what actually distinguishes "device held
-   sideways" from "window resized short", so a short desktop window no
-   longer gets told to rotate a screen that was never going to. display:
-   none by default, pure CSS with no JS dependency, so it can never be left
-   showing (or missing) by a script that failed to run - only the media
-   query below ever turns it on. */
-.orientation-lock{
-  display:none;position:fixed;inset:0;z-index:2000000;
-  flex-direction:column;align-items:center;justify-content:center;gap:16px;
-  background:#0B1117;color:#F8FAFC;text-align:center;padding:24px;
-}
-.orientation-lock-icon{
-  width:56px;height:34px;border:3px solid currentColor;border-radius:7px;position:relative;flex:0 0 auto;
-}
-.orientation-lock-icon::after{
-  content:'';position:absolute;top:50%;right:-15px;transform:translateY(-50%);
-  border:7px solid transparent;border-left-color:currentColor;
-}
-.orientation-lock-text{margin:0;max-width:280px;font-size:16px;font-weight:700;line-height:1.6}
-@media (orientation:landscape) and (max-height:500px) and (pointer:coarse){
-  .orientation-lock{display:flex}
-}
-
 /* ============================================================================
    Dashboard card
    ========================================================================= */
@@ -1874,18 +1836,20 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
 
 /* ============================================================================
    Large screens (tablet / desktop)
-   Everything above is written mobile-first for a phone held in one hand -
-   .dashboard/.nav-bar/.list-container all cap out at width:min(420px,100%),
-   which never grows past a phone's width even when there's a whole desktop
-   monitor of room. These breakpoints let that same column of cards scale up
-   on bigger screens instead of sitting pinned to a phone-sized width (and,
-   on .dashboard specifically, off-center - its mobile margin is
-   intentionally asymmetric by a couple px, which reads as "centered enough"
-   on a narrow phone screen but is visibly off-center once the container is
-   wide enough to notice).
-   ========================================================================= */
+   iPhone 15 Pro portrait (393×852) is the one true layout - every card's
+   proportions, spacing and type sizes are tuned against that shape, so on a
+   tablet/desktop viewport this does NOT grow the column wider (that used to
+   stretch .dashboard/.nav-bar/.list-container up to 640px, which re-flowed
+   every card's internal spacing into a visibly different, squatter-looking
+   app instead of "the same app, more of it around the edges"). What actually
+   changes here is only centering: .dashboard/.nav-bar/.list-container stay
+   pinned to their phone-first width:min(420px,100%) cap on every screen size,
+   and body's own flex layout centers that column in whatever room is left
+   over instead of it sitting pinned to one edge (.dashboard's mobile margin
+   is intentionally asymmetric by a couple px, which reads as "centered
+   enough" on a narrow phone screen but is visibly off-center once there's
+   enough room on either side to notice). */
 @media (min-width:700px){
-  .dashboard,.nav-bar,.list-container{width:min(560px,92%)}
   .dashboard{margin:6px auto 8px}
   /* .list-container's flex:1 1 auto (set above, for phones) always claims
      100% of whatever space is left over, which is exactly what you want
@@ -1899,9 +1863,6 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
   body{justify-content:center}
   .list-container{flex:0 1 auto;max-height:min(50vh,460px)}
 }
-@media (min-width:1024px){
-  .dashboard,.nav-bar,.list-container{width:min(640px,64%)}
-}
 
 /* ============================================================================
    Short viewport fallback
@@ -1909,10 +1870,12 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
    body's own height, see .dashboard's own comment above) is an exact split
    of whatever's available, which only works if there's comfortably enough
    height to split three ways to begin with - true for a phone held upright,
-   false the moment the window itself is short: a landscape phone just past
-   the orientation-lock cutoff above, a laptop/tablet browser window that
-   isn't maximized, a split-screen or floating window, embedded devtools
-   eating vertical space, and so on. Forcing that same three-way split into
+   false the moment the window itself is short: a phone turned sideways (this
+   is what makes landscape a reflow instead of a "please rotate back" lock -
+   see the git history for the interstitial this replaced), a laptop/tablet
+   browser window that isn't maximized, a split-screen or floating window,
+   embedded devtools eating vertical space, and so on. Forcing that same
+   three-way split into
    a shorter box than it was ever sized for doesn't just look cramped - it
    actively breaks: .now-stack (the current-class name's box) could get
    squeezed down to a sliver a few px tall while dashboard-render.js's
