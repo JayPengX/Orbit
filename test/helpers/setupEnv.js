@@ -24,3 +24,18 @@ globalThis.Blob = NodeBlob;
 Element.prototype.scrollTo = () => {};
 Element.prototype.scrollIntoView = () => {};
 Element.prototype.scrollBy = () => {};
+
+// jsdom's own navigator.language/languages default to "en-US" (not an app
+// bug - that's just jsdom's own fallback, not a real browser reporting a
+// real device's setting), which would make src/strings.js's locale
+// auto-detection pick 'en' for every test and break every existing test
+// that asserts exact zh-TW copy. Orbit Class's actual user base is
+// Taiwanese schools, so pinning the test environment to zh-TW here matches
+// the locale almost every real session actually boots into, and keeps
+// language-detection itself testable in isolation (see strings.test.js)
+// without every unrelated test having to know detection even exists.
+Object.defineProperty(window.navigator, 'language', { value: 'zh-TW', configurable: true });
+Object.defineProperty(window.navigator, 'languages', {
+  value: ['zh-TW'],
+  configurable: true
+});

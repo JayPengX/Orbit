@@ -33,6 +33,7 @@ import {
   processSplitName
 } from './schedule.js';
 import { computeDashboardViewModel } from './schedule-calc.js';
+import { t } from './strings.js';
 
 // Opens or closes the manual time simulation panel.
 // Modal and toolbar state is separate from saved schedule settings.
@@ -186,7 +187,7 @@ function setToolHubState(open) {
   if (!actions || !btn) return;
   actions.classList.toggle('open', !!open);
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-  const label = open ? '關閉工具' : '開啟工具';
+  const label = open ? t('dashboard.closeTools') : t('dashboard.openTools');
   btn.setAttribute('aria-label', label);
   btn.setAttribute('title', label);
 }
@@ -310,17 +311,20 @@ function updateExamCountdown() {
   const isSingleDay = event.startDate === event.endDate;
 
   if (diffStart > 0) {
-    el.innerHTML = `${diffStart}<span class="exam-countdown-unit">天</span>`;
-    card.setAttribute('aria-label', `${event.name}倒數 ${diffStart} 天`);
+    el.innerHTML = `${diffStart}<span class="exam-countdown-unit">${t('dashboard.countdownDayUnit')}</span>`;
+    card.setAttribute(
+      'aria-label',
+      t('dashboard.countdownAriaDays', { name: event.name, days: diffStart })
+    );
   } else if (isSingleDay && diffStart === 0) {
-    el.textContent = '今天';
-    card.setAttribute('aria-label', `${event.name}今天開始`);
+    el.textContent = t('dashboard.countdownToday');
+    card.setAttribute('aria-label', t('dashboard.countdownAriaStartsToday', { name: event.name }));
   } else if (diffEnd >= 0) {
-    el.textContent = '進行中';
-    card.setAttribute('aria-label', `${event.name}進行中`);
+    el.textContent = t('dashboard.countdownInProgress');
+    card.setAttribute('aria-label', t('dashboard.countdownAriaInProgress', { name: event.name }));
   } else {
-    el.textContent = '已結束';
-    card.setAttribute('aria-label', `${event.name}已結束`);
+    el.textContent = t('dashboard.countdownEnded');
+    card.setAttribute('aria-label', t('dashboard.countdownAriaEnded', { name: event.name }));
   }
 }
 
@@ -635,7 +639,7 @@ function openModal(c) {
       const match = c.isSplit ? terms.some(t => item.n.includes(t)) : item.n === c.n;
       if (match) {
         count++;
-        occHtml += `<div class="occ-row"><span class="occ-row-day">${WEEKDAY_LABELS[d]}</span><div class="occ-row-meta"><div class="occ-row-period">第 ${idx + 1} 節</div><div class="occ-row-time">${esc(item.s)} – ${esc(item.e)}</div></div></div>`;
+        occHtml += `<div class="occ-row"><span class="occ-row-day">${WEEKDAY_LABELS[d]}</span><div class="occ-row-meta"><div class="occ-row-period">${t('dashboard.periodNumber', { number: idx + 1 })}</div><div class="occ-row-time">${esc(item.s)} – ${esc(item.e)}</div></div></div>`;
       }
     });
   });
@@ -645,18 +649,18 @@ function openModal(c) {
     const idx = week === '單' ? 0 : 1;
     setSplitWeekClass('this-week-class', terms[idx], teachers[idx] || teachers[0]);
     setSplitWeekClass('next-week-class', terms[1 - idx], teachers[1 - idx] || teachers[0]);
-    document.getElementById('m-type-val').innerText = '雙週';
+    document.getElementById('m-type-val').innerText = t('dashboard.typeSplit');
   } else {
     sc.style.display = 'none';
-    document.getElementById('m-type-val').innerText = '固定';
+    document.getElementById('m-type-val').innerText = t('dashboard.typeFixed');
   }
   const info = processSplitName(c, week);
   document.getElementById('m-title').innerText = info.n;
-  document.getElementById('m-teacher').innerText = '教師　' + info.t;
-  document.getElementById('m-count').innerText = count + ' 節';
+  document.getElementById('m-teacher').innerText = t('dashboard.teacherLabel') + info.t;
+  document.getElementById('m-count').innerText = t('dashboard.periodCount', { count });
   document.getElementById('m-occ-list').innerHTML =
     occHtml ||
-    `<div class="occ-row"><span class="occ-row-day">×</span><div class="occ-row-meta"><div class="occ-row-period">無排課</div></div></div>`;
+    `<div class="occ-row"><span class="occ-row-day">×</span><div class="occ-row-meta"><div class="occ-row-period">${t('dashboard.noOccurrences')}</div></div></div>`;
   setOverlayVisible('overlay', 'sheet', true, 'modal-open');
 }
 

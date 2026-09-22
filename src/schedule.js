@@ -8,6 +8,7 @@ import {
   WEEKDAY_LABELS
 } from './constants.js';
 import { state } from './state.js';
+import { t } from './strings.js';
 
 // Builds the runtime schedule rows from teacher, location, and bell-time data.
 function buildSchedule() {
@@ -16,7 +17,10 @@ function buildSchedule() {
     state.runtimeSchedule[day] = (state.applicationData.weeklySchedule[day] || [])
       .map((key, i) => {
         if (!key) return null;
-        const m = state.applicationData.teacherDB[key] || ['未知', '未知'];
+        const m = state.applicationData.teacherDB[key] || [
+          t('common.unknown'),
+          t('common.unknown')
+        ];
         const bt = state.applicationData.bellTimes[i];
         if (!bt) return null;
         return {
@@ -76,7 +80,8 @@ function getWeekType() {
 }
 // Creates the small odd/even week badge used in the schedule UI.
 function getWeekLabelHtml(w) {
-  return `<span class="week-label ${w === '單' ? 'label-odd' : 'label-even'}">${w}週</span>`;
+  const label = w === '單' ? t('week.odd') : t('week.even');
+  return `<span class="week-label ${w === '單' ? 'label-odd' : 'label-even'}">${label}</span>`;
 }
 // Returns the next weekday tab after the given day.
 function getNextSchoolDay(day) {

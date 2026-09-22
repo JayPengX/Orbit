@@ -6,10 +6,17 @@ import { setStyleMode } from './appearance.js';
 import { syncTestToolbar } from './dashboard.js';
 import { mainClockTick, syncTestPlayPauseUi } from './dashboard-render.js';
 import { loadData } from './data.js';
+import { applyStaticTranslations } from './i18n-dom.js';
 import { showOnboardingPrompt } from './onboarding.js';
 import { buildSchedule } from './schedule.js';
 import { state } from './state.js';
 import { renderSyncPanel, startSyncLoop } from './sync.js';
+
+// index.html's markup is static, so its own text/aria-label/title/
+// placeholder content needs one DOM pass translated in from strings.js
+// before anything else renders over it - see i18n-dom.js for the
+// data-i18n* attribute contract this walks.
+applyStaticTranslations();
 
 // state.applicationData is set here, not in state.js's own initial value -
 // see the comment on state.js for why.

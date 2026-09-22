@@ -17,6 +17,7 @@ import {
   showTransferDiscardConfirm
 } from './editor-core.js';
 import { getSyncKeepLocalStyle, isSyncViewer } from './sync.js';
+import { t } from './strings.js';
 
 function normalizeHexColor(value, fallback) {
   const color = String(value || '')
@@ -212,7 +213,9 @@ function applyPendingStyleSave() {
     hideEditorDiscardConfirm();
     return;
   }
-  applyEditorSettingsData(state.pendingStyleSaveData, { statusMessage: '樣式已儲存。' });
+  applyEditorSettingsData(state.pendingStyleSaveData, {
+    statusMessage: t('appearance.styleSaved')
+  });
   setStyleMode();
   state.pendingStyleSaveData = null;
   document.getElementById('style-panel')?.classList.remove('style-draft-dirty');
@@ -228,7 +231,7 @@ function renderStyleSlots() {
   grid.innerHTML = slots
     .map(
       (slot, index) =>
-        `<div class="style-slot-row"><button type="button" class="style-slot ${slot.name ? 'has-style' : ''}" style="--slot-primary:${slot.primary};--slot-secondary:${slot.secondary}" onclick="loadStyleSlot(${index})" aria-label="${esc(slot.name || `空位 ${index + 1}`)}" title="${esc(slot.name || `空位 ${index + 1}`)}"><span class="style-slot-swatch" aria-hidden="true"></span></button><button type="button" class="style-slot-save" onclick="saveStyleSlot(${index})" aria-label="儲存至樣式 ${index + 1}">＋</button></div>`
+        `<div class="style-slot-row"><button type="button" class="style-slot ${slot.name ? 'has-style' : ''}" style="--slot-primary:${slot.primary};--slot-secondary:${slot.secondary}" onclick="loadStyleSlot(${index})" aria-label="${esc(slot.name || t('appearance.emptySlot', { number: index + 1 }))}" title="${esc(slot.name || t('appearance.emptySlot', { number: index + 1 }))}"><span class="style-slot-swatch" aria-hidden="true"></span></button><button type="button" class="style-slot-save" onclick="saveStyleSlot(${index})" aria-label="${esc(t('appearance.saveToSlot', { number: index + 1 }))}">＋</button></div>`
     )
     .join('');
 }
@@ -269,21 +272,23 @@ function saveStyleSlot(index) {
   }
   state.pendingStyleSlotSaveIndex = index;
   setEditorConfirmContent(
-    occupied ? '覆寫個人樣式？' : `儲存為樣式 ${index + 1}？`,
     occupied
-      ? `這會取代「${slot.name}」目前儲存的配色。`
-      : `目前的配色會存到第 ${index + 1} 個位置。`,
+      ? t('appearance.overwritePersonalStyleTitle')
+      : t('appearance.saveAsStyleTitle', { number: index + 1 }),
+    occupied
+      ? t('appearance.overwriteSlotMessage', { name: slot.name })
+      : t('appearance.saveToSlotMessage', { number: index + 1 }),
     '',
-    occupied ? '覆寫' : '儲存',
+    occupied ? t('common.overwrite') : t('common.save'),
     applyPendingStyleSlotSave,
-    '取消'
+    t('common.cancel')
   );
   showEditorConfirmSheet();
 }
 function saveStyleSlotDraft(index) {
   const slots = normalizeStyleSlots(state.stylePanelDraft.styleSlots);
   slots[index] = {
-    name: slots[index].name || `樣式 ${index + 1}`,
+    name: slots[index].name || t('appearance.styleSlotLabel', { number: index + 1 }),
     primary: state.stylePanelDraft.proAccent,
     secondary: state.stylePanelDraft.proSecondary
   };
@@ -321,12 +326,12 @@ function loadStyleSlot(index) {
     return;
   }
   setEditorConfirmContent(
-    '套用儲存樣式？',
-    '目前的樣式將被替換。',
+    t('appearance.applySavedStyleTitle'),
+    t('appearance.currentStyleWillBeReplaced'),
     '',
-    '套用',
+    t('common.apply'),
     applyPendingStyleSlot,
-    '返回'
+    t('common.back')
   );
   showEditorConfirmSheet();
 }
@@ -391,12 +396,12 @@ function closeStylePanel() {
 }
 function showStyleDiscardConfirm() {
   setEditorConfirmContent(
-    '尚未套用樣式？',
-    '離開將捨棄目前的樣式預覽。',
+    t('appearance.styleNotAppliedTitle'),
+    t('appearance.leaveWillDiscardPreview'),
     '',
-    '捨棄並離開',
+    t('appearance.discardAndLeave'),
     discardStyleChangesAndClose,
-    '返回'
+    t('common.back')
   );
   showEditorConfirmSheet();
 }

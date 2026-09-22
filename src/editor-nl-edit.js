@@ -105,7 +105,7 @@ function extractJsonObject(rawText) {
   try {
     return JSON.parse(cleaned);
   } catch (error) {
-    throw new Error(`AI 回傳的內容不是有效的 JSON：${error.message}`, { cause: error });
+    throw new Error(t('nlEdit.invalidJsonResponse', { message: error.message }), { cause: error });
   }
 }
 
@@ -127,7 +127,7 @@ async function tryNlEditModels(text, context) {
         body: JSON.stringify({ model, text, context })
       });
     } catch (networkError) {
-      lastError = new Error(`無法連線至 AI 服務：${networkError.message}`);
+      lastError = new Error(t('nlEdit.cannotConnect', { message: networkError.message }));
       continue;
     }
     if (response.ok) {
@@ -139,6 +139,10 @@ async function tryNlEditModels(text, context) {
     }
     const errorJson = await response.json().catch(() => ({}));
     const message = errorJson.error?.message || response.statusText;
+    // This regex matches the companion backend's own rate-limit error text
+    // verbatim (worker.js, a separate repo) - it is not UI copy this app
+    // owns or renders on its own, so it is left as the backend's own
+    // Chinese wording rather than being run through t().
     if (response.status === 429 && /請求過於頻繁/.test(message)) throw new Error(message);
     // Google's Gemini API rejects the request based on the calling IP's
     // geolocation - here, the Cloudflare Worker's own egress IP, not the
@@ -152,20 +156,18 @@ async function tryNlEditModels(text, context) {
       // from request.cf.colo) that actually got blocked - see
       // gemini-ocr.js's matching comment for why this pass's own retry can't
       // detect or route around a colo Smart Placement keeps reusing.
-      const colo = response.headers.get('X-Worker-Colo') || '未知';
+      const colo = response.headers.get('X-Worker-Colo') || t('common.unknown');
       return {
         ok: false,
         locationBlocked: true,
         colo,
-        error: new Error(
-          `AI 服務暫時因伺服器所在地區限制而無法使用（節點：${colo}），這通常只是暫時性的網路路由問題，請稍後再試一次。`
-        )
+        error: new Error(t('nlEdit.locationBlocked', { colo }))
       };
     }
     // Retryable on the next model: retired/unknown model (404), overloaded
     // (503), rate-limited (429), or transient server errors (5xx) - same
     // set AIVisionProcessor.callGemini treats as retryable.
-    lastError = new Error(`AI 指令解析失敗（${response.status}）：${message}`);
+    lastError = new Error(t('nlEdit.parseFailedWithStatus', { status: response.status, message }));
     const retryableStatus =
       response.status === 404 ||
       response.status === 429 ||
@@ -173,7 +175,7 @@ async function tryNlEditModels(text, context) {
       response.status >= 500;
     if (!retryableStatus) throw lastError;
   }
-  throw lastError || new Error('AI 指令解析失敗：沒有可用的模型。');
+  throw lastError || new Error(t('nlEdit.parseFailedNoModel'));
 }
 
 // Low-level call: same fastest-first-model/escalate-on-transient-failure
@@ -194,7 +196,7 @@ async function callNlEditProxy(text, context, status) {
     if (!result.locationBlocked || locationAttempt >= LOCATION_BLOCK_RETRY_LIMIT)
       throw result.error;
     status?.(
-      `AI 服務因伺服器所在地區限制暫時無法使用（節點：${result.colo}），正在自動重試（第 ${locationAttempt + 2} 次）…`
+      t('nlEdit.locationBlockedRetrying', { colo: result.colo, attempt: locationAttempt + 2 })
     );
     await new Promise(resolve => setTimeout(resolve, LOCATION_BLOCK_RETRY_DELAY_MS));
   }
@@ -323,7 +325,7 @@ function showNlEditInfo(title, message) {
 // here is ever applied without this step.
 function showNlEditConfirm(current, next) {
   const diff = describeSettingsDiff(current, next);
-  if (diff === '沒有變更。') {
+  if (diff === t('editorBackup.noChanges')) {
     showNlEditInfo(t('nlEdit.noChangeTitle'), t('nlEdit.noChangeMessage'));
     return;
   }

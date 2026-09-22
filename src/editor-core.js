@@ -35,6 +35,7 @@ import {
 // function body (openEditor/toggleTestPanel-equivalent checks), never at
 // module-evaluation time.
 import { clearSyncInputFields, isSyncViewer } from './sync.js';
+import { t } from './strings.js';
 
 // Builds a short display label for a class from its subject/teacher text.
 // Teacher is appended in parentheses whenever the subject alone would be
@@ -42,7 +43,7 @@ import { clearSyncInputFields, isSyncViewer } from './sync.js';
 function formatClassLabel(subject, teacher, needsTeacher) {
   const cleanSubject = (subject || '').trim();
   const cleanTeacher = (teacher || '').trim();
-  if (!cleanSubject) return cleanTeacher || '未命名';
+  if (!cleanSubject) return cleanTeacher || t('editorCore.unnamedClassLabel');
   if (needsTeacher && cleanTeacher) return `${cleanSubject}（${cleanTeacher}）`;
   return cleanSubject;
 }
@@ -163,7 +164,11 @@ function findScheduleImpacts(matchFn) {
     dayRow.querySelectorAll('.period-select').forEach((select, index) => {
       if (matchFn(select, index))
         impacts.push(
-          `${dayDiffLabel(day)}第 ${index + 1} 節：${formatClassRef(select.value, data)}`
+          t('editorCore.scheduleImpactLine', {
+            day: dayDiffLabel(day),
+            number: index + 1,
+            ref: formatClassRef(select.value, data)
+          })
         );
     });
   });
@@ -254,7 +259,13 @@ function openTransferSheet() {
 // calls underneath still have their own error handling for everything else.
 // Unlinking an existing sync (pure local state) and manual export/import
 // (also pure local) are deliberately left alone - neither needs a network.
-const OFFLINE_MESSAGE = '目前沒有網路連線，AI 匯入與跨裝置同步暫時無法使用。';
+// A function, not a plain constant, so it re-resolves against whatever
+// locale is active at the moment it's actually shown - a module-level
+// constant would freeze in whatever locale was active when this module
+// first loaded, and never pick up a later language switch.
+function offlineMessage() {
+  return t('editorCore.offlineMessage');
+}
 // Toggles .is-offline on both sheets that can host a network-dependent AI
 // box - the transfer sheet (AI import, sync) and the schedule editor
 // (#nl-edit-box, see index.html) - rather than just whichever one happens
@@ -265,23 +276,27 @@ function applyOfflineLock() {
   const editorSheet = document.getElementById('editor-sheet');
   if (!transferSheet && !editorSheet) return;
   const offline = !navigator.onLine;
-  const wasOffline = !!transferSheet?.classList.contains('is-offline') || !!editorSheet?.classList.contains('is-offline');
+  const wasOffline =
+    !!transferSheet?.classList.contains('is-offline') ||
+    !!editorSheet?.classList.contains('is-offline');
   transferSheet?.classList.toggle('is-offline', offline);
   editorSheet?.classList.toggle('is-offline', offline);
   const ocrStatus = document.getElementById('ocr-import-status');
   const syncStatus = document.getElementById('sync-status');
   const nlEditStatus = document.getElementById('nl-edit-status');
   if (offline) {
-    if (ocrStatus) ocrStatus.textContent = OFFLINE_MESSAGE;
-    if (syncStatus) syncStatus.textContent = OFFLINE_MESSAGE;
-    if (nlEditStatus) nlEditStatus.textContent = OFFLINE_MESSAGE;
+    const message = offlineMessage();
+    if (ocrStatus) ocrStatus.textContent = message;
+    if (syncStatus) syncStatus.textContent = message;
+    if (nlEditStatus) nlEditStatus.textContent = message;
   } else if (wasOffline) {
     // Only clear it if it's still showing our own message - connectivity
     // could have come back after some other, more recent status (a real
     // recognition error, a sync result) already replaced it.
-    if (ocrStatus?.textContent === OFFLINE_MESSAGE) ocrStatus.textContent = '';
-    if (syncStatus?.textContent === OFFLINE_MESSAGE) syncStatus.textContent = '';
-    if (nlEditStatus?.textContent === OFFLINE_MESSAGE) nlEditStatus.textContent = '';
+    const message = offlineMessage();
+    if (ocrStatus?.textContent === message) ocrStatus.textContent = '';
+    if (syncStatus?.textContent === message) syncStatus.textContent = '';
+    if (nlEditStatus?.textContent === message) nlEditStatus.textContent = '';
   }
 }
 window.addEventListener('online', applyOfflineLock);
@@ -335,15 +350,16 @@ function addCountdownEventRow(event = { name: '', startDate: '', endDate: '' }, 
   if (!list || list.children.length >= 12) return;
   const expanded = index === undefined;
   const row = document.createElement('div');
-  row.className = expanded ? 'teacher-card countdown-event-row is-expanded row-enter' : 'teacher-card countdown-event-row';
-  row.innerHTML =
-    `<div class="teacher-card-summary"><div class="teacher-summary-text"></div><div class="teacher-order-actions"><span class="teacher-drag-handle" role="button" tabindex="0" title="拖曳排序" aria-label="拖曳排序">☰</span></div><button type="button" class="teacher-card-toggle" aria-expanded="${expanded}" aria-label="展開編輯">⌄</button></div><div class="teacher-card-body"><div class="countdown-event-fields"><label>活動名稱<input class="editor-input countdown-event-name" maxlength="80" placeholder="例如：116 學測"></label><label class="countdown-event-daterange-label">日期<div class="countdown-date-range"><input class="editor-input countdown-event-start" type="date" aria-label="開始日期"><span class="time-sep">→</span><input class="editor-input countdown-event-end" type="date" aria-label="結束日期"></div></label></div><div class="teacher-card-body-actions"><label class="order-position-label">順序<input class="order-position" type="number" min="1" inputmode="numeric" aria-label="倒數活動順序"></label><div class="teacher-card-buttons"><button type="button" class="delete-btn" aria-label="移除倒數">×</button></div></div></div>`;
+  row.className = expanded
+    ? 'teacher-card countdown-event-row is-expanded row-enter'
+    : 'teacher-card countdown-event-row';
+  row.innerHTML = `<div class="teacher-card-summary"><div class="teacher-summary-text"></div><div class="teacher-order-actions"><span class="teacher-drag-handle" role="button" tabindex="0" title="${esc(t('editorCore.dragToReorder'))}" aria-label="${esc(t('editorCore.dragToReorder'))}">☰</span></div><button type="button" class="teacher-card-toggle" aria-expanded="${expanded}" aria-label="${esc(t('editorCore.expandToEdit'))}">⌄</button></div><div class="teacher-card-body"><div class="countdown-event-fields"><label>${esc(t('editorCore.eventNameLabel'))}<input class="editor-input countdown-event-name" maxlength="80" placeholder="例如：116 學測"></label><label class="countdown-event-daterange-label">${esc(t('editorCore.dateLabel'))}<div class="countdown-date-range"><input class="editor-input countdown-event-start" type="date" aria-label="${esc(t('editorCore.startDateLabel'))}"><span class="time-sep">→</span><input class="editor-input countdown-event-end" type="date" aria-label="${esc(t('editorCore.endDateLabel'))}"></div></label></div><div class="teacher-card-body-actions"><label class="order-position-label">${esc(t('editorCore.orderLabel'))}<input class="order-position" type="number" min="1" inputmode="numeric" aria-label="${esc(t('editorCore.countdownOrderAriaLabel'))}"></label><div class="teacher-card-buttons"><button type="button" class="delete-btn" aria-label="${esc(t('editorCore.removeCountdownAriaLabel'))}">×</button></div></div></div>`;
   const nameInput = row.querySelector('.countdown-event-name');
   const summaryText = row.querySelector('.teacher-summary-text');
   nameInput.value = event.name;
-  summaryText.textContent = event.name.trim() || '倒數活動';
+  summaryText.textContent = event.name.trim() || t('editorCore.countdownEventFallback');
   nameInput.addEventListener('input', () => {
-    summaryText.textContent = nameInput.value.trim() || '倒數活動';
+    summaryText.textContent = nameInput.value.trim() || t('editorCore.countdownEventFallback');
   });
   const startInput = row.querySelector('.countdown-event-start');
   const endInput = row.querySelector('.countdown-event-end');
@@ -380,7 +396,9 @@ function addCountdownEventRow(event = { name: '', startDate: '', endDate: '' }, 
 function refreshCountdownMoveButtons() {
   const rows = [...document.querySelectorAll('#countdown-event-list .countdown-event-row')];
   rows.forEach((row, index) => {
-    row.querySelector('.teacher-drag-handle')?.setAttribute('aria-label', '拖曳倒數活動排序');
+    row
+      .querySelector('.teacher-drag-handle')
+      ?.setAttribute('aria-label', t('editorCore.dragCountdownReorderAriaLabel'));
     const input = row.querySelector('.order-position');
     if (input) {
       input.max = String(rows.length);
@@ -457,7 +475,9 @@ function bindEditorDragReorder(row, handleSelector, siblingsSelector, onMove) {
     lastY = clientY;
     autoScrollEditorWhileDragging(handle, clientY);
     const siblings = [...document.querySelectorAll(siblingsSelector)].filter(item => item !== row);
-    const target = siblings.find(item => clientY < item.getBoundingClientRect().top + item.offsetHeight / 2);
+    const target = siblings.find(
+      item => clientY < item.getBoundingClientRect().top + item.offsetHeight / 2
+    );
     if (target) target.parentElement.insertBefore(row, target);
     else if (siblings.length) siblings[siblings.length - 1].parentElement.appendChild(row);
     onMove?.();
@@ -541,11 +561,7 @@ function bindEditorDragReorder(row, handleSelector, siblingsSelector, onMove) {
   handle.addEventListener('pointercancel', finish);
 }
 function bindCountdownDrag(row) {
-  bindEditorDragReorder(
-    row,
-    '.teacher-drag-handle',
-    '#countdown-event-list .countdown-event-row'
-  );
+  bindEditorDragReorder(row, '.teacher-drag-handle', '#countdown-event-list .countdown-event-row');
 }
 function moveEditorControlsIntoLayers() {
   const sheet = document.getElementById('editor-sheet');
@@ -571,8 +587,7 @@ function ensureEditorBackButtons() {
     if (!body || body.querySelector('.editor-back-row')) return;
     const row = document.createElement('div');
     row.className = 'editor-back-row';
-    row.innerHTML =
-      '<button type="button" class="editor-back-btn" onclick="openEditorFold(\'editor-fold-schedule\')">返回課表</button>';
+    row.innerHTML = `<button type="button" class="editor-back-btn" onclick="openEditorFold('editor-fold-schedule')">${esc(t('editorCore.backToSchedule'))}</button>`;
     body.prepend(row);
   });
 }
@@ -598,7 +613,7 @@ function setEditorConfirmContent(
   diffText,
   confirmLabel,
   confirmHandler,
-  cancelLabel = '取消',
+  cancelLabel = t('common.cancel'),
   options = {}
 ) {
   const sheet = document.getElementById('editor-confirm-sheet');
@@ -668,12 +683,12 @@ function getEditorUnsavedDiff() {
 // own close needs to warn about.
 function showEditorDiscardConfirm() {
   setEditorConfirmContent(
-    '捨棄變更？',
-    '以下尚未儲存的變更將不會套用。',
+    t('editorCore.discardChangesTitle'),
+    t('editorCore.discardChangesMessage'),
     getEditorUnsavedDiff(),
-    '捨棄',
+    t('editorCore.discard'),
     discardEditorChangesAndClose,
-    '返回'
+    t('common.back')
   );
   showEditorConfirmSheet();
 }
@@ -683,23 +698,23 @@ function showEditorDiscardConfirm() {
 // about to be lost instead.
 function showTransferDiscardConfirm() {
   setEditorConfirmContent(
-    '尚未匯入內容？',
+    t('editorCore.unimportedContentTitle'),
     getUnconsumedImportWarningText(),
     '',
-    '捨棄離開',
+    t('editorCore.discardAndLeaveTransfer'),
     discardTransferChangesAndClose,
-    '返回'
+    t('common.back')
   );
   showEditorConfirmSheet();
 }
 function showEditorSaveConfirm(diffText) {
   setEditorConfirmContent(
-    '要儲存嗎？',
-    '會套用以下變更。',
+    t('editorCore.saveChangesTitle'),
+    t('editorCore.saveChangesMessage'),
     diffText,
-    '儲存',
+    t('common.save'),
     applyPendingSaveEditor,
-    '返回'
+    t('common.back')
   );
   showEditorConfirmSheet();
 }
@@ -758,10 +773,10 @@ function getUnconsumedImportWarningText() {
   const result = document.getElementById('ocr-import-result');
   const hasAiPreview = !!(result && !result.hidden && result.childElementCount > 0);
 
-  if (hasPastedText && hasAiPreview) return '未匯入的貼上內容與 AI 辨識結果將被清除。';
-  if (hasPastedText) return '未匯入的貼上內容將被清除。';
-  if (hasAiPreview) return '未匯入的 AI 辨識結果將被清除。';
-  return '未匯入內容將被清除。';
+  if (hasPastedText && hasAiPreview) return t('editorCore.unimportedPastedAndAiWarning');
+  if (hasPastedText) return t('editorCore.unimportedPastedWarning');
+  if (hasAiPreview) return t('editorCore.unimportedAiWarning');
+  return t('editorCore.unimportedGenericWarning');
 }
 
 async function hasDuplicateTransferData() {
@@ -772,7 +787,7 @@ async function hasDuplicateTransferData() {
       requireMarker: true
     });
     const current = settingsDataForExport();
-    return describeSettingsDiff(current, next) === '沒有變更。';
+    return describeSettingsDiff(current, next) === t('editorBackup.noChanges');
   } catch {
     return false;
   }
@@ -794,7 +809,7 @@ function notifyDiscardedImportData() {
   const toast = document.getElementById('save-toast');
   if (!toast) return;
   const previousText = toast.textContent;
-  toast.textContent = '已清除未匯入內容。';
+  toast.textContent = t('editorCore.clearedUnimportedContent');
   toast.classList.add('show');
   setTimeout(() => {
     toast.classList.remove('show');
@@ -836,10 +851,10 @@ async function closeTransferSheet(force) {
 
   if (state.isOcrProcessing) {
     setEditorConfirmContent(
-      'AI 辨識中',
-      '請等辨識完成再關閉，否則結果會遺失。',
+      t('editorCore.aiRecognizingTitle'),
+      t('editorCore.aiRecognizingMessage'),
       '',
-      '知道了',
+      t('nlEdit.dismiss'),
       hideEditorDiscardConfirm,
       null
     );

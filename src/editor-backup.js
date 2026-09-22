@@ -46,6 +46,7 @@ import {
 import { renderEditorTeachers } from './editor-teachers.js';
 import { buildSchedule } from './schedule.js';
 import { isSyncConfigured, isSyncViewer, pushSyncSnapshot, setSyncStatusUi } from './sync.js';
+import { t } from './strings.js';
 
 // Reads the editor form and converts it into the app data shape. With
 // `includeDraft: true` (only editorFormSnapshotString below needs this),
@@ -161,12 +162,12 @@ function runTransferAction(action) {
     const text = document.getElementById('settings-transfer-text');
     if (text?.value.trim()) {
       setEditorConfirmContent(
-        '覆寫匯出內容？',
-        '匯出會覆寫目前文字欄位中的內容。',
-        '確定要以新內容取代嗎？',
-        '覆寫並匯出',
+        t('editorBackup.overwriteExportTitle'),
+        t('editorBackup.overwriteExportMessage'),
+        t('editorBackup.overwriteExportConfirm'),
+        t('editorBackup.overwriteAndExport'),
         confirmExportOverwrite,
-        '取消'
+        t('common.cancel')
       );
       showEditorConfirmSheet();
       return;
@@ -181,7 +182,7 @@ function requestTransferAction(action) {
   // a CSS/pointer-events lock, not real access control. Export stays
   // allowed - reading out the current (received) schedule isn't editing.
   if (action === 'import' && isSyncViewer()) {
-    setSyncStatusUi('此裝置為僅接收模式，無法匯入。如要自行編輯，請先解除同步。', true);
+    setSyncStatusUi(t('sync.viewerLockedImport'), true);
     return;
   }
   if (!isEditorDirty()) {
@@ -189,16 +190,16 @@ function requestTransferAction(action) {
     return;
   }
   pendingTransferAction = action;
-  const label = action === 'export' ? '匯出' : '匯入';
+  const label = action === 'export' ? t('common.export') : t('common.import');
   setEditorConfirmContent(
-    `要先儲存目前設定嗎？`,
-    `有尚未儲存的變更，是否先儲存再${label}？`,
+    t('editorBackup.saveFirstTitle'),
+    t('editorBackup.saveFirstMessage', { action: label }),
     '',
-    `儲存後${label}`,
+    t('editorBackup.saveThenAction', { action: label }),
     () => {
       saveEditor();
     },
-    `不儲存直接${label}`,
+    t('editorBackup.actionWithoutSaving', { action: label }),
     {
       cancelHandler: () => {
         const nextAction = pendingTransferAction;
@@ -212,7 +213,7 @@ function requestTransferAction(action) {
           runTransferAction(nextAction);
         }
       },
-      extraLabel: '取消',
+      extraLabel: t('common.cancel'),
       extraHandler: () => {
         pendingTransferAction = null;
         hideEditorDiscardConfirm();
@@ -387,53 +388,59 @@ async function encodeTransferDataV2(data) {
 }
 async function decodeTransferDataV2(value) {
   const encoded = value.slice(TRANSFER_MAGIC_V2.length, -TRANSFER_MAGIC_V2_END.length).trim();
-  if (!encoded) throw new Error('請貼上 Orbit Color 課表設定備份。');
+  if (!encoded) throw new Error(t('editorBackup.pasteBackup'));
   const stream = new Blob([base91Decode(encoded)])
     .stream()
     .pipeThrough(new DecompressionStream('deflate-raw'));
   const array = JSON.parse(await new Response(stream).text());
-  if (!Array.isArray(array)) throw new Error('請貼上 Orbit Color 課表設定備份。');
+  if (!Array.isArray(array)) throw new Error(t('editorBackup.pasteBackup'));
   return decodeTransferPayloadV2(array);
 }
 async function encodeTransferData(data) {
-  if (typeof CompressionStream !== 'function') throw new Error('此裝置不支援壓縮匯出。');
+  if (typeof CompressionStream !== 'function')
+    throw new Error(t('editorBackup.noCompressionExport'));
   return encodeTransferDataV2(data);
 }
 async function decodeTransferData(text) {
   const value = String(text || '').trim();
   if (!value.startsWith(TRANSFER_MAGIC_V2) || !value.endsWith(TRANSFER_MAGIC_V2_END))
-    throw new Error('請貼上 Orbit Color 課表設定備份。');
-  if (typeof DecompressionStream !== 'function') throw new Error('此裝置不支援壓縮匯入。');
+    throw new Error(t('editorBackup.pasteBackup'));
+  if (typeof DecompressionStream !== 'function')
+    throw new Error(t('editorBackup.noCompressionImport'));
   return decodeTransferDataV2(value);
 }
 function normalizeSettingsData(raw, { requireMarker = false } = {}) {
-  if (!raw || typeof raw !== 'object') throw new Error('設定文字必須是 JSON 物件。');
+  if (!raw || typeof raw !== 'object') throw new Error(t('editorBackup.mustBeJsonObject'));
   const marker = raw.__orbit;
   if (
     requireMarker &&
     (!marker || marker.app !== ORBIT_APP_ID || marker.schema !== ORBIT_STORAGE_SCHEMA)
   ) {
-    throw new Error('設定檔不是由目前版本的 Orbit_Color 建立。');
+    throw new Error(t('editorBackup.notCreatedByThisApp'));
   }
 
   const source = raw;
   const required = ['teacherDB', 'locationDB', 'weeklySchedule', 'bellTimes'];
   required.forEach(key => {
-    if (!(key in source)) throw new Error(`設定文字缺少「${key}」。`);
+    if (!(key in source)) throw new Error(t('editorBackup.missingField', { field: key }));
   });
 
-  if (!isPlainObject(source.teacherDB)) throw new Error('teacherDB 必須是物件。');
-  if (!isPlainObject(source.locationDB)) throw new Error('locationDB 必須是物件。');
-  if (!isPlainObject(source.weeklySchedule)) throw new Error('weeklySchedule 必須是物件。');
-  if (!Array.isArray(source.bellTimes)) throw new Error('bellTimes 必須是陣列。');
+  if (!isPlainObject(source.teacherDB))
+    throw new Error(t('editorBackup.mustBeObject', { field: 'teacherDB' }));
+  if (!isPlainObject(source.locationDB))
+    throw new Error(t('editorBackup.mustBeObject', { field: 'locationDB' }));
+  if (!isPlainObject(source.weeklySchedule))
+    throw new Error(t('editorBackup.mustBeObject', { field: 'weeklySchedule' }));
+  if (!Array.isArray(source.bellTimes))
+    throw new Error(t('editorBackup.mustBeArray', { field: 'bellTimes' }));
   if (source.breakTimes !== undefined && !Array.isArray(source.breakTimes))
-    throw new Error('breakTimes 必須是陣列。');
+    throw new Error(t('editorBackup.mustBeArray', { field: 'breakTimes' }));
   if (source.countdownEvents !== undefined && !Array.isArray(source.countdownEvents))
-    throw new Error('countdownEvents 必須是陣列。');
+    throw new Error(t('editorBackup.mustBeArray', { field: 'countdownEvents' }));
   if (Object.values(source.teacherDB).some(value => !Array.isArray(value)))
-    throw new Error('teacherDB 必須是每個項目都是 [科目, 老師, 教室] 陣列。');
+    throw new Error(t('editorBackup.teacherDbShape'));
   if (Object.values(source.weeklySchedule).some(value => !Array.isArray(value)))
-    throw new Error('weeklySchedule 必須是每一天都是陣列。');
+    throw new Error(t('editorBackup.weeklyScheduleShape'));
 
   const teacherDB = {};
   Object.entries(source.teacherDB).forEach(([key, value]) => {
@@ -463,14 +470,14 @@ function normalizeSettingsData(raw, { requireMarker = false } = {}) {
   });
 
   if (Object.values(weeklySchedule).some(row => row.some(key => key && !teacherDB[key])))
-    throw new Error('排課資料包含不存在的教師代碼。');
+    throw new Error(t('editorBackup.scheduleUnknownTeacher'));
   if (
     source.bellTimes.some(
       item =>
         !Array.isArray(item) || !isValidTimeRange(String(item[0] || ''), String(item[1] || ''))
     )
   )
-    throw new Error('節次時間必須是有效的開始與結束時間。');
+    throw new Error(t('editorBackup.invalidBellTimes'));
 
   const bellTimes = source.bellTimes.map(item => [String(item[0]), String(item[1])]);
   const breakTimes = sanitizeBreakTimes(bellTimes, source.breakTimes);
@@ -554,7 +561,7 @@ async function copyTransferText(text) {
   document.body.appendChild(helper);
   helper.select();
   try {
-    if (!document.execCommand('copy')) throw new Error('無法自動複製匯出內容。');
+    if (!document.execCommand('copy')) throw new Error(t('editorBackup.copyFailed'));
   } finally {
     helper.remove();
   }
@@ -566,21 +573,21 @@ async function exportEditorSettings(data = settingsDataForExport()) {
     await copyTransferText(text.value);
     text.focus();
     text.select();
-    setTransferStatus('已產生並複製匯出內容。');
+    setTransferStatus(t('editorBackup.exportSuccess'));
   } catch {
-    setTransferStatus('匯出失敗：無法建立設定備份。', true);
+    setTransferStatus(t('editorBackup.exportFailed'), true);
   }
 }
 function formatDiffValue(value) {
-  return value ? String(value) : '（空白）';
+  return value ? String(value) : t('editorBackup.blankValue');
 }
 function formatClassRef(key, data) {
-  if (!key) return '（空）';
+  if (!key) return t('editorBackup.emptyValue');
   const info = (data.teacherDB || {})[key] || [];
   const subject = info[0] || '';
   const teacher = info[1] || '';
   const details = [subject, teacher].filter(Boolean).join(' / ');
-  return details || '（未命名課程）';
+  return details || t('editorBackup.unnamedClass');
 }
 function pushDiff(lines, title, items) {
   if (!items.length) return;
@@ -602,7 +609,7 @@ function diffIndexedArrays(currentList, nextList, formatEntry, formatLine) {
   return items;
 }
 function dayDiffLabel(day) {
-  return WEEKDAY_LABELS[day] || `第 ${day} 天`;
+  return WEEKDAY_LABELS[day] || t('editorBackup.dayNumber', { day });
 }
 // True when two identity-key arrays hold exactly the same multiset but in a
 // different sequence - a pure drag-reorder with no addition or removal.
@@ -628,27 +635,37 @@ function describeSettingsDiff(current, next, { isImport = false } = {}) {
   teacherKeys.forEach(key => {
     const before = (current.teacherDB || {})[key];
     const after = (next.teacherDB || {})[key];
-    if (!before && after) teacherItems.push(`新增 ${formatClassRef(key, next)}`);
-    else if (before && !after) teacherItems.push(`移除 ${formatClassRef(key, current)}`);
+    if (!before && after)
+      teacherItems.push(t('editorBackup.added', { item: formatClassRef(key, next) }));
+    else if (before && !after)
+      teacherItems.push(t('editorBackup.removed', { item: formatClassRef(key, current) }));
     else if (before && after) {
       if ((before[0] || '') !== (after[0] || ''))
         teacherItems.push(
-          `${formatClassRef(key, next)} 科目：${formatDiffValue(before[0])} -> ${formatDiffValue(after[0])}`
+          t('editorBackup.subjectChange', {
+            ref: formatClassRef(key, next),
+            before: formatDiffValue(before[0]),
+            after: formatDiffValue(after[0])
+          })
         );
       if ((before[1] || '') !== (after[1] || ''))
         teacherItems.push(
-          `${formatClassRef(key, next)} 老師：${formatDiffValue(before[1])} -> ${formatDiffValue(after[1])}`
+          t('editorBackup.teacherChange', {
+            ref: formatClassRef(key, next),
+            before: formatDiffValue(before[1]),
+            after: formatDiffValue(after[1])
+          })
         );
     }
   });
-  pushDiff(lines, '課程與老師', teacherItems);
+  pushDiff(lines, t('editorBackup.sectionTeachers'), teacherItems);
   if (
     isPureReorder(
       Array.isArray(current.teacherOrder) ? current.teacherOrder : [],
       Array.isArray(next.teacherOrder) ? next.teacherOrder : []
     )
   )
-    lines.push('課程順序已調整。');
+    lines.push(t('editorBackup.teacherOrderChanged'));
 
   const locationItems = [];
   const locationKeys = [
@@ -660,26 +677,32 @@ function describeSettingsDiff(current, next, { isImport = false } = {}) {
     const data = after ? next : current;
     if (before !== after)
       locationItems.push(
-        `${formatClassRef(key, data)} 地點：${formatDiffValue(before)} -> ${formatDiffValue(after)}`
+        t('editorBackup.locationChange', {
+          ref: formatClassRef(key, data),
+          before: formatDiffValue(before),
+          after: formatDiffValue(after)
+        })
       );
   });
-  pushDiff(lines, '上課地點', locationItems);
+  pushDiff(lines, t('editorBackup.sectionLocations'), locationItems);
 
   const bellItems = diffIndexedArrays(
     current.bellTimes,
     next.bellTimes,
-    item => (item ? `${item[0]}-${item[1]}` : '（無）'),
-    (i, beforeText, afterText) => `第 ${i + 1} 節：${beforeText} -> ${afterText}`
+    item => (item ? `${item[0]}-${item[1]}` : t('editorBackup.noneValue')),
+    (i, beforeText, afterText) =>
+      t('editorBackup.periodChange', { number: i + 1, before: beforeText, after: afterText })
   );
-  pushDiff(lines, '節次時間', bellItems);
+  pushDiff(lines, t('editorBackup.sectionBellTimes'), bellItems);
 
   const breakItems = diffIndexedArrays(
     current.breakTimes,
     next.breakTimes,
-    item => (item ? `${item.name} ${item.start}-${item.end}` : '（無）'),
-    (i, beforeText, afterText) => `休息時段 ${i + 1}：${beforeText} -> ${afterText}`
+    item => (item ? `${item.name} ${item.start}-${item.end}` : t('editorBackup.noneValue')),
+    (i, beforeText, afterText) =>
+      t('editorBackup.breakChange', { number: i + 1, before: beforeText, after: afterText })
   );
-  pushDiff(lines, '休息時段', breakItems);
+  pushDiff(lines, t('editorBackup.sectionBreakTimes'), breakItems);
 
   const scheduleItems = [];
   WEEKDAYS_DISPLAY_ORDER.forEach(day => {
@@ -691,11 +714,16 @@ function describeSettingsDiff(current, next, { isImport = false } = {}) {
       const after = afterRow[i] || '';
       if (before !== after)
         scheduleItems.push(
-          `${dayDiffLabel(day)}第 ${i + 1} 節：${formatClassRef(before, current)} -> ${formatClassRef(after, next)}`
+          t('editorBackup.scheduleCellChange', {
+            day: dayDiffLabel(day),
+            number: i + 1,
+            before: formatClassRef(before, current),
+            after: formatClassRef(after, next)
+          })
         );
     }
   });
-  pushDiff(lines, '課表內容', scheduleItems);
+  pushDiff(lines, t('editorBackup.sectionScheduleContent'), scheduleItems);
 
   const currentCountdownEvents = getCountdownEvents(current);
   const nextCountdownEvents = getCountdownEvents(next);
@@ -720,40 +748,65 @@ function describeSettingsDiff(current, next, { isImport = false } = {}) {
     if (changed !== -1) {
       matchedCurrent.add(changed);
       countdownItems.push(
-        `活動：${eventText(currentCountdownEvents[changed])} -> ${eventText(event)}`
+        t('editorBackup.eventChanged', {
+          before: eventText(currentCountdownEvents[changed]),
+          after: eventText(event)
+        })
       );
-    } else countdownItems.push(`新增活動：${eventText(event)}`);
+    } else countdownItems.push(t('editorBackup.eventAdded', { event: eventText(event) }));
   });
   currentCountdownEvents.forEach((event, index) => {
-    if (!matchedCurrent.has(index)) countdownItems.push(`移除活動：${eventText(event)}`);
+    if (!matchedCurrent.has(index))
+      countdownItems.push(t('editorBackup.eventRemoved', { event: eventText(event) }));
   });
-  pushDiff(lines, '倒數活動', countdownItems);
+  pushDiff(lines, t('editorBackup.sectionCountdownEvents'), countdownItems);
   if (isPureReorder(currentCountdownEvents.map(eventText), nextCountdownEvents.map(eventText)))
-    lines.push('倒數活動順序已調整。');
+    lines.push(t('editorBackup.countdownOrderChanged'));
   if (!!current.reverseWeek !== !!next.reverseWeek)
     lines.push(
-      `單雙週對調：${current.reverseWeek ? '開啟' : '關閉'} -> ${next.reverseWeek ? '開啟' : '關閉'}`
+      t('editorBackup.reverseWeekChange', {
+        before: current.reverseWeek ? t('common.on') : t('common.off'),
+        after: next.reverseWeek ? t('common.on') : t('common.off')
+      })
     );
   const currentProAccent = normalizeProAccent(current.proAccent);
   const nextProAccent = normalizeProAccent(next.proAccent);
   const describeColorChange = (label, before, after) =>
     isImport
-      ? `${label}（目前）：${before} -> ${label}（匯入）：${after}`
-      : `${label}：${before} -> ${after}`;
+      ? t('editorBackup.colorChangeImport', { label, before, after })
+      : t('editorBackup.colorChangePlain', { label, before, after });
   const importedStyleItems = [];
   if (currentProAccent !== nextProAccent) {
     if (isImport)
-      importedStyleItems.push(`主色：${currentProAccent} -> 主色（匯入）：${nextProAccent}`);
-    else lines.push(describeColorChange('主色', currentProAccent, nextProAccent));
+      importedStyleItems.push(
+        t('editorBackup.colorChangeImport', {
+          label: t('editorBackup.primaryColor'),
+          before: currentProAccent,
+          after: nextProAccent
+        })
+      );
+    else
+      lines.push(
+        describeColorChange(t('editorBackup.primaryColor'), currentProAccent, nextProAccent)
+      );
   }
   const currentProSecondary = normalizeProSecondary(current.proSecondary);
   const nextProSecondary = normalizeProSecondary(next.proSecondary);
   if (currentProSecondary !== nextProSecondary) {
     if (isImport)
-      importedStyleItems.push(`次色：${currentProSecondary} -> 次色（匯入）：${nextProSecondary}`);
-    else lines.push(describeColorChange('次色', currentProSecondary, nextProSecondary));
+      importedStyleItems.push(
+        t('editorBackup.colorChangeImport', {
+          label: t('editorBackup.secondaryColor'),
+          before: currentProSecondary,
+          after: nextProSecondary
+        })
+      );
+    else
+      lines.push(
+        describeColorChange(t('editorBackup.secondaryColor'), currentProSecondary, nextProSecondary)
+      );
   }
-  if (isImport) pushDiff(lines, '目前樣式', importedStyleItems);
+  if (isImport) pushDiff(lines, t('editorBackup.sectionCurrentStyle'), importedStyleItems);
   const currentSlots = normalizeStyleSlots(current.styleSlots);
   const nextSlots = normalizeStyleSlots(next.styleSlots);
   const styleSlotItems = [];
@@ -765,31 +818,57 @@ function describeSettingsDiff(current, next, { isImport = false } = {}) {
       slot.secondary === nextSlot.secondary
     )
       return;
-    const slotLabel = `樣式 ${index + 1}`;
+    const slotLabel = t('editorBackup.styleSlotLabel', { number: index + 1 });
     if (!slot.name && nextSlot.name)
       styleSlotItems.push(
-        `新增${slotLabel}「${nextSlot.name}」：主色 ${nextSlot.primary}，次色 ${nextSlot.secondary}`
+        t('editorBackup.styleSlotAdded', {
+          slot: slotLabel,
+          name: nextSlot.name,
+          primary: nextSlot.primary,
+          secondary: nextSlot.secondary
+        })
       );
     else if (slot.name && !nextSlot.name)
       styleSlotItems.push(
-        `移除${slotLabel}「${slot.name}」：主色 ${slot.primary}，次色 ${slot.secondary}`
+        t('editorBackup.styleSlotRemoved', {
+          slot: slotLabel,
+          name: slot.name,
+          primary: slot.primary,
+          secondary: slot.secondary
+        })
       );
     else if (isImport)
       styleSlotItems.push(
-        `${slotLabel}「${slot.name || '未命名'}」 -> 「${nextSlot.name || '未命名'}」：主色（目前）${slot.primary} -> 主色（匯入）${nextSlot.primary}，次色（目前）${slot.secondary} -> 次色（匯入）${nextSlot.secondary}`
+        t('editorBackup.styleSlotChangedImport', {
+          slot: slotLabel,
+          before: slot.name || t('editorBackup.unnamedStyle'),
+          after: nextSlot.name || t('editorBackup.unnamedStyle'),
+          beforePrimary: slot.primary,
+          afterPrimary: nextSlot.primary,
+          beforeSecondary: slot.secondary,
+          afterSecondary: nextSlot.secondary
+        })
       );
     else
       styleSlotItems.push(
-        `${slotLabel}「${slot.name || '未命名'}」 -> 「${nextSlot.name || '未命名'}」：主色 ${slot.primary} -> ${nextSlot.primary}，次色 ${slot.secondary} -> ${nextSlot.secondary}`
+        t('editorBackup.styleSlotChangedPlain', {
+          slot: slotLabel,
+          before: slot.name || t('editorBackup.unnamedStyle'),
+          after: nextSlot.name || t('editorBackup.unnamedStyle'),
+          beforePrimary: slot.primary,
+          afterPrimary: nextSlot.primary,
+          beforeSecondary: slot.secondary,
+          afterSecondary: nextSlot.secondary
+        })
       );
   });
-  pushDiff(lines, '個人樣式', styleSlotItems);
+  pushDiff(lines, t('editorBackup.sectionPersonalStyles'), styleSlotItems);
   // No line cap here - the diff box that displays this (#editor-import-diff,
   // see editor-core.js's setEditorConfirmContent) already scrolls
   // (max-height + overflow:auto in styles.css), so a very long diff is
   // still fully there, just scrollable, instead of being silently cut off
   // with no way to see what got hidden.
-  return lines.length ? lines.join('\n') : '沒有變更。';
+  return lines.length ? lines.join('\n') : t('editorBackup.noChanges');
 }
 // Import is decoded and previewed first; confirmation is required before saving.
 async function previewImportEditorSettings() {
@@ -799,9 +878,9 @@ async function previewImportEditorSettings() {
       requireMarker: true
     });
     const current = settingsDataForExport();
-    if (describeSettingsDiff(current, next) === '沒有變更。') {
+    if (describeSettingsDiff(current, next) === t('editorBackup.noChanges')) {
       state.pendingEditorImportData = null;
-      setTransferStatus('匯入失敗：設定內容與目前設定相同。', true);
+      setTransferStatus(t('editorBackup.importFailedIdentical'), true);
       return;
     }
     state.pendingEditorImportData = next;
@@ -809,7 +888,7 @@ async function previewImportEditorSettings() {
   } catch {
     state.pendingEditorImportData = null;
     text.value = '';
-    setTransferStatus('匯入失敗：內容無效或已損毀。', true);
+    setTransferStatus(t('editorBackup.importFailedInvalid'), true);
   }
 }
 function mergeImportedSettings(current, imported, preserveStyle = false) {
@@ -840,8 +919,8 @@ function mergeImportedSettings(current, imported, preserveStyle = false) {
     const targetLabel = importedInfo[0] || targetKey;
     (matchedKey ? mergedActions : addedActions).push(
       matchedKey
-        ? `合併課程「${targetLabel}」（名稱相同，使用匯入的課程資料）`
-        : `新增課程「${targetLabel}」`
+        ? t('editorBackup.mergedClass', { name: targetLabel })
+        : t('editorBackup.addedClass', { name: targetLabel })
     );
   });
   merged.locationDB = { ...(current.locationDB || {}) };
@@ -855,7 +934,11 @@ function mergeImportedSettings(current, imported, preserveStyle = false) {
     const currentValue = current.locationDB?.[targetKey] || current.locationDB?.[oldKey] || '';
     if (currentValue !== value)
       replacedActions.push(
-        `取代課程「${targetLabel}」地點：${currentValue || '（空白）'} -> ${value || '（空白）'}`
+        t('editorBackup.replacedClassLocation', {
+          name: targetLabel,
+          before: currentValue || t('editorBackup.blankValue'),
+          after: value || t('editorBackup.blankValue')
+        })
       );
     merged.locationDB[targetKey] = value;
   });
@@ -869,11 +952,20 @@ function mergeImportedSettings(current, imported, preserveStyle = false) {
         importedKey = teacherKeyMap[importedRow[index]] || importedRow[index] || '';
       if (currentKey && importedKey && currentKey !== importedKey)
         replacedActions.push(
-          `取代${dayDiffLabel(day)}第 ${index + 1} 節：${formatClassRef(currentKey, current)} -> ${formatClassRef(importedKey, merged)}`
+          t('editorBackup.replacedDayPeriod', {
+            day: dayDiffLabel(day),
+            number: index + 1,
+            before: formatClassRef(currentKey, current),
+            after: formatClassRef(importedKey, merged)
+          })
         );
       else if (!currentKey && importedKey)
         addedActions.push(
-          `新增${dayDiffLabel(day)}第 ${index + 1} 節：${formatClassRef(importedKey, merged)}`
+          t('editorBackup.addedDayPeriod', {
+            day: dayDiffLabel(day),
+            number: index + 1,
+            value: formatClassRef(importedKey, merged)
+          })
         );
       return importedKey || currentKey;
     });
@@ -890,18 +982,22 @@ function mergeImportedSettings(current, imported, preserveStyle = false) {
   ];
   if (Array.isArray(imported.bellTimes) && imported.bellTimes.length) {
     merged.bellTimes = cloneSettingsData(imported.bellTimes);
-    replacedActions.push('取代節次時間');
+    replacedActions.push(t('editorBackup.replacedBellTimes'));
   }
   const breaks = new Map((current.breakTimes || []).map(item => [item.name, item]));
   const importedBreakNames = new Set();
   (imported.breakTimes || []).forEach(item => {
     const currentBreak = breaks.get(item.name);
-    if (!currentBreak) addedActions.push(`新增特殊時段「${item.name}」`);
+    if (!currentBreak) addedActions.push(t('editorBackup.addedBreak', { name: item.name }));
     else if (currentBreak.start === item.start && currentBreak.end === item.end)
-      mergedActions.push(`合併特殊時段「${item.name}」`);
+      mergedActions.push(t('editorBackup.mergedBreak', { name: item.name }));
     else
       replacedActions.push(
-        `取代特殊時段「${item.name}」：${currentBreak.start}-${currentBreak.end} -> ${item.start}-${item.end}`
+        t('editorBackup.replacedBreak', {
+          name: item.name,
+          before: `${currentBreak.start}-${currentBreak.end}`,
+          after: `${item.start}-${item.end}`
+        })
       );
     breaks.set(item.name, item);
     importedBreakNames.add(item.name);
@@ -919,7 +1015,7 @@ function mergeImportedSettings(current, imported, preserveStyle = false) {
       validateTimeIntervals(merged.bellTimes, [...keptBreaks, item]);
       keptBreaks.push(item);
     } catch {
-      replacedActions.push(`移除特殊時段「${item.name}」（與匯入的節次時間衝突）`);
+      replacedActions.push(t('editorBackup.removedBreakConflict', { name: item.name }));
     }
   });
   merged.breakTimes = keptBreaks;
@@ -927,18 +1023,30 @@ function mergeImportedSettings(current, imported, preserveStyle = false) {
   getCountdownEvents(imported).forEach(item => {
     const currentEvent = events.get(item.name);
     if (!currentEvent)
-      addedActions.push(`新增倒數活動：${item.name}（${formatCountdownEventDate(item)}）`);
+      addedActions.push(
+        t('editorBackup.addedCountdown', { name: item.name, date: formatCountdownEventDate(item) })
+      );
     else if (currentEvent.startDate === item.startDate && currentEvent.endDate === item.endDate)
-      mergedActions.push(`合併倒數活動：${item.name}（${formatCountdownEventDate(item)}）`);
+      mergedActions.push(
+        t('editorBackup.mergedCountdown', { name: item.name, date: formatCountdownEventDate(item) })
+      );
     else
       replacedActions.push(
-        `取代倒數活動：${item.name}（${formatCountdownEventDate(currentEvent)} -> ${formatCountdownEventDate(item)}）`
+        t('editorBackup.replacedCountdown', {
+          name: item.name,
+          before: formatCountdownEventDate(currentEvent),
+          after: formatCountdownEventDate(item)
+        })
       );
     events.set(item.name, item);
   });
   merged.countdownEvents = [...events.values()];
   if (current.reverseWeek !== imported.reverseWeek)
-    replacedActions.push(`取代單雙週設定：${imported.reverseWeek ? '開啟' : '關閉'}`);
+    replacedActions.push(
+      t('editorBackup.replacedReverseWeek', {
+        value: imported.reverseWeek ? t('common.on') : t('common.off')
+      })
+    );
   merged.reverseWeek = imported.reverseWeek;
   // AI imports keep this browser's visual preferences; regular backups retain
   // the imported palette and saved presets.
@@ -951,15 +1059,15 @@ function mergeImportedSettings(current, imported, preserveStyle = false) {
 }
 function showEditorImportModeConfirm(current, next, preserveStyle = false) {
   setEditorConfirmContent(
-    '匯入方式？',
-    '要合併目前設定與匯入設定嗎？',
-    '合併匯入會保留可共存內容；課表時間衝突時使用匯入內容。',
-    '合併匯入',
+    t('editorBackup.importModeTitle'),
+    t('editorBackup.importModeMessage'),
+    t('editorBackup.importModeHint'),
+    t('editorBackup.mergeImport'),
     () => showEditorImportConfirm(current, next, true, preserveStyle),
-    '直接匯入',
+    t('editorBackup.directImport'),
     {
       cancelHandler: () => showEditorImportConfirm(current, next, false, preserveStyle),
-      extraLabel: '取消',
+      extraLabel: t('common.cancel'),
       extraHandler: hideEditorDiscardConfirm
     }
   );
@@ -973,7 +1081,10 @@ function beginEditorImport(current, next, { preserveStyle = false } = {}) {
     showEditorImportModeConfirm(normalizedCurrent, normalizedNext, preserveStyle);
   } catch (error) {
     state.pendingEditorImportData = null;
-    setTransferStatus(`匯入失敗：${error.message || error}`, true);
+    setTransferStatus(
+      t('editorBackup.importFailedWithReason', { reason: error.message || error }),
+      true
+    );
   }
 }
 function showEditorImportConfirm(current, next, isMerge, preserveStyle = false) {
@@ -995,10 +1106,10 @@ function showEditorImportConfirm(current, next, isMerge, preserveStyle = false) 
   } catch (error) {
     state.pendingEditorImportData = null;
     setEditorConfirmContent(
-      '匯入失敗',
-      '無法完成這次匯入，請調整後再試一次。',
+      t('editorBackup.importFailedTitle'),
+      t('editorBackup.importFailedMessage'),
       error.message || String(error),
-      '返回',
+      t('common.back'),
       hideEditorDiscardConfirm,
       null
     );
@@ -1008,28 +1119,30 @@ function showEditorImportConfirm(current, next, isMerge, preserveStyle = false) 
   state.pendingEditorImportData = result.data;
   const diff = isMerge
     ? [
-        '新增：',
+        t('editorBackup.diffAdded'),
         ...result.addedActions.map(item => `- ${item}`),
         '',
-        '合併：',
+        t('editorBackup.diffMerged'),
         ...result.mergedActions.map(item => `- ${item}`),
         '',
-        '取代：',
+        t('editorBackup.diffReplaced'),
         ...result.replacedActions.map(item => `- ${item}`)
       ].join('\n')
     : describeSettingsDiff(current, next, { isImport: true });
-  const identical = !isMerge && diff === '沒有變更。';
+  const identical = !isMerge && diff === t('editorBackup.noChanges');
   setEditorConfirmContent(
-    isMerge ? '確認合併匯入？' : '確認直接匯入？',
+    isMerge
+      ? t('editorBackup.confirmMergeImportTitle')
+      : t('editorBackup.confirmDirectImportTitle'),
     identical
-      ? '匯入內容與目前設定完全相同，仍可匯入。'
+      ? t('editorBackup.identicalImportMessage')
       : isMerge
-        ? '以下分開列出新增、合併與取代的內容。'
-        : '匯入設定將取代目前已儲存的課表資料。',
-    identical ? '內容相同，沒有需要變更的項目。' : diff,
-    isMerge ? '確認合併' : '確認匯入',
+        ? t('editorBackup.mergeImportHint')
+        : t('editorBackup.directImportWarning'),
+    identical ? t('editorBackup.identicalImportDetail') : diff,
+    isMerge ? t('editorBackup.confirmMerge') : t('editorBackup.confirmImport'),
     applyPendingImportSettings,
-    '返回',
+    t('common.back'),
     { cancelHandler: () => showEditorImportModeConfirm(current, next, preserveStyle) }
   );
   showEditorConfirmSheet();
@@ -1065,7 +1178,7 @@ function applyEditorSettingsData(
   window.update();
   if (statusMessage) setTransferStatus(statusMessage);
   const toast = document.getElementById('save-toast');
-  toast.textContent = fromSync ? '已從其他裝置更新' : '已儲存';
+  toast.textContent = fromSync ? t('editorBackup.updatedFromOtherDevice') : t('editorBackup.saved');
   toast.classList.add('show');
   setTimeout(() => toast.classList.remove('show'), 2500);
   if (closeAfter) setTimeout(() => closeEditor(true), 400);
@@ -1088,7 +1201,7 @@ function applyPendingImportSettings() {
   }
   applyEditorSettingsData(state.pendingEditorImportData, {
     closeAfter: true,
-    statusMessage: '已匯入並儲存，編輯器已更新為貼上的設定。'
+    statusMessage: t('editorBackup.importedAndSaved')
   });
   document.getElementById('settings-transfer-text').value = '';
   state.pendingEditorImportData = null;
@@ -1103,15 +1216,15 @@ function applyPendingImportSettings() {
 // every other irreversible action uses.
 function resetAllAppData() {
   setEditorConfirmContent(
-    '重設所有資料？',
-    '會清除所有資料並回到初始畫面，此動作無法復原。',
-    '課表、樣式、同步設定等皆會清除；其他同步裝置不受影響。',
-    '重設',
+    t('editorBackup.resetAllTitle'),
+    t('editorBackup.resetAllMessage'),
+    t('editorBackup.resetAllDetail'),
+    t('common.reset'),
     () => {
       localStorage.clear();
       location.reload();
     },
-    '取消'
+    t('common.cancel')
   );
   showEditorConfirmSheet();
 }
@@ -1133,7 +1246,7 @@ function resetOCRImporterUI() {
     node.removeAttribute('src');
   });
   const filename = document.getElementById('ocr-import-filename');
-  if (filename) filename.textContent = '尚未選擇檔案';
+  if (filename) filename.textContent = t('editorBackup.noFileSelected');
   const eta = document.getElementById('ocr-import-eta');
   if (eta) eta.textContent = '';
   const status = document.getElementById('ocr-import-status');

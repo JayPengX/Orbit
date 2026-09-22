@@ -47,6 +47,7 @@ import {
   showEditorConfirmSheet
 } from './editor-core.js';
 import { proxyPath } from './proxy-config.js';
+import { t } from './strings.js';
 
 // The `/sync` path is hardcoded here, not part of the env var - see
 // proxy-config.js, which is what actually reads PROXY_URL.
@@ -262,7 +263,7 @@ function proxyUrl(code, extraParams = {}) {
 // whatever the Worker's own (already-friendly, but sync-context-less)
 // message says.
 async function proxyErrorMessage(response) {
-  if (response.status === 429) return '請求過於頻繁，請稍後再試。';
+  if (response.status === 429) return t('sync.rateLimited');
   const errorJson = await response.json().catch(() => ({}));
   return errorJson.error?.message || response.statusText || `HTTP ${response.status}`;
 }
@@ -322,7 +323,7 @@ async function createSyncDoc(payload) {
       updateTime: data.updateTime || ''
     };
   } catch (error) {
-    return { ok: false, error: `建立同步失敗：${error.message || error}` };
+    return { ok: false, error: t('sync.createFailed', { message: error.message || error }) };
   }
 }
 
@@ -400,7 +401,7 @@ function dataForPush() {
 // unsaved editor form) so sync can never publish a half-edited draft.
 async function pushSyncSnapshot() {
   const code = getSyncCode();
-  if (!isSyncProxyConfigured() || !code) return { ok: false, error: '尚未設定同步。' };
+  if (!isSyncProxyConfigured() || !code) return { ok: false, error: t('sync.notConfigured') };
   try {
     const payload = await encodeTransferData(dataForPush());
     const result = await writeSyncDoc(code, payload, getSyncManagerPasscode());
@@ -424,7 +425,7 @@ async function pushSyncSnapshot() {
     lastPushedSnapshot = snapshotForComparison(state.applicationData);
     return { ok: true, pushed: true };
   } catch (error) {
-    return { ok: false, error: `同步上傳失敗：${error.message || error}` };
+    return { ok: false, error: t('sync.uploadFailed', { message: error.message || error }) };
   }
 }
 
@@ -444,7 +445,7 @@ async function pushSyncSnapshot() {
 // function needs.
 async function pullSyncSnapshot({ force = false, doc: prefetchedDoc = null } = {}) {
   const code = getSyncCode();
-  if (!isSyncProxyConfigured() || !code) return { ok: false, error: '尚未設定同步。' };
+  if (!isSyncProxyConfigured() || !code) return { ok: false, error: t('sync.notConfigured') };
   try {
     const doc = prefetchedDoc || (await fetchSyncDoc(code));
     if (!doc.ok) throw new Error(doc.error);
@@ -471,12 +472,15 @@ async function pullSyncSnapshot({ force = false, doc: prefetchedDoc = null } = {
       writeLocal(LAST_UPDATE_TIME_KEY, doc.updateTime);
       return { ok: true, applied: false, exists: true };
     }
-    applyEditorSettingsData(next, { statusMessage: '已從其他裝置同步課表。', fromSync: true });
+    applyEditorSettingsData(next, {
+      statusMessage: t('sync.syncedFromOtherDevice'),
+      fromSync: true
+    });
     writeLocal(LAST_UPDATE_TIME_KEY, doc.updateTime);
     lastPushedSnapshot = snapshotForComparison(state.applicationData);
     return { ok: true, applied: true, exists: true };
   } catch (error) {
-    return { ok: false, error: `同步下載失敗：${error.message || error}` };
+    return { ok: false, error: t('sync.downloadFailed', { message: error.message || error }) };
   }
 }
 
@@ -500,7 +504,7 @@ function setSyncStatusUi(message, isError) {
 function handleRemoteSyncDeleted() {
   clearSyncPairing();
   renderSyncPanel();
-  setSyncStatusUi('同步已被管理者整個刪除，這台裝置已自動解除同步（本機課表不受影響）。');
+  setSyncStatusUi(t('sync.remoteDeletedByManager'));
   promptScheduleBackupRestore();
 }
 
@@ -610,8 +614,8 @@ function showCreatedSyncCodes(code, managerPasscode) {
   pendingCreatedCodes = { code, managerPasscode };
   const codeCopyBtn = document.getElementById('sync-created-code-copy');
   const passcodeCopyBtn = document.getElementById('sync-created-passcode-copy');
-  if (codeCopyBtn) codeCopyBtn.textContent = '複製';
-  if (passcodeCopyBtn) passcodeCopyBtn.textContent = '複製';
+  if (codeCopyBtn) codeCopyBtn.textContent = t('common.copy');
+  if (passcodeCopyBtn) passcodeCopyBtn.textContent = t('common.copy');
   renderSyncPanel();
 }
 function acknowledgeSyncCreatedCodes() {
@@ -626,9 +630,9 @@ function acknowledgeSyncCreatedCodes() {
 async function copyWithButtonFeedback(text, button) {
   try {
     await copyTransferText(text);
-    if (button) button.textContent = '已複製！';
+    if (button) button.textContent = t('sync.copied');
   } catch (error) {
-    setSyncStatusUi(`複製失敗：${error.message || error}`, true);
+    setSyncStatusUi(t('sync.copyFailed', { message: error.message || error }), true);
   }
 }
 async function copySyncCreatedCode(which) {
@@ -659,7 +663,7 @@ function toggleSyncManagerPasscodeReveal() {
   const showing = valueEl.hidden;
   valueEl.hidden = !showing;
   if (showing) valueEl.textContent = getSyncManagerPasscode();
-  toggleBtn.textContent = showing ? '隱藏' : '顯示';
+  toggleBtn.textContent = showing ? t('common.hide') : t('common.show');
 }
 
 function renderSyncPanel() {
@@ -693,9 +697,7 @@ function renderSyncPanel() {
   if (configured && activeCode) activeCode.textContent = getSyncCode();
   const viewer = isSyncViewer();
   if (configured && roleLabel) {
-    roleLabel.textContent = viewer
-      ? '身份：僅接收（唯讀）— 課表會自動更新，但這台裝置無法編輯。'
-      : '身份：管理者 — 可以編輯課表，變更會同步到其他裝置。';
+    roleLabel.textContent = viewer ? t('sync.roleViewer') : t('sync.roleManager');
     roleLabel.classList.toggle('is-viewer', viewer);
   }
   // A manager device can always re-display its own stored passcode (see
@@ -709,7 +711,7 @@ function renderSyncPanel() {
       passcodeValueEl.hidden = true;
       passcodeValueEl.textContent = '';
     }
-    if (passcodeToggleBtn) passcodeToggleBtn.textContent = '顯示';
+    if (passcodeToggleBtn) passcodeToggleBtn.textContent = t('common.show');
   }
   // A viewer device gets the option to unlock manager mode later by typing
   // in the manager passcode - see orbitSyncUpgradeToManager. Not shown to
@@ -735,12 +737,10 @@ function orbitSyncSetKeepLocalStyle(checked) {
     if (checkbox) checkbox.checked = !wantsKeepLocal;
   };
   setEditorConfirmContent(
-    wantsKeepLocal ? '不再同步樣式顏色？' : '恢復同步樣式顏色？',
-    wantsKeepLocal
-      ? '會保留這台裝置目前的配色，不再套用其他裝置的樣式。'
-      : '共用的配色與樣式預設會立刻套用到這台裝置。',
-    wantsKeepLocal ? '課表內容仍照常同步。' : '目前的配色與樣式預設會先備份起來。',
-    wantsKeepLocal ? '不再同步樣式' : '恢復同步',
+    wantsKeepLocal ? t('sync.stopSyncingStyleTitle') : t('sync.resumeSyncingStyleTitle'),
+    wantsKeepLocal ? t('sync.stopSyncingStyleMessage') : t('sync.resumeSyncingStyleMessage'),
+    wantsKeepLocal ? t('sync.stopSyncingStyleDetail') : t('sync.resumeSyncingStyleDetail'),
+    wantsKeepLocal ? t('sync.stopSyncingStyle') : t('sync.resumeSyncing'),
     () => {
       hideEditorDiscardConfirm();
       // The one genuinely destructive direction: turning this off replaces
@@ -770,7 +770,7 @@ function orbitSyncSetKeepLocalStyle(checked) {
       // up right away, not whenever they next happen to click something.
       syncTick();
     },
-    '取消',
+    t('common.cancel'),
     {
       cancelHandler: () => {
         hideEditorDiscardConfirm();
@@ -829,7 +829,7 @@ function orbitSyncRestoreStyleBackup() {
   clearStyleBackup();
   applyEditorRoleLock();
   renderSyncPanel();
-  setSyncStatusUi('已還原保留的樣式與樣式預設。');
+  setSyncStatusUi(t('sync.styleBackupRestored'));
 }
 function orbitSyncDismissStyleBackup() {
   clearStyleBackup();
@@ -853,15 +853,15 @@ function promptStyleBackupRestore() {
     return;
   }
   setEditorConfirmContent(
-    '找回先前保留的配色？',
-    '要換回上次保留的配色與樣式預設，還是繼續使用目前的？',
+    t('sync.recoverKeptColorsTitle'),
+    t('sync.recoverKeptColorsMessage'),
     '',
-    '換回保留的配色',
+    t('sync.switchToKeptColors'),
     () => {
       hideEditorDiscardConfirm();
       orbitSyncRestoreStyleBackup();
     },
-    '繼續使用目前配色',
+    t('sync.keepCurrentColors'),
     {
       cancelHandler: () => {
         hideEditorDiscardConfirm();
@@ -884,7 +884,7 @@ function orbitSyncRestoreScheduleBackup() {
   applyEditorSettingsData(backup);
   clearScheduleBackup();
   renderSyncPanel();
-  setSyncStatusUi('已還原加入同步前的本機課表。');
+  setSyncStatusUi(t('sync.scheduleBackupRestored'));
 }
 function orbitSyncDismissScheduleBackup() {
   clearScheduleBackup();
@@ -902,15 +902,15 @@ function promptScheduleBackupRestore() {
   const backup = getScheduleBackup();
   if (!backup) return;
   setEditorConfirmContent(
-    '找回加入同步前的課表？',
-    '要換回舊課表，還是繼續使用剛同步的課表？',
+    t('sync.recoverPreJoinScheduleTitle'),
+    t('sync.recoverPreJoinScheduleMessage'),
     '',
-    '換回加入前的課表',
+    t('sync.switchToPreJoinSchedule'),
     () => {
       hideEditorDiscardConfirm();
       orbitSyncRestoreScheduleBackup();
     },
-    '繼續使用目前課表',
+    t('sync.keepCurrentSchedule'),
     {
       cancelHandler: () => {
         hideEditorDiscardConfirm();
@@ -944,9 +944,7 @@ function applyEditorRoleLock() {
   const editButton = document.getElementById('btn-edit');
   if (editButton) {
     editButton.classList.toggle('is-disabled', viewer);
-    editButton.title = viewer
-      ? '此裝置僅接收同步，無法編輯課表。輸入管理者密碼即可取得編輯權限，或先在「同步 / 匯入匯出」解除同步。'
-      : '編輯課表';
+    editButton.title = viewer ? t('sync.editLockedTitle') : t('sync.editTitle');
   }
   // The transfer sheet itself stays open to both roles (a viewer needs to
   // reach its sync status/unlink/upgrade-to-manager), but AI import and
@@ -969,9 +967,7 @@ function applyEditorRoleLock() {
   if (styleButton) {
     const locked = viewer && !getSyncKeepLocalStyle();
     styleButton.classList.toggle('is-disabled', locked);
-    styleButton.title = locked
-      ? '此裝置正在同步樣式，無法自行變更。若要自訂樣式，請先在同步面板勾選「不同步樣式顏色」。'
-      : '樣式工具';
+    styleButton.title = locked ? t('sync.styleLockedTitle') : t('sync.styleToolTitle');
   }
 }
 
@@ -1025,30 +1021,30 @@ async function withButtonDisabled(buttonId, fn) {
 // free to undo.
 function orbitSyncCreate() {
   if (!isSyncProxyConfigured()) {
-    setSyncStatusUi('跨裝置同步功能尚未設定，請聯絡課表管理者。', true);
+    setSyncStatusUi(t('sync.syncNotConfiguredContactAdmin'), true);
     return;
   }
   if (!navigator.onLine) {
-    setSyncStatusUi('目前沒有網路連線，無法建立同步。', true);
+    setSyncStatusUi(t('sync.offlineCannotCreate'), true);
     return;
   }
   setEditorConfirmContent(
-    '建立新同步？',
-    '會產生一組新的同步代碼與管理者密碼。',
-    '已有代碼的話請改用「加入同步」，名額有限。',
-    '建立新同步',
+    t('sync.createNewSyncTitle'),
+    t('sync.createNewSyncMessage'),
+    t('sync.createNewSyncDetail'),
+    t('sync.createNewSync'),
     () => {
       hideEditorDiscardConfirm();
       performSyncCreate();
     },
-    '取消'
+    t('common.cancel')
   );
   showEditorConfirmSheet();
 }
 
 async function performSyncCreate() {
   await withButtonDisabled('sync-create-btn', async () => {
-    setSyncStatusUi('正在建立同步…');
+    setSyncStatusUi(t('sync.creating'));
     const payload = await encodeTransferData(state.applicationData);
     const result = await createSyncDoc(payload);
     if (!result.ok) {
@@ -1068,16 +1064,16 @@ async function performSyncCreate() {
 
 async function orbitSyncJoin() {
   if (!isSyncProxyConfigured()) {
-    setSyncStatusUi('跨裝置同步功能尚未設定，請聯絡課表管理者。', true);
+    setSyncStatusUi(t('sync.syncNotConfiguredContactAdmin'), true);
     return;
   }
   if (!navigator.onLine) {
-    setSyncStatusUi('目前沒有網路連線，無法加入同步。', true);
+    setSyncStatusUi(t('sync.offlineCannotJoin'), true);
     return;
   }
   const code = document.getElementById('sync-join-code')?.value.trim();
   if (!code) {
-    setSyncStatusUi('請輸入配對代碼。', true);
+    setSyncStatusUi(t('sync.enterPairingCode'), true);
     return;
   }
   const normalizedCode = code.toUpperCase();
@@ -1097,18 +1093,18 @@ async function orbitSyncJoin() {
     // overwrite with, and a wrong passcode shouldn't be discovered only
     // after clicking through a data-loss warning. Fails fast with the real
     // error instead either way.
-    setSyncStatusUi('正在檢查配對代碼…');
+    setSyncStatusUi(t('sync.checkingCode'));
     const check = await fetchSyncDoc(normalizedCode, passcode);
     if (!check.ok) {
       setSyncStatusUi(check.error, true);
       return;
     }
     if (!check.exists) {
-      setSyncStatusUi('找不到這組配對代碼，請確認代碼是否正確，或請對方先按「建立新同步」。', true);
+      setSyncStatusUi(t('sync.codeNotFound'), true);
       return;
     }
     if (wantsManager && check.role !== MANAGER_ROLE) {
-      setSyncStatusUi('管理者密碼不正確，請確認後再試一次。', true);
+      setSyncStatusUi(t('sync.wrongManagerPasscode'), true);
       return;
     }
 
@@ -1117,17 +1113,17 @@ async function orbitSyncJoin() {
     // so this warns before doing anything, rather than silently replacing
     // data the user might not have backed up.
     setSyncStatusUi('');
-    const roleText = wantsManager ? '管理者' : '僅接收者';
+    const roleText = wantsManager ? t('sync.roleManagerLabel') : t('sync.roleViewerOnlyLabel');
     setEditorConfirmContent(
-      '加入同步？',
-      `以「${roleText}」加入，會取代這台裝置目前的課表，無法復原。`,
-      '其他裝置的課表不受影響。',
-      '仍要加入',
+      t('sync.joinSyncTitle'),
+      t('sync.joinSyncMessage', { role: roleText }),
+      t('sync.joinSyncDetail'),
+      t('sync.joinAnyway'),
       () => {
         hideEditorDiscardConfirm();
         performSyncJoin(normalizedCode, passcode);
       },
-      '取消'
+      t('common.cancel')
     );
     showEditorConfirmSheet();
   });
@@ -1144,7 +1140,7 @@ async function performSyncJoin(code, passcode = '') {
   // SCHEDULE_BACKUP_KEY's comment. Not written to storage yet: only
   // committed below once the join actually replaces local data.
   const preJoinSchedule = cloneSettingsData(state.applicationData);
-  setSyncStatusUi('正在加入同步…');
+  setSyncStatusUi(t('sync.joining'));
   const doc = await fetchSyncDoc(code, passcode);
   if (!doc.ok) {
     setSyncStatusUi(doc.error, true);
@@ -1155,7 +1151,7 @@ async function performSyncJoin(code, passcode = '') {
   // publishes) - "not found" here means this code was mistyped or never
   // created, not "an empty sync to adopt."
   if (!doc.exists) {
-    setSyncStatusUi('找不到這組配對代碼，請確認代碼是否正確，或請對方先按「建立新同步」。', true);
+    setSyncStatusUi(t('sync.codeNotFound'), true);
     return;
   }
   // A passcode was supplied but didn't verify as this document's manager
@@ -1163,7 +1159,7 @@ async function performSyncJoin(code, passcode = '') {
   // viewer join. The user explicitly asked for manager access; joining
   // them as a viewer instead without saying so would just be confusing.
   if (passcode && doc.role !== MANAGER_ROLE) {
-    setSyncStatusUi('管理者密碼不正確，尚未加入同步。', true);
+    setSyncStatusUi(t('sync.wrongManagerPasscodeNotJoined'), true);
     return;
   }
   const managerPasscode = doc.role === MANAGER_ROLE ? passcode : '';
@@ -1180,7 +1176,7 @@ async function performSyncJoin(code, passcode = '') {
   // worth offering to restore later.
   if (result.applied) backUpLocalSchedule(preJoinSchedule);
   renderSyncPanel();
-  setSyncStatusUi(managerPasscode ? '已以管理者身份加入同步。' : '已加入同步（僅接收）。');
+  setSyncStatusUi(managerPasscode ? t('sync.joinedAsManager') : t('sync.joinedAsViewer'));
   startSyncLoop();
 }
 
@@ -1194,35 +1190,35 @@ async function performSyncJoin(code, passcode = '') {
 async function orbitSyncUpgradeToManager() {
   if (!isSyncConfigured() || !isSyncViewer()) return;
   if (!navigator.onLine) {
-    setSyncStatusUi('目前沒有網路連線，無法驗證管理者密碼。', true);
+    setSyncStatusUi(t('sync.offlineCannotVerify'), true);
     return;
   }
   const input = document.getElementById('sync-upgrade-passcode');
   const passcode = input?.value.trim();
   if (!passcode) {
-    setSyncStatusUi('請輸入管理者密碼。', true);
+    setSyncStatusUi(t('sync.enterManagerPasscode'), true);
     return;
   }
   await withButtonDisabled('sync-upgrade-btn', async () => {
-    setSyncStatusUi('正在驗證管理者密碼…');
+    setSyncStatusUi(t('sync.verifyingPasscode'));
     const doc = await fetchSyncDoc(getSyncCode(), passcode);
     if (!doc.ok) {
       setSyncStatusUi(doc.error, true);
       return;
     }
     if (!doc.exists) {
-      setSyncStatusUi('找不到這組配對代碼，可能已被整個刪除同步。', true);
+      setSyncStatusUi(t('sync.codeNotFoundMaybeDeleted'), true);
       return;
     }
     if (doc.role !== MANAGER_ROLE) {
-      setSyncStatusUi('管理者密碼不正確。', true);
+      setSyncStatusUi(t('sync.wrongManagerPasscodePlain'), true);
       return;
     }
     setSyncManagerPasscode(passcode);
     if (input) input.value = '';
     applyEditorRoleLock();
     renderSyncPanel();
-    setSyncStatusUi('已取得管理者權限，現在可以編輯課表了。');
+    setSyncStatusUi(t('sync.gotManagerAccess'));
   });
 }
 
@@ -1247,25 +1243,23 @@ function orbitSyncUnlink() {
   const code = getSyncCode();
   const managerPasscode = getSyncManagerPasscode();
   const isManager = !!managerPasscode;
-  const copyText = isManager ? `同步代碼：${code}\n管理者密碼：${managerPasscode}` : code;
+  const copyText = isManager ? t('sync.unlinkCopyText', { code, passcode: managerPasscode }) : code;
   setEditorConfirmContent(
-    '解除同步？',
-    isManager
-      ? '這只會讓這台裝置變回本機課表，其他裝置仍會繼續同步。忘記代碼前可先複製備用：'
-      : '解除後會變回本機課表，並忘記這組配對代碼；建議先複製備用：',
+    t('sync.unlinkTitle'),
+    isManager ? t('sync.unlinkMessageManager') : t('sync.unlinkMessageViewer'),
     copyText,
-    '解除同步',
+    t('sync.unlink'),
     () => {
       hideEditorDiscardConfirm();
       clearSyncPairing();
       renderSyncPanel();
-      setSyncStatusUi('已解除同步（不影響本機課表）。');
+      setSyncStatusUi(t('sync.unlinked'));
       promptScheduleBackupRestore();
     },
-    '取消',
+    t('common.cancel'),
     isManager
       ? {
-          extraLabel: '整個刪除同步',
+          extraLabel: t('sync.deleteForEveryone'),
           extraDanger: true,
           extraHandler: () => {
             hideEditorDiscardConfirm();
@@ -1273,7 +1267,7 @@ function orbitSyncUnlink() {
           }
         }
       : {
-          extraLabel: '複製代碼',
+          extraLabel: t('sync.copyCode'),
           // Deliberately doesn't close the sheet (unlike the default
           // extraHandler) - copying is meant to happen *before* deciding
           // whether to actually confirm the unlink, not instead of it.
@@ -1303,28 +1297,28 @@ function orbitSyncDeleteForEveryone() {
   const managerPasscode = getSyncManagerPasscode();
   if (!isSyncConfigured()) return;
   if (!navigator.onLine) {
-    setSyncStatusUi('目前沒有網路連線，無法刪除同步。', true);
+    setSyncStatusUi(t('sync.offlineCannotDelete'), true);
     return;
   }
   setEditorConfirmContent(
-    '整個刪除這組同步？',
-    '會刪除伺服器上的共用課表，此動作無法復原。',
-    `代碼「${code}」與管理者密碼立即失效，所有裝置之後同步時會各自變回本機課表。`,
-    '整個刪除',
+    t('sync.deleteAllTitle'),
+    t('sync.deleteAllMessage'),
+    t('sync.deleteAllDetail', { code }),
+    t('sync.deleteAll'),
     async () => {
       hideEditorDiscardConfirm();
-      setSyncStatusUi('正在刪除同步…');
+      setSyncStatusUi(t('sync.deleting'));
       const result = await deleteSyncDoc(code, managerPasscode);
       if (!result.ok) {
-        setSyncStatusUi(`刪除失敗：${result.error}`, true);
+        setSyncStatusUi(t('sync.deleteFailed', { error: result.error }), true);
         return;
       }
       clearSyncPairing();
       renderSyncPanel();
-      setSyncStatusUi('已整個刪除同步，所有裝置都已斷開連結（本機課表不受影響）。');
+      setSyncStatusUi(t('sync.deletedForEveryone'));
       promptScheduleBackupRestore();
     },
-    '取消'
+    t('common.cancel')
     // No copy-code option here (unlike orbitSyncUnlink) - once this
     // succeeds the code is permanently dead for everyone, so a copy of it
     // would be useless for rejoining.

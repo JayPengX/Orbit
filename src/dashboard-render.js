@@ -6,6 +6,7 @@ import { normalizeProAccent } from './appearance.js';
 import { keepActiveClassVisible, openModal } from './dashboard.js';
 import { openEditorFold } from './editor-core.js';
 import { getNextSchoolDay, processSplitName } from './schedule.js';
+import { t } from './strings.js';
 
 // Updates the simulation play/pause button and indicator. (Simulator controls
 // change the displayed clock only - never the saved schedule data.)
@@ -17,10 +18,10 @@ function syncTestPlayPauseUi() {
   if (!btn || !indicator) return;
 
   const { text, active, indicatorVisible } = !window.MANUALLY_TEST
-    ? { text: '開始', active: false, indicatorVisible: false }
+    ? { text: t('testsim.start'), active: false, indicatorVisible: false }
     : window.IS_SIMULATING
-      ? { text: '暫停', active: true, indicatorVisible: true }
-      : { text: '繼續', active: false, indicatorVisible: false };
+      ? { text: t('testsim.pause'), active: true, indicatorVisible: true }
+      : { text: t('testsim.resume'), active: false, indicatorVisible: false };
 
   btn.textContent = text;
   btn.classList.toggle('active', active);
@@ -585,7 +586,7 @@ function renderList(week, curIdx, nxtIdx, curDay, isDayFinished) {
     if (isNow || isNext) {
       const tag = document.createElement('span');
       tag.className = 'status-tag';
-      tag.textContent = isNow ? '進行中' : '下一節';
+      tag.textContent = isNow ? t('dashboard.inProgress') : t('dashboard.nextPeriod');
       name.append(tag);
     }
     const meta = document.createElement('div');
@@ -600,8 +601,7 @@ function renderList(week, curIdx, nxtIdx, curDay, isDayFinished) {
   if (!rows.length) {
     const empty = document.createElement('div');
     empty.className = 'row';
-    empty.innerHTML =
-      '<div class="period-badge">×</div><div class="content"><div class="row-name">這天沒有課</div><div class="row-meta"><span class="meta-chip">可以休息或安排自習</span></div></div>';
+    empty.innerHTML = `<div class="period-badge">×</div><div class="content"><div class="row-name">${t('dashboard.noClassesToday')}</div><div class="row-meta"><span class="meta-chip">${t('dashboard.restOrStudy')}</span></div></div>`;
     list.appendChild(empty);
   }
   keepActiveClassVisible(

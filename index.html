@@ -29,7 +29,7 @@
     <link rel="stylesheet" href="css/styles.css?v=__APP_VERSION__">
   </head>
 <body class="orbit-booting">
-<div id="test-banner" class="test-banner">
+<div id="test-banner" class="test-banner" data-i18n="testsim.simulating">
   模擬中
 </div>
 <div class="top-stack">
@@ -46,23 +46,23 @@
       <div class="exam-countdown-value" id="exam-countdown-value">D-000</div>
       <div class="exam-countdown-dots" id="exam-countdown-dots" aria-hidden="true" hidden></div>
     </div>
-    <div class="top-actions" role="toolbar" aria-label="工具">
-      <button type="button" id="btn-menu" class="top-action-btn" onclick="toggleActionMenu()" title="工具" aria-label="開啟工具" aria-expanded="false">
+    <div class="top-actions" role="toolbar" aria-label="工具" data-i18n-aria-label="dashboard.toolsLabel">
+      <button type="button" id="btn-menu" class="top-action-btn" onclick="toggleActionMenu()" title="工具" aria-label="開啟工具" aria-expanded="false" data-i18n-title="dashboard.toolsLabel" data-i18n-aria-label="dashboard.openTools">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
       </button>
       <div class="top-actions-menu" id="top-actions-menu">
-        <button type="button" id="btn-edit" class="top-action-btn" onclick="openEditor()" title="編輯課表" aria-label="編輯課表">
+        <button type="button" id="btn-edit" class="top-action-btn" onclick="openEditor()" title="編輯課表" aria-label="編輯課表" data-i18n-title="sync.editTitle" data-i18n-aria-label="sync.editTitle">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
         </button>
-        <button type="button" id="btn-transfer" class="top-action-btn" onclick="openTransferSheet()" title="同步 / 匯入匯出" aria-label="同步 / 匯入匯出">
+        <button type="button" id="btn-transfer" class="top-action-btn" onclick="openTransferSheet()" title="同步 / 匯入匯出" aria-label="同步 / 匯入匯出" data-i18n-title="sync.transferSheetTitle" data-i18n-aria-label="sync.transferSheetTitle">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2 21 6 17 10"></path><path d="M3 12v-2a4 4 0 0 1 4-4h14"></path><path d="M7 22 3 18 7 14"></path><path d="M21 12v2a4 4 0 0 1-4 4H3"></path></svg>
         </button>
-        <button type="button" id="btn-style" class="top-action-btn" onclick="toggleStylePanel()" title="樣式工具" aria-label="開啟樣式工具"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a9 9 0 1 1 0-18c4.97 0 9 3.582 9 8 0 2.21-1.79 3-4 3h-1.5a1.5 1.5 0 0 0 0 3H16a2 2 0 0 1 0 4h-4Z"></path><circle cx="7.5" cy="10.5" r="1" fill="currentColor" stroke="none"></circle><circle cx="10.5" cy="7" r="1" fill="currentColor" stroke="none"></circle><circle cx="15" cy="8" r="1" fill="currentColor" stroke="none"></circle></svg></button>
+        <button type="button" id="btn-style" class="top-action-btn" onclick="toggleStylePanel()" title="樣式工具" aria-label="開啟樣式工具" data-i18n-title="sync.styleToolTitle" data-i18n-aria-label="appearance.openStyleTools"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a9 9 0 1 1 0-18c4.97 0 9 3.582 9 8 0 2.21-1.79 3-4 3h-1.5a1.5 1.5 0 0 0 0 3H16a2 2 0 0 1 0 4h-4Z"></path><circle cx="7.5" cy="10.5" r="1" fill="currentColor" stroke="none"></circle><circle cx="10.5" cy="7" r="1" fill="currentColor" stroke="none"></circle><circle cx="15" cy="8" r="1" fill="currentColor" stroke="none"></circle></svg></button>
       </div>
     </div>
   </div>
   <div class="now-stack">
-    <div class="title-now" id="now-name">
+    <div class="title-now" id="now-name" data-i18n="dashboard.loading">
       載入中…
     </div>
     <div class="now-meta-row">
@@ -82,20 +82,20 @@
       <div id="timer-val" class="timer-badge">
         00:00
       </div>
-      <span class="timer-label">
+      <span class="timer-label" data-i18n="dashboard.betweenClasses">
         下課
       </span>
     </div>
   </div>
   <div class="next-box">
     <div class="next-content">
-      <span class="label">
+      <span class="label" data-i18n="dashboard.nextPeriod">
         下一節
       </span>
       <div class="title-next" id="next-name">
         ---
       </div>
-      <div class="next-meta" aria-label="下一節資訊">
+      <div class="next-meta" aria-label="下一節資訊" data-i18n-aria-label="dashboard.nextPeriodInfoAriaLabel">
         <div id="next-meta-text"></div>
       </div>
     </div>
@@ -120,7 +120,7 @@
     <div id="split-info-card" class="split-info-card" style="display:none">
       <div class="split-grid">
         <div class="split-col">
-          <div class="split-col-label accent">
+          <div class="split-col-label accent" data-i18n="dashboard.thisWeekLabel">
             本週
           </div>
           <div id="this-week-class" class="split-col-value">
@@ -128,7 +128,7 @@
           </div>
         </div>
         <div class="split-col split-col-right">
-          <div class="split-col-label">
+          <div class="split-col-label" data-i18n="dashboard.nextWeekLabel">
             下週
           </div>
           <div id="next-week-class" class="split-col-value" style="opacity:.6">
@@ -139,7 +139,7 @@
     </div>
     <div class="stat-grid">
       <div class="stat-card">
-        <span class="stat-label">
+        <span class="stat-label" data-i18n="dashboard.periodsPerWeekLabel">
           每週節數
         </span>
         <span id="m-count" class="stat-value" style="color:var(--accent)">
@@ -147,7 +147,7 @@
         </span>
       </div>
       <div class="stat-card">
-        <span class="stat-label">
+        <span class="stat-label" data-i18n="dashboard.typeLabel">
           類型
         </span>
         <span id="m-type-val" class="stat-value">
@@ -155,7 +155,7 @@
         </span>
       </div>
       <div id="m-location-card" class="stat-card" style="display:none">
-        <span class="stat-label">
+        <span class="stat-label" data-i18n="dashboard.locationLabel">
           教室
         </span>
         <span id="m-location-val" class="stat-value" style="color:var(--accent)">
@@ -164,215 +164,215 @@
       </div>
     </div>
     <div class="m-occ-section">
-      <div class="m-occ-label">
+      <div class="m-occ-label" data-i18n="dashboard.occurrencesLabel">
         排課
       </div>
       <div id="m-occ-list" class="m-occ-list">
       </div>
     </div>
   </div>
-  <button type="button" id="modal-close-btn" onclick="closeModal()" class="close-btn">
+  <button type="button" id="modal-close-btn" onclick="closeModal()" class="close-btn" data-i18n="common.done">
     完成
   </button>
 </div>
 <div id="editor-sheet-overlay" class="test-panel-overlay" onclick="closeEditor()" aria-hidden="true"></div>
-<div id="editor-sheet" class="test-panel editor-sheet" role="dialog" aria-modal="true" aria-label="編輯課表">
+<div id="editor-sheet" class="test-panel editor-sheet" role="dialog" aria-modal="true" aria-label="編輯課表" data-i18n-aria-label="sync.editTitle">
   <div class="test-panel-handle" aria-hidden="true"></div>
   <div class="editor-header">
       <div class="editor-title">
-        編輯課表
+        <span data-i18n="sync.editTitle">編輯課表</span>
         <span id="week-display-main"></span>
       </div>
       <div id="assign-overlay" class="editor-confirm-overlay" onclick="closeAssignSheet()" aria-hidden="true"></div>
       <div id="assign-sheet" class="assign-sheet" role="dialog" aria-modal="true" aria-labelledby="assign-title">
-        <div class="assign-header"><h2 id="assign-title" class="editor-confirm-title">排課</h2><button type="button" class="editor-close" onclick="closeAssignSheet()" aria-label="關閉">×</button></div>
+        <div class="assign-header"><h2 id="assign-title" class="editor-confirm-title" data-i18n="editorTeachers.assignSheetTitle">排課</h2><button type="button" class="editor-close" onclick="closeAssignSheet()" aria-label="關閉" data-i18n-aria-label="common.close">×</button></div>
         <p id="assign-subtitle" class="editor-confirm-msg"></p>
-        <div id="assign-day-tabs" class="assign-day-tabs" role="tablist" aria-label="選擇星期"></div>
+        <div id="assign-day-tabs" class="assign-day-tabs" role="tablist" aria-label="選擇星期" data-i18n-aria-label="editorTeachers.chooseWeekdayAriaLabel"></div>
         <div id="assign-grid" class="assign-grid"></div>
-        <button type="button" class="editor-confirm-btn editor-primary-btn" onclick="applyAssignments()">套用並完成</button>
+        <button type="button" class="editor-confirm-btn editor-primary-btn" onclick="applyAssignments()" data-i18n="editorTeachers.applyAndFinish">套用並完成</button>
       </div>
-      <button type="button" class="editor-close" onclick="closeEditor()" aria-label="關閉">
+      <button type="button" class="editor-close" onclick="closeEditor()" aria-label="關閉" data-i18n-aria-label="common.close">
         ×
       </button>
     </div>
     <div id="editor-sheet-body" class="editor-sheet-body">
     <details class="editor-fold" id="editor-fold-options" data-no-back-button>
-      <summary class="editor-fold-summary">
+      <summary class="editor-fold-summary" data-i18n="editorCore.optionsFoldLabel">
         選項
       </summary>
       <div class="editor-fold-body">
         <div class="toggle-row">
-          <div class="toggle-label">
+          <div class="toggle-label" data-i18n="editorSchedule.reverseWeekToggleLabel">
             單雙週對調
           </div>
-          <button type="button" class="toggle-switch" id="toggle-reverse" onclick="toggleReverse()" aria-label="單雙週對調">
+          <button type="button" class="toggle-switch" id="toggle-reverse" onclick="toggleReverse()" aria-label="單雙週對調" data-i18n-aria-label="editorSchedule.reverseWeekToggleLabel">
           </button>
         </div>
       </div>
     </details>
     <details class="editor-fold" id="editor-fold-countdown">
-      <summary class="editor-fold-summary">
+      <summary class="editor-fold-summary" data-i18n="editorBackup.sectionCountdownEvents">
         倒數活動
       </summary>
       <div class="editor-fold-body">
         <div class="countdown-editor-list" id="countdown-event-list"></div>
-        <button type="button" class="add-btn" onclick="addCountdownEventRow()">新增倒數</button>
-        <div class="editor-hint"><div class="editor-hint-body">首頁顯示第一個倒數活動，可在首頁左右滑動切換。日期可設定一段範圍（例如考試週），單日活動請將開始與結束日期設為同一天。</div></div>
+        <button type="button" class="add-btn" onclick="addCountdownEventRow()" data-i18n="editorCore.addCountdownButton">新增倒數</button>
+        <div class="editor-hint"><div class="editor-hint-body" data-i18n="editorCore.countdownHint">首頁顯示第一個倒數活動，可在首頁左右滑動切換。日期可設定一段範圍（例如考試週），單日活動請將開始與結束日期設為同一天。</div></div>
       </div>
     </details>
     <details class="editor-fold" id="editor-fold-teachers">
-      <summary class="editor-fold-summary">
+      <summary class="editor-fold-summary" data-i18n="editorTeachers.subjectsAndTeachersFoldLabel">
         科目與教師
       </summary>
       <div class="editor-fold-body">
         <div class="teacher-list" id="teacher-list">
         </div>
-        <button type="button" class="add-btn" onclick="addTeacherRow()">
+        <button type="button" class="add-btn" onclick="addTeacherRow()" data-i18n="common.add">
           新增
         </button>
         <div class="editor-hint">
-          <div class="editor-hint-title">
+          <div class="editor-hint-title" data-i18n="editorTeachers.splitWeekHintTitle">
             雙週科目／教師
           </div>
-          <div class="editor-hint-body">
+          <div class="editor-hint-body" data-i18n="editorTeachers.splitWeekHintBody">
             兩週不同時以「／」分隔（例：國文／公民）
           </div>
         </div>
       </div>
     </details>
     <details class="editor-fold" id="editor-fold-schedule" data-no-back-button>
-      <summary class="editor-fold-summary">
+      <summary class="editor-fold-summary" data-i18n="editorCore.scheduleFoldLabel">
         課表
       </summary>
       <div class="editor-fold-body">
         <div class="ocr-import-box" id="nl-edit-box">
-          <div class="transfer-section-heading">AI 課表編輯<span class="transfer-section-tag">套用前會先確認</span></div>
-          <div class="editor-hint-body">用一句話描述想改的內容，可一次講多件事，AI 會先提出建議，確認後才套用。</div>
+          <div class="transfer-section-heading"><span data-i18n="nlEdit.headingLabel">AI 課表編輯</span><span class="transfer-section-tag" data-i18n="nlEdit.confirmBeforeApplyTag">套用前會先確認</span></div>
+          <div class="editor-hint-body" data-i18n="nlEdit.hintBody">用一句話描述想改的內容，可一次講多件事，AI 會先提出建議，確認後才套用。</div>
           <input id="nl-edit-input" class="settings-transfer-text sync-input" type="text" maxlength="200" placeholder="例如：把我週二第三節改成物理" autocomplete="off">
           <div class="settings-transfer-actions">
-            <button type="button" id="nl-edit-submit" class="settings-transfer-btn primary">送出</button>
+            <button type="button" id="nl-edit-submit" class="settings-transfer-btn primary" data-i18n="common.submit">送出</button>
           </div>
           <div id="nl-edit-status" class="settings-transfer-status" role="status"></div>
         </div>
         <div class="editor-drill-actions">
-          <button type="button" class="editor-drill-btn" onclick="openEditorFold('editor-fold-teachers')">科目</button>
-          <button type="button" class="editor-drill-btn" onclick="openEditorFold('editor-fold-bells')">節次</button>
-          <button type="button" class="editor-drill-btn" onclick="openEditorFold('editor-fold-breaks')">時段</button>
-          <button type="button" class="editor-drill-btn" onclick="openEditorFold('editor-fold-countdown')">倒數</button>
+          <button type="button" class="editor-drill-btn" onclick="openEditorFold('editor-fold-teachers')" data-i18n="editorTeachers.subjectPlaceholder">科目</button>
+          <button type="button" class="editor-drill-btn" onclick="openEditorFold('editor-fold-bells')" data-i18n="editorCore.drillPeriods">節次</button>
+          <button type="button" class="editor-drill-btn" onclick="openEditorFold('editor-fold-breaks')" data-i18n="editorCore.drillBreaks">時段</button>
+          <button type="button" class="editor-drill-btn" onclick="openEditorFold('editor-fold-countdown')" data-i18n="editorCore.drillCountdown">倒數</button>
         </div>
         <div class="schedule-grid" id="schedule-grid">
         </div>
       </div>
     </details>
     <details class="editor-fold" id="editor-fold-bells">
-      <summary class="editor-fold-summary">
+      <summary class="editor-fold-summary" data-i18n="editorBackup.sectionBellTimes">
         節次時間
       </summary>
       <div class="editor-fold-body">
         <div class="bell-list" id="bell-list">
         </div>
-        <button type="button" class="add-btn" onclick="addBellRow()">
+        <button type="button" class="add-btn" onclick="addBellRow()" data-i18n="editorSchedule.addPeriodButton">
           新增節次
         </button>
       </div>
     </details>
     <details class="editor-fold" id="editor-fold-breaks">
-      <summary class="editor-fold-summary">
+      <summary class="editor-fold-summary" data-i18n="editorSchedule.specialTimeFoldLabel">
         特殊時段
       </summary>
       <div class="editor-fold-body">
         <div class="bell-list" id="break-list">
         </div>
-        <button type="button" class="add-btn" onclick="addBreakRow()">
+        <button type="button" class="add-btn" onclick="addBreakRow()" data-i18n="editorSchedule.addSpecialTimeButton">
           新增特殊時段
         </button>
       </div>
     </details>
-    <button type="button" class="save-btn" onclick="saveEditor()">
+    <button type="button" class="save-btn" onclick="saveEditor()" data-i18n="common.save">
       儲存
     </button>
     </div>
 </div>
 <div id="transfer-sheet-overlay" class="test-panel-overlay" onclick="closeTransferSheet()" aria-hidden="true"></div>
-<div id="transfer-sheet" class="test-panel transfer-sheet" role="dialog" aria-modal="true" aria-label="同步 / 匯入匯出">
+<div id="transfer-sheet" class="test-panel transfer-sheet" role="dialog" aria-modal="true" aria-label="同步 / 匯入匯出" data-i18n-aria-label="sync.transferSheetTitle">
   <div class="test-panel-handle" aria-hidden="true"></div>
   <div class="editor-header">
-    <div class="editor-title">同步 / 匯入匯出</div>
-    <button type="button" class="editor-close" onclick="closeTransferSheet()" aria-label="關閉">×</button>
+    <div class="editor-title" data-i18n="sync.transferSheetTitle">同步 / 匯入匯出</div>
+    <button type="button" class="editor-close" onclick="closeTransferSheet()" aria-label="關閉" data-i18n-aria-label="common.close">×</button>
   </div>
   <div class="transfer-sheet-body" id="transfer-sheet-body">
   <div class="settings-transfer-box transfer-sync-box" id="sync-setup-box">
-    <div class="transfer-section-heading">同步<span class="transfer-section-tag">持續、跨裝置自動保持一致</span></div>
-    <div class="editor-hint-body" id="sync-setup-hint">課表自動同步到所有裝置，不需要帳號。同步代碼可自由分享；管理者密碼才能編輯課表，請妥善保管。</div>
+    <div class="transfer-section-heading"><span data-i18n="sync.syncHeading">同步</span><span class="transfer-section-tag" data-i18n="sync.syncHeadingTag">持續、跨裝置自動保持一致</span></div>
+    <div class="editor-hint-body" id="sync-setup-hint" data-i18n="sync.setupHint">課表自動同步到所有裝置，不需要帳號。同步代碼可自由分享；管理者密碼才能編輯課表，請妥善保管。</div>
     <div class="settings-transfer-actions">
-      <button type="button" id="sync-create-btn" class="settings-transfer-btn" onclick="orbitSyncCreate()">
+      <button type="button" id="sync-create-btn" class="settings-transfer-btn" onclick="orbitSyncCreate()" data-i18n="sync.createNewSync">
         建立新同步
       </button>
     </div>
-    <div class="sync-divider">或加入現有同步</div>
-    <input id="sync-join-code" class="settings-transfer-text sync-input" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="輸入同步代碼">
+    <div class="sync-divider" data-i18n="sync.orJoinExisting">或加入現有同步</div>
+    <input id="sync-join-code" class="settings-transfer-text sync-input" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="輸入同步代碼" data-i18n-placeholder="sync.enterSyncCodePlaceholder">
     <details class="legacy-fold" id="sync-join-manager-fold">
-      <summary class="legacy-fold-summary">我有管理者密碼，也想要能編輯課表</summary>
+      <summary class="legacy-fold-summary" data-i18n="sync.haveManagerPasscodeSummary">我有管理者密碼，也想要能編輯課表</summary>
       <div class="legacy-fold-body">
-        <input id="sync-join-passcode" class="settings-transfer-text sync-input" type="text" inputmode="text" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="輸入管理者密碼">
+        <input id="sync-join-passcode" class="settings-transfer-text sync-input" type="text" inputmode="text" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="輸入管理者密碼" data-i18n-placeholder="sync.enterManagerPasscodePlaceholder">
       </div>
     </details>
     <div class="settings-transfer-actions">
-      <button type="button" id="sync-join-btn" class="settings-transfer-btn primary" onclick="orbitSyncJoin()">
+      <button type="button" id="sync-join-btn" class="settings-transfer-btn primary" onclick="orbitSyncJoin()" data-i18n="sync.joinSyncButton">
         加入同步
       </button>
     </div>
   </div>
   <div class="settings-transfer-box transfer-sync-box" id="sync-created-codes" hidden>
-    <div class="transfer-section-heading">同步<span class="transfer-section-tag">持續、跨裝置自動保持一致</span></div>
-    <div class="editor-hint-body">同步已建立！請先保存好管理者密碼，離開後不會再直接顯示。</div>
+    <div class="transfer-section-heading"><span data-i18n="sync.syncHeading">同步</span><span class="transfer-section-tag" data-i18n="sync.syncHeadingTag">持續、跨裝置自動保持一致</span></div>
+    <div class="editor-hint-body" data-i18n="sync.createdHint">同步已建立！請先保存好管理者密碼，離開後不會再直接顯示。</div>
     <div class="sync-code-row">
-      <div class="sync-code-row-label">同步代碼（可自由分享）</div>
+      <div class="sync-code-row-label" data-i18n="sync.codeLabelShareable">同步代碼（可自由分享）</div>
       <div class="sync-code-row-value">
         <div id="sync-created-code" class="sync-active-code"></div>
-        <button type="button" id="sync-created-code-copy" class="settings-transfer-btn" onclick="copySyncCreatedCode('code')">
+        <button type="button" id="sync-created-code-copy" class="settings-transfer-btn" onclick="copySyncCreatedCode('code')" data-i18n="common.copy">
           複製
         </button>
       </div>
     </div>
     <div class="sync-code-row">
-      <div class="sync-code-row-label">管理者密碼（請妥善保管）</div>
+      <div class="sync-code-row-label" data-i18n="sync.managerPasscodeLabelKeepSafe">管理者密碼（請妥善保管）</div>
       <div class="sync-code-row-value">
         <div id="sync-created-passcode" class="sync-active-code"></div>
-        <button type="button" id="sync-created-passcode-copy" class="settings-transfer-btn" onclick="copySyncCreatedCode('passcode')">
+        <button type="button" id="sync-created-passcode-copy" class="settings-transfer-btn" onclick="copySyncCreatedCode('passcode')" data-i18n="common.copy">
           複製
         </button>
       </div>
     </div>
     <div class="settings-transfer-actions">
-      <button type="button" class="settings-transfer-btn primary" onclick="acknowledgeSyncCreatedCodes()">
+      <button type="button" class="settings-transfer-btn primary" onclick="acknowledgeSyncCreatedCodes()" data-i18n="sync.savedCodeAndPasscode">
         我已保存好代碼與密碼
       </button>
     </div>
   </div>
   <div class="settings-transfer-box transfer-sync-box" id="sync-active-box" hidden>
-    <div class="transfer-section-heading">同步<span class="transfer-section-tag">持續、跨裝置自動保持一致</span></div>
-    <div class="editor-hint-body">已配對同步，分享代碼給其他裝置即可加入：</div>
+    <div class="transfer-section-heading"><span data-i18n="sync.syncHeading">同步</span><span class="transfer-section-tag" data-i18n="sync.syncHeadingTag">持續、跨裝置自動保持一致</span></div>
+    <div class="editor-hint-body" data-i18n="sync.pairedShareHint">已配對同步，分享代碼給其他裝置即可加入：</div>
     <div id="sync-active-code" class="sync-active-code"></div>
     <div id="sync-role-label" class="sync-role-label"></div>
     <div id="sync-manager-passcode-box" class="sync-manager-passcode-box" hidden>
-      <div class="editor-hint-body">管理者密碼（請妥善保管）</div>
+      <div class="editor-hint-body" data-i18n="sync.managerPasscodeLabelKeepSafe">管理者密碼（請妥善保管）</div>
       <div class="sync-code-row-value">
         <div id="sync-manager-passcode-value" class="sync-active-code" hidden></div>
-        <button type="button" id="sync-manager-passcode-toggle" class="settings-transfer-btn" onclick="toggleSyncManagerPasscodeReveal()">
+        <button type="button" id="sync-manager-passcode-toggle" class="settings-transfer-btn" onclick="toggleSyncManagerPasscodeReveal()" data-i18n="common.show">
           顯示
         </button>
-        <button type="button" id="sync-manager-passcode-copy" class="settings-transfer-btn" onclick="copySyncManagerPasscode()">
+        <button type="button" id="sync-manager-passcode-copy" class="settings-transfer-btn" onclick="copySyncManagerPasscode()" data-i18n="common.copy">
           複製
         </button>
       </div>
     </div>
     <details class="legacy-fold" id="sync-upgrade-box" hidden>
-      <summary class="legacy-fold-summary">輸入管理者密碼以取得編輯權限</summary>
+      <summary class="legacy-fold-summary" data-i18n="sync.enterPasscodeForEditAccess">輸入管理者密碼以取得編輯權限</summary>
       <div class="legacy-fold-body">
-        <input id="sync-upgrade-passcode" class="settings-transfer-text sync-input" type="text" inputmode="text" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="輸入管理者密碼">
+        <input id="sync-upgrade-passcode" class="settings-transfer-text sync-input" type="text" inputmode="text" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="輸入管理者密碼" data-i18n-placeholder="sync.enterManagerPasscodePlaceholder">
         <div class="settings-transfer-actions">
-          <button type="button" id="sync-upgrade-btn" class="settings-transfer-btn primary" onclick="orbitSyncUpgradeToManager()">
+          <button type="button" id="sync-upgrade-btn" class="settings-transfer-btn primary" onclick="orbitSyncUpgradeToManager()" data-i18n="sync.getEditAccessButton">
             取得編輯權限
           </button>
         </div>
@@ -380,29 +380,29 @@
     </details>
     <label class="sync-role-checkbox">
       <input type="checkbox" id="sync-keep-local-style" onchange="orbitSyncSetKeepLocalStyle(this.checked)">
-      不同步樣式顏色（保留這台裝置目前的配色）
+      <span data-i18n="sync.dontSyncStyleCheckboxLabel">不同步樣式顏色（保留這台裝置目前的配色）</span>
     </label>
     <div class="settings-transfer-actions">
-      <button type="button" id="sync-unlink-btn" class="settings-transfer-btn" onclick="orbitSyncUnlink()">
+      <button type="button" id="sync-unlink-btn" class="settings-transfer-btn" onclick="orbitSyncUnlink()" data-i18n="sync.unlink">
         解除同步
       </button>
     </div>
   </div>
   <div id="sync-status" class="settings-transfer-status"></div>
   <div class="ocr-import-box" id="ocr-import-box">
-    <div class="transfer-section-heading">AI 匯入<span class="transfer-section-tag">單次匯入，不會自動同步</span></div>
-    <div class="editor-hint-body">選擇課表照片、截圖或 PDF，AI 自動判讀並產出課表。可選多個檔案一起讀取（例如課表照片＋選課截圖）。</div>
+    <div class="transfer-section-heading"><span data-i18n="geminiOcr.headingLabel">AI 匯入</span><span class="transfer-section-tag" data-i18n="geminiOcr.oneTimeImportTag">單次匯入，不會自動同步</span></div>
+    <div class="editor-hint-body" data-i18n="geminiOcr.setupHint">選擇課表照片、截圖或 PDF，AI 自動判讀並產出課表。可選多個檔案一起讀取（例如課表照片＋選課截圖）。</div>
     <div class="ocr-import-file-row">
-      <label id="ocr-import-image-label" class="settings-transfer-btn" for="ocr-import-image">
+      <label id="ocr-import-image-label" class="settings-transfer-btn" for="ocr-import-image" data-i18n="geminiOcr.selectFileLabel">
         選擇檔案
       </label>
       <div class="ocr-import-image-wrap" id="ocr-import-image-wrap">
-        <img id="ocr-import-image-preview" class="ocr-import-image-preview" alt="檔案預覽" hidden>
+        <img id="ocr-import-image-preview" class="ocr-import-image-preview" alt="檔案預覽" hidden data-i18n-alt="geminiOcr.filePreviewAlt">
       </div>
-      <div id="ocr-import-filename" class="ocr-import-filename">尚未選擇檔案</div>
+      <div id="ocr-import-filename" class="ocr-import-filename" data-i18n="editorBackup.noFileSelected">尚未選擇檔案</div>
     </div>
     <input id="ocr-import-image" class="ocr-import-file-input" type="file" multiple accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.heic,.heif,.pdf">
-    <button type="button" id="ocr-import-detect" class="settings-transfer-btn primary" disabled>匯入</button>
+    <button type="button" id="ocr-import-detect" class="settings-transfer-btn primary" disabled data-i18n="common.import">匯入</button>
     <div class="ocr-import-status-row">
       <div id="ocr-import-status" class="settings-transfer-status" role="status"></div>
       <div id="ocr-import-eta" class="ocr-import-eta" role="status" hidden>
@@ -413,16 +413,16 @@
     <div id="ocr-import-result" class="ocr-import-result" hidden></div>
   </div>
   <details class="legacy-fold" id="legacy-transfer-fold">
-    <summary class="legacy-fold-summary">手動備份（舊版，不需要同步也能用）</summary>
+    <summary class="legacy-fold-summary" data-i18n="editorBackup.manualBackupLegacySummary">手動備份（舊版，不需要同步也能用）</summary>
     <div class="legacy-fold-body">
       <div class="settings-transfer-box">
-        <textarea id="settings-transfer-text" class="settings-transfer-text" spellcheck="false" placeholder="請在此貼上 Orbit Class 課表設定備份，或按下「匯出」建立備份。"></textarea>
-        <div class="editor-hint-body">請複製完整備份文字，包含 BEGIN 與 END 標記。</div>
+        <textarea id="settings-transfer-text" class="settings-transfer-text" spellcheck="false" placeholder="請在此貼上 Orbit Class 課表設定備份，或按下「匯出」建立備份。" data-i18n-placeholder="editorBackup.pasteBackupPlaceholder"></textarea>
+        <div class="editor-hint-body" data-i18n="editorBackup.copyFullBackupHint">請複製完整備份文字，包含 BEGIN 與 END 標記。</div>
         <div class="settings-transfer-actions">
-          <button type="button" id="settings-export-btn" class="settings-transfer-btn" onclick="requestTransferAction('export')">
+          <button type="button" id="settings-export-btn" class="settings-transfer-btn" onclick="requestTransferAction('export')" data-i18n="common.export">
             匯出
           </button>
-          <button type="button" id="settings-import-btn" class="settings-transfer-btn primary" onclick="requestTransferAction('import')">
+          <button type="button" id="settings-import-btn" class="settings-transfer-btn primary" onclick="requestTransferAction('import')" data-i18n="common.import">
             匯入
           </button>
         </div>
@@ -431,11 +431,11 @@
     </div>
   </details>
   <details class="legacy-fold" id="test-mode-fold">
-    <summary class="legacy-fold-summary">進階：時間模擬</summary>
+    <summary class="legacy-fold-summary" data-i18n="testsim.advancedFoldSummary">進階：時間模擬</summary>
     <div class="legacy-fold-body">
-      <div class="editor-hint-body">預覽指定時間的課表效果，不影響實際資料。</div>
+      <div class="editor-hint-body" data-i18n="testsim.previewHint">預覽指定時間的課表效果，不影響實際資料。</div>
       <div class="settings-transfer-actions">
-        <button type="button" class="settings-transfer-btn" onclick="toggleTestPanel()">
+        <button type="button" class="settings-transfer-btn" onclick="toggleTestPanel()" data-i18n="testsim.openTimeSimButton">
           開啟時間模擬
         </button>
       </div>
@@ -444,118 +444,118 @@
   </div>
 </div>
 <template id="ocr-preview-template">
-  <div class="ocr-import-preview-title">辨識結果與匯入預覽</div>
+  <div class="ocr-import-preview-title" data-i18n="geminiOcr.previewTitle">辨識結果與匯入預覽</div>
   <div class="ocr-import-preview-meta" data-ocr-preview-meta></div>
   <div class="ocr-import-warnings" data-ocr-warnings hidden>
-    <div class="ocr-import-warnings-title">可能需要注意</div>
+    <div class="ocr-import-warnings-title" data-i18n="geminiOcr.warningsTitle">可能需要注意</div>
     <ul data-ocr-warnings-list></ul>
   </div>
   <details class="editor-fold" data-ocr-bell-fold open>
-    <summary class="editor-fold-summary">節次時間</summary>
+    <summary class="editor-fold-summary" data-i18n="editorBackup.sectionBellTimes">節次時間</summary>
     <div class="editor-fold-body"><div class="bell-list" data-ocr-bell-list></div></div>
   </details>
   <details class="editor-fold" data-ocr-break-fold open>
-    <summary class="editor-fold-summary">特殊時段</summary>
+    <summary class="editor-fold-summary" data-i18n="editorSchedule.specialTimeFoldLabel">特殊時段</summary>
     <div class="editor-fold-body"><div class="bell-list" data-ocr-break-list></div></div>
   </details>
   <details class="editor-fold" data-ocr-class-fold open>
-    <summary class="editor-fold-summary">課程</summary>
+    <summary class="editor-fold-summary" data-i18n="geminiOcr.classesFoldLabel">課程</summary>
     <div class="editor-fold-body"><div class="teacher-list" data-ocr-class-list></div></div>
   </details>
   <details class="editor-fold" data-ocr-assignment-fold open>
-    <summary class="editor-fold-summary">課表指派</summary>
+    <summary class="editor-fold-summary" data-i18n="geminiOcr.assignmentFoldLabel">課表指派</summary>
     <div class="editor-fold-body"><div class="schedule-grid" data-ocr-assignment-grid></div></div>
   </details>
   <details class="editor-fold" data-ocr-countdown-fold hidden>
-    <summary class="editor-fold-summary">倒數日期</summary>
+    <summary class="editor-fold-summary" data-i18n="geminiOcr.countdownDatesFoldLabel">倒數日期</summary>
     <div class="editor-fold-body"><div class="bell-list" data-ocr-countdown-list></div></div>
   </details>
   <div class="ocr-import-preview-note" data-ocr-preview-note></div>
-  <button type="button" class="settings-transfer-btn primary" data-ocr-submit>確認並匯入</button>
+  <button type="button" class="settings-transfer-btn primary" data-ocr-submit data-i18n="geminiOcr.confirmAndImportButton">確認並匯入</button>
 </template>
 <template id="ocr-bell-row-template"><div class="bell-row"><div class="bell-num"></div><div class="bell-inputs"><input class="time-input bell-start" type="time" data-field="bell-start"><span class="time-sep">→</span><input class="time-input bell-end" type="time" data-field="bell-end"></div></div></template>
-<template id="ocr-break-row-template"><div class="bell-row break-row"><div class="teacher-fields"><input class="editor-input break-name" placeholder="名稱"><div class="bell-inputs"><input class="time-input break-start" type="time"><span class="time-sep">→</span><input class="time-input break-end" type="time"></div></div></div></template>
-<template id="ocr-class-row-template"><div class="teacher-card ocr-import-class-card"><div class="teacher-avatar"></div><div class="teacher-fields"><input class="editor-input tc-subject" data-field="class-subject" placeholder="科目"><input class="editor-input tc-teacher" placeholder="教師"><input class="editor-input tc-location" placeholder="教室(選填)"></div></div></template>
+<template id="ocr-break-row-template"><div class="bell-row break-row"><div class="teacher-fields"><input class="editor-input break-name" placeholder="名稱" data-i18n-placeholder="editorSchedule.namePlaceholder"><div class="bell-inputs"><input class="time-input break-start" type="time"><span class="time-sep">→</span><input class="time-input break-end" type="time"></div></div></div></template>
+<template id="ocr-class-row-template"><div class="teacher-card ocr-import-class-card"><div class="teacher-avatar"></div><div class="teacher-fields"><input class="editor-input tc-subject" data-field="class-subject" placeholder="科目" data-i18n-placeholder="editorTeachers.subjectPlaceholder"><input class="editor-input tc-teacher" placeholder="教師" data-i18n-placeholder="editorTeachers.teacherPlaceholder"><input class="editor-input tc-location" placeholder="教室(選填)" data-i18n-placeholder="editorTeachers.locationPlaceholderOptional"></div></div></template>
 <template id="ocr-day-row-template"><div class="schedule-day-row"><div class="schedule-day-label"></div><div class="schedule-periods"></div></div></template>
-<template id="ocr-countdown-row-template"><div class="bell-row break-row"><div class="countdown-event-fields"><label>活動名稱<input class="editor-input countdown-event-name" maxlength="80" placeholder="活動名稱"></label><label class="countdown-event-daterange-label">日期<div class="countdown-date-range"><input class="editor-input countdown-event-start" type="date" aria-label="開始日期"><span class="time-sep">→</span><input class="editor-input countdown-event-end" type="date" aria-label="結束日期"></div></label></div></div></template>
+<template id="ocr-countdown-row-template"><div class="bell-row break-row"><div class="countdown-event-fields"><label><span data-i18n="editorCore.eventNameLabel">活動名稱</span><input class="editor-input countdown-event-name" maxlength="80" placeholder="活動名稱" data-i18n-placeholder="editorCore.eventNameLabel"></label><label class="countdown-event-daterange-label"><span data-i18n="editorCore.dateLabel">日期</span><div class="countdown-date-range"><input class="editor-input countdown-event-start" type="date" aria-label="開始日期" data-i18n-aria-label="editorCore.startDateLabel"><span class="time-sep">→</span><input class="editor-input countdown-event-end" type="date" aria-label="結束日期" data-i18n-aria-label="editorCore.endDateLabel"></div></label></div></div></template>
 <div id="editor-confirm-overlay" class="editor-confirm-overlay" onclick="hideEditorDiscardConfirm()" aria-hidden="true">
 </div>
 <div id="editor-confirm-sheet" class="editor-confirm-sheet" role="alertdialog" aria-modal="true" aria-labelledby="editor-confirm-title" aria-describedby="editor-confirm-msg">
-  <h2 id="editor-confirm-title" class="editor-confirm-title">
+  <h2 id="editor-confirm-title" class="editor-confirm-title" data-i18n="editorCore.unsavedTitle">
     尚未儲存
   </h2>
-  <p id="editor-confirm-msg" class="editor-confirm-msg">
+  <p id="editor-confirm-msg" class="editor-confirm-msg" data-i18n="editorCore.leaveWillDiscardChanges">
     離開將捨棄本次變更。
   </p>
   <div class="editor-confirm-actions">
-    <button type="button" class="editor-confirm-btn primary" onclick="hideEditorDiscardConfirm()">
+    <button type="button" class="editor-confirm-btn primary" onclick="hideEditorDiscardConfirm()" data-i18n="common.back">
       返回
     </button>
-    <button type="button" class="editor-confirm-btn danger" onclick="discardEditorChangesAndClose()">
+    <button type="button" class="editor-confirm-btn danger" onclick="discardEditorChangesAndClose()" data-i18n="editorCore.discard">
       捨棄
     </button>
   </div>
 </div>
-<div class="save-toast" id="save-toast">
+<div class="save-toast" id="save-toast" data-i18n="editorBackup.saved">
   已儲存
 </div>
 <div id="test-panel-overlay" class="test-panel-overlay" onclick="closeTestPanel()" aria-hidden="true">
 </div>
-<div class="test-panel" id="debug-panel" role="dialog" aria-modal="true" aria-label="時間模擬">
+<div class="test-panel" id="debug-panel" role="dialog" aria-modal="true" aria-label="時間模擬" data-i18n-aria-label="testsim.timeSimAriaLabel">
   <div class="test-panel-handle" aria-hidden="true">
   </div>
   <div class="editor-header">
     <div class="editor-title">
-      時間模擬
+      <span data-i18n="testsim.timeSimAriaLabel">時間模擬</span>
       <span class="test-status-pill" id="sim-indicator" style="display:none">
-        模擬中
+        <span data-i18n="testsim.simulating">模擬中</span>
         <span id="sim-status">
         </span>
       </span>
     </div>
-    <button type="button" class="editor-close" onclick="closeTestPanel()" aria-label="關閉">
+    <button type="button" class="editor-close" onclick="closeTestPanel()" aria-label="關閉" data-i18n-aria-label="common.close">
       ×
     </button>
   </div>
   <div class="test-panel-meta-row">
-    <span class="app-version" id="app-version">版本載入中…</span>
-    <button type="button" id="test-refresh-btn" onclick="checkForAppUpdate()" aria-label="檢查更新">
+    <span class="app-version" id="app-version" data-i18n="testsim.versionLoading">版本載入中…</span>
+    <button type="button" id="test-refresh-btn" onclick="checkForAppUpdate()" aria-label="檢查更新" data-i18n="testsim.checkForUpdate" data-i18n-aria-label="testsim.checkForUpdate">
       檢查更新
     </button>
-    <button type="button" id="test-reset-btn" onclick="resetAllAppData()" aria-label="重設所有資料">
+    <button type="button" id="test-reset-btn" onclick="resetAllAppData()" aria-label="重設所有資料" data-i18n="common.reset" data-i18n-aria-label="editorBackup.resetAllDataAriaLabel">
       重設
     </button>
   </div>
   <p class="test-update-status" id="test-update-status"></p>
   <div class="editor-fold">
     <div class="editor-fold-body">
-      <label for="test-day-input">
+      <label for="test-day-input" data-i18n="editorCore.weekdayFieldLabel">
         星期
       </label>
       <select id="test-day-input" onchange="syncTestDayChange()">
-        <option value="1">
+        <option value="1" data-i18n="weekday.monday">
           週一
         </option>
-        <option value="2">
+        <option value="2" data-i18n="weekday.tuesday">
           週二
         </option>
-        <option value="3">
+        <option value="3" data-i18n="weekday.wednesday">
           週三
         </option>
-        <option value="4">
+        <option value="4" data-i18n="weekday.thursday">
           週四
         </option>
-        <option value="5">
+        <option value="5" data-i18n="weekday.friday">
           週五
         </option>
-        <option value="6">
+        <option value="6" data-i18n="weekday.saturday">
           週六
         </option>
-        <option value="0">
+        <option value="0" data-i18n="weekday.sunday">
           週日
         </option>
       </select>
-      <label for="in-h">
+      <label for="in-h" data-i18n="editorCore.timeHourMinuteLabel">
         時間（時／分）
       </label>
       <div style="display:flex;gap:8px;align-items:center">
@@ -563,64 +563,64 @@
         <span style="color:var(--sub)">
           :
         </span>
-        <input type="number" id="in-m" min="0" max="59" value="0" onchange="syncTestFromInputs()" style="width:60px;text-align:center" aria-label="分">
+        <input type="number" id="in-m" min="0" max="59" value="0" onchange="syncTestFromInputs()" style="width:60px;text-align:center" aria-label="分" data-i18n-aria-label="editorCore.minutesAriaLabel">
       </div>
       <input type="range" id="test-time-slider" min="480" max="1440" value="480" oninput="syncTestFromSlider()">
     </div>
   </div>
   <div class="editor-hint">
-    <div class="editor-hint-body">
+    <div class="editor-hint-body" data-i18n="testsim.startPauseHint">
       「開始」後會自動走時；「暫停」後可改時間。
     </div>
   </div>
-  <button type="button" id="test-play-pause-btn" onclick="toggleTestPlayPause()" class="sim-btn">
+  <button type="button" id="test-play-pause-btn" onclick="toggleTestPlayPause()" class="sim-btn" data-i18n="testsim.start">
     開始
   </button>
-  <button type="button" id="test-exit-btn" onclick="exitTestMode()" class="test-exit-btn">
+  <button type="button" id="test-exit-btn" onclick="exitTestMode()" class="test-exit-btn" data-i18n="testsim.exitSimButton">
     結束模擬
   </button>
 </div>
 <div id="style-panel-overlay" class="test-panel-overlay style-panel-overlay" onclick="closeStylePanel()" aria-hidden="true"></div>
-<div class="test-panel style-panel" id="style-panel" role="dialog" aria-modal="true" aria-label="樣式工具">
+<div class="test-panel style-panel" id="style-panel" role="dialog" aria-modal="true" aria-label="樣式工具" data-i18n-aria-label="sync.styleToolTitle">
   <div class="test-panel-handle" aria-hidden="true"></div>
   <div class="editor-header">
-    <div class="editor-title">樣式工具</div>
-    <button type="button" class="editor-close" onclick="closeStylePanel()" aria-label="關閉">×</button>
+    <div class="editor-title" data-i18n="sync.styleToolTitle">樣式工具</div>
+    <button type="button" class="editor-close" onclick="closeStylePanel()" aria-label="關閉" data-i18n-aria-label="common.close">×</button>
   </div>
   <div id="style-editor-content">
   <div class="editor-fold style-fold-fixed" id="style-fold-custom">
-    <div class="editor-fold-summary style-fold-heading">自訂配色</div>
+    <div class="editor-fold-summary style-fold-heading" data-i18n="appearance.customColorFoldHeading">自訂配色</div>
     <div class="editor-fold-body">
-      <label class="style-color-well"><span>顏色</span><input type="color" id="style-primary-input" aria-label="選擇顏色" oninput="previewStyleSettings()"></label>
+      <label class="style-color-well"><span data-i18n="appearance.colorLabel">顏色</span><input type="color" id="style-primary-input" aria-label="選擇顏色" oninput="previewStyleSettings()" data-i18n-aria-label="appearance.chooseColorAriaLabel"></label>
     </div>
   </div>
   <div class="editor-fold style-fold-fixed" id="style-fold-library">
-    <div class="editor-fold-summary style-fold-heading">樣式庫</div>
+    <div class="editor-fold-summary style-fold-heading" data-i18n="appearance.styleLibraryFoldHeading">樣式庫</div>
     <div class="editor-fold-body">
-      <div class="style-section-label">內建預設</div>
+      <div class="style-section-label" data-i18n="appearance.builtInPresetsLabel">內建預設</div>
       <div class="style-preset-grid" id="style-preset-grid">
         <button type="button" class="style-preset-chip default" onclick="applyStylePreset('default')"><span class="style-preset-swatch"></span><span>Orbit Color</span></button>
-        <button type="button" class="style-preset-chip rose" onclick="applyStylePreset('rose')"><span class="style-preset-swatch"></span><span>餘燼</span></button>
-        <button type="button" class="style-preset-chip ocean" onclick="applyStylePreset('ocean')"><span class="style-preset-swatch"></span><span>潟湖</span></button>
-        <button type="button" class="style-preset-chip midnight" onclick="applyStylePreset('midnight')"><span class="style-preset-swatch"></span><span>墨夜</span></button>
-        <button type="button" class="style-preset-chip graphite" onclick="applyStylePreset('graphite')"><span class="style-preset-swatch"></span><span>柑橘</span></button>
-        <button type="button" class="style-preset-chip amber" onclick="applyStylePreset('amber')"><span class="style-preset-swatch"></span><span>琥珀</span></button>
-        <button type="button" class="style-preset-chip ruby" onclick="applyStylePreset('ruby')"><span class="style-preset-swatch"></span><span>胭脂</span></button>
-        <button type="button" class="style-preset-chip lilac" onclick="applyStylePreset('lilac')"><span class="style-preset-swatch"></span><span>丁香</span></button>
+        <button type="button" class="style-preset-chip rose" onclick="applyStylePreset('rose')"><span class="style-preset-swatch"></span><span data-i18n="appearance.presetRose">餘燼</span></button>
+        <button type="button" class="style-preset-chip ocean" onclick="applyStylePreset('ocean')"><span class="style-preset-swatch"></span><span data-i18n="appearance.presetOcean">潟湖</span></button>
+        <button type="button" class="style-preset-chip midnight" onclick="applyStylePreset('midnight')"><span class="style-preset-swatch"></span><span data-i18n="appearance.presetMidnight">墨夜</span></button>
+        <button type="button" class="style-preset-chip graphite" onclick="applyStylePreset('graphite')"><span class="style-preset-swatch"></span><span data-i18n="appearance.presetGraphite">柑橘</span></button>
+        <button type="button" class="style-preset-chip amber" onclick="applyStylePreset('amber')"><span class="style-preset-swatch"></span><span data-i18n="appearance.presetAmber">琥珀</span></button>
+        <button type="button" class="style-preset-chip ruby" onclick="applyStylePreset('ruby')"><span class="style-preset-swatch"></span><span data-i18n="appearance.presetRuby">胭脂</span></button>
+        <button type="button" class="style-preset-chip lilac" onclick="applyStylePreset('lilac')"><span class="style-preset-swatch"></span><span data-i18n="appearance.presetLilac">丁香</span></button>
       </div>
-      <div class="style-section-label style-library-label">我的樣式</div>
+      <div class="style-section-label style-library-label" data-i18n="appearance.myStylesLabel">我的樣式</div>
       <div class="style-slot-grid" id="style-slot-grid"></div>
       <div class="editor-hint">
-        <div class="editor-hint-body">點空位旁的「＋」儲存目前配色，之後可直接點選套用。</div>
+        <div class="editor-hint-body" data-i18n="appearance.styleSlotHint">點空位旁的「＋」儲存目前配色，之後可直接點選套用。</div>
       </div>
     </div>
   </div>
   </div>
   <div id="style-preview-state" class="style-preview-state" hidden>
-    <div class="style-preview-status"><span class="style-preview-status-dot"></span><span>預覽中，尚未儲存</span></div>
-    <div class="style-panel-actions"><button type="button" class="style-cancel-btn" onclick="exitStylePreview()">離開預覽</button><button type="button" class="style-apply-btn" onclick="confirmStyleSettings()">儲存樣式</button></div>
+    <div class="style-preview-status"><span class="style-preview-status-dot"></span><span data-i18n="appearance.previewingNotSaved">預覽中，尚未儲存</span></div>
+    <div class="style-panel-actions"><button type="button" class="style-cancel-btn" onclick="exitStylePreview()" data-i18n="appearance.exitPreviewButton">離開預覽</button><button type="button" class="style-apply-btn" onclick="confirmStyleSettings()" data-i18n="appearance.saveStyleButton">儲存樣式</button></div>
   </div>
-  <div class="style-panel-actions" id="style-editor-actions"><button type="button" class="style-apply-btn" onclick="enterStylePreview()">預覽並儲存</button></div>
+  <div class="style-panel-actions" id="style-editor-actions"><button type="button" class="style-apply-btn" onclick="enterStylePreview()" data-i18n="appearance.previewAndSaveButton">預覽並儲存</button></div>
 </div>
   <script type="module" src="src/main.js?v=__APP_VERSION__"></script>
 </body>

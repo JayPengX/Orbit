@@ -10,6 +10,7 @@ import {
   WEEKDAYS_INDEX_ORDER,
   isPlainObject
 } from './constants.js';
+import { t } from './strings.js';
 
 // App defaults and live simulator state.
 const REVERSE_WEEK_LOGIC_DEFAULT = false;
@@ -109,25 +110,51 @@ function timeRangeToDayPieces(startMin, endMin) {
   if (endMin > 0) pieces.push([0, endMin]);
   return pieces;
 }
+// `kind` ('bell' | 'break') travels alongside each interval/error purely so
+// callers (editor-schedule.js's showEditorTimeConflict) can tell which
+// editor fold to send the user to - it must not be derived by pattern-
+// matching the (now-translatable) error message text, which would only
+// ever match the zh-TW wording.
 function validateTimeIntervals(bellTimes, breakTimes) {
   const intervals = [];
-  const addInterval = (start, end, label, allowOvernight) => {
-    if (!isValidTimeRange(start, end, allowOvernight))
-      throw new Error(`${label}時間必須是有效的開始與結束時間。`);
+  const addInterval = (start, end, label, kind, allowOvernight) => {
+    if (!isValidTimeRange(start, end, allowOvernight)) {
+      const error = new Error(t('editorSchedule.invalidTimeRange', { label }));
+      error.conflictKind = kind;
+      throw error;
+    }
     timeRangeToDayPieces(editorTimeToMinutes(start), editorTimeToMinutes(end)).forEach(
-      ([pieceStart, pieceEnd]) => intervals.push({ start: pieceStart, end: pieceEnd, label })
+      ([pieceStart, pieceEnd]) => intervals.push({ start: pieceStart, end: pieceEnd, label, kind })
     );
   };
   (bellTimes || []).forEach((item, index) =>
-    addInterval(item[0], item[1], `第 ${index + 1} 節`, false)
+    addInterval(
+      item[0],
+      item[1],
+      t('editorSchedule.periodLabel', { number: index + 1 }),
+      'bell',
+      false
+    )
   );
   (breakTimes || []).forEach(item =>
-    addInterval(item.start, item.end, `特殊時段「${item.name}」`, true)
+    addInterval(
+      item.start,
+      item.end,
+      t('editorSchedule.breakLabel', { name: item.name }),
+      'break',
+      true
+    )
   );
   intervals.sort((a, b) => a.start - b.start || a.end - b.end);
   intervals.forEach((item, index) => {
-    if (index > 0 && item.start < intervals[index - 1].end)
-      throw new Error(`時間衝突：${intervals[index - 1].label} 與 ${item.label} 重疊。`);
+    if (index > 0 && item.start < intervals[index - 1].end) {
+      const error = new Error(
+        t('editorSchedule.timeConflict', { labelA: intervals[index - 1].label, labelB: item.label })
+      );
+      error.conflictKind =
+        intervals[index - 1].kind === 'break' || item.kind === 'break' ? 'break' : 'bell';
+      throw error;
+    }
   });
 }
 function normalizeCountdownEvent(value) {

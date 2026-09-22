@@ -17,6 +17,7 @@ import {
   showEditorConfirmSheet
 } from './editor-core.js';
 import { subjectHue } from './schedule.js';
+import { t } from './strings.js';
 
 // refreshPeriodSelectOptions rebuilds every schedule-grid <select>'s full
 // option list (one DOM query plus one innerHTML rebuild per select) from
@@ -73,7 +74,7 @@ function makeTeacherCard(key, subject, teacher, location, options = {}) {
   const div = document.createElement('div');
   div.className = expanded ? 'teacher-card is-expanded' : 'teacher-card';
   div.dataset.origKey = key;
-  div.innerHTML = `<div class="teacher-card-summary"><div class="teacher-avatar"></div><div class="teacher-summary-text"></div><div class="teacher-order-actions"><span class="teacher-drag-handle" role="button" tabindex="0" title="拖曳排序" aria-label="拖曳排序">☰</span></div><button type="button" class="teacher-card-toggle" aria-expanded="${expanded}" aria-label="展開編輯">⌄</button></div><div class="teacher-card-body"><div class="teacher-fields"><input class="editor-input tc-subject" placeholder="科目" value="${esc(subject)}"><input class="editor-input tc-teacher" placeholder="教師" value="${esc(teacher)}"><input class="editor-input tc-location" placeholder="教室(選填)" value="${esc(location || '')}"></div><div class="teacher-card-body-actions"><label class="order-position-label">順序<input class="order-position" type="number" min="1" inputmode="numeric" aria-label="科目教師順序"></label><div class="teacher-card-buttons"><button type="button" class="teacher-assign" onclick="assignTeacherFromMenu(this)" aria-label="指定課節">排課</button><button type="button" class="delete-btn" onclick="deleteTeacherCard(this)" aria-label="刪除">×</button></div></div></div>`;
+  div.innerHTML = `<div class="teacher-card-summary"><div class="teacher-avatar"></div><div class="teacher-summary-text"></div><div class="teacher-order-actions"><span class="teacher-drag-handle" role="button" tabindex="0" title="${esc(t('editorCore.dragToReorder'))}" aria-label="${esc(t('editorCore.dragToReorder'))}">☰</span></div><button type="button" class="teacher-card-toggle" aria-expanded="${expanded}" aria-label="${esc(t('editorCore.expandToEdit'))}">⌄</button></div><div class="teacher-card-body"><div class="teacher-fields"><input class="editor-input tc-subject" placeholder="${esc(t('editorTeachers.subjectPlaceholder'))}" value="${esc(subject)}"><input class="editor-input tc-teacher" placeholder="${esc(t('editorTeachers.teacherPlaceholder'))}" value="${esc(teacher)}"><input class="editor-input tc-location" placeholder="${esc(t('editorTeachers.locationPlaceholderOptional'))}" value="${esc(location || '')}"></div><div class="teacher-card-body-actions"><label class="order-position-label">${esc(t('editorCore.orderLabel'))}<input class="order-position" type="number" min="1" inputmode="numeric" aria-label="${esc(t('editorTeachers.subjectTeacherOrderAriaLabel'))}"></label><div class="teacher-card-buttons"><button type="button" class="teacher-assign" onclick="assignTeacherFromMenu(this)" aria-label="${esc(t('editorTeachers.assignPeriodAriaLabel'))}">${esc(t('editorTeachers.assignButtonLabel'))}</button><button type="button" class="delete-btn" onclick="deleteTeacherCard(this)" aria-label="${esc(t('common.delete'))}">×</button></div></div></div>`;
   updateTeacherCardAvatar(div);
   updateTeacherCardSummary(div);
   bindEditorCardToggle(div);
@@ -125,7 +126,7 @@ function updateTeacherCardSummary(card) {
   if (!label) return;
   const subject = (card.querySelector('.tc-subject')?.value || '').trim();
   const teacher = (card.querySelector('.tc-teacher')?.value || '').trim();
-  label.textContent = subject || teacher || '未命名科目';
+  label.textContent = subject || teacher || t('editorTeachers.unnamedSubject');
   label.classList.toggle('is-empty', !subject && !teacher);
 }
 
@@ -141,7 +142,9 @@ function openAssignSheet(key) {
     subtitle = document.getElementById('assign-subtitle'),
     tabs = document.getElementById('assign-day-tabs');
   if (!grid) return;
-  subtitle.textContent = `選擇「${getEditorClassLabelFromDom(key) || key}」要放置的星期與節次`;
+  subtitle.textContent = t('editorTeachers.assignSubtitle', {
+    label: getEditorClassLabelFromDom(key) || key
+  });
   grid.replaceChildren();
   assignmentDraft = { key, original: new Map(), draft: new Map() };
   const count = getEditorBellPeriodCount();
@@ -202,7 +205,9 @@ function renderAssignmentDay(day) {
       (value ? ' occupied' : '') +
       (value === assignmentDraft.key ? ' assigned' : '');
     box.textContent = `${period + 1} · ${valueLabel || '—'}`;
-    box.title = value ? `第 ${period + 1} 節目前是：${valueLabel}` : `第 ${period + 1} 節（空白）`;
+    box.title = value
+      ? t('editorTeachers.periodCurrentlyIs', { number: period + 1, value: valueLabel })
+      : t('editorTeachers.periodBlank', { number: period + 1 });
     box.onclick = () => assignToSlot(assignmentDraft.key, day, period);
     periods.appendChild(box);
   }
@@ -220,12 +225,16 @@ function assignToSlot(key, day, period) {
     if (current && current !== key) {
       pendingAssignment = { key, day, period };
       setEditorConfirmContent(
-        '覆蓋這個時段？',
-        `第 ${period + 1} 節：「${getEditorClassLabelFromDom(current) || current}」改成「${getEditorClassLabelFromDom(key) || key}」？`,
+        t('editorTeachers.overwriteSlotTitle'),
+        t('editorTeachers.overwriteSlotMessage', {
+          number: period + 1,
+          from: getEditorClassLabelFromDom(current) || current,
+          to: getEditorClassLabelFromDom(key) || key
+        }),
         '',
-        '確定覆蓋',
+        t('editorTeachers.confirmOverwrite'),
         confirmAssignment,
-        '返回'
+        t('common.back')
       );
       showEditorConfirmSheet();
       return;
@@ -337,12 +346,12 @@ function deleteTeacherCard(btn) {
   if (impacts.length) {
     state.pendingTeacherDelete = { btn, key };
     setEditorConfirmContent(
-      `刪除「${label}」？`,
-      '這會移除這個課程，並清空所有使用它的課表格子。',
+      t('editorTeachers.deleteTitle', { label }),
+      t('editorTeachers.deleteMessage'),
       impacts.join('\n'),
-      '刪除',
+      t('common.delete'),
       confirmTeacherCardDelete,
-      '返回'
+      t('common.back')
     );
     showEditorConfirmSheet();
     return;

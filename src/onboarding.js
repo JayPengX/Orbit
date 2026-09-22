@@ -13,6 +13,7 @@ import {
   setEditorConfirmContent,
   showEditorConfirmSheet
 } from './editor-core.js';
+import { t } from './strings.js';
 
 const ONBOARDING_SEEN_KEY = 'orbitOnboardingSeen';
 
@@ -52,15 +53,15 @@ function focusAIImportSection() {
 // two ways to actually get a schedule in without one.
 function showStartChoice() {
   setEditorConfirmContent(
-    '怎麼開始？',
-    '手動建立課表，或用 AI 辨識照片自動產生課表。',
+    t('onboarding.startChoiceTitle'),
+    t('onboarding.startChoiceMessage'),
     '',
-    '用 AI 辨識照片',
+    t('onboarding.useAiPhoto'),
     () => {
       hideEditorDiscardConfirm();
       focusAIImportSection();
     },
-    '前往手動建立',
+    t('onboarding.buildManually'),
     {
       cancelHandler: () => {
         hideEditorDiscardConfirm();
@@ -75,15 +76,15 @@ function showOnboardingPrompt() {
   if (hasSavedSchedule() || isSyncConfigured() || hasSeenOnboarding()) return;
   markOnboardingSeen();
   setEditorConfirmContent(
-    '開始使用 Orbit Class',
-    '有代碼可直接輸入加入，沒有的話可以自己建立。',
+    t('onboarding.welcomeTitle'),
+    t('onboarding.welcomeMessage'),
     '',
-    '輸入配對代碼',
+    t('onboarding.enterPairingCode'),
     () => {
       hideEditorDiscardConfirm();
       focusSyncJoinField();
     },
-    '先自己建立',
+    t('onboarding.buildOwnFirst'),
     {
       cancelHandler: () => {
         hideEditorDiscardConfirm();

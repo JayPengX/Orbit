@@ -13,6 +13,8 @@ import { editorTimeToMinutes, formatClassLabel } from './editor-core.js';
 import { updateTeacherCardAvatar } from './editor-teachers.js';
 import { isSyncViewer } from './sync.js';
 import { proxyPath } from './proxy-config.js';
+import { applyStaticTranslations } from './i18n-dom.js';
+import { t } from './strings.js';
 
 // ---- js/gemini-ocr.js ----
 // What one submitted file may be. The three "decodable" image types are the
@@ -56,15 +58,17 @@ function passthroughMimeType(file) {
 // then hands back the source itself for anything the browser can't decode.
 class FilePreprocessor {
   async process(file) {
-    if (!(file instanceof Blob)) throw new Error('請選擇一個檔案。');
+    if (!(file instanceof Blob)) throw new Error(t('geminiOcr.selectAFile'));
     const kind = fileKind(file);
     if (!kind)
       throw new Error(
-        `不支援的檔案格式：${file.name || '未命名檔案'}（可用 JPG／PNG／HEIC／PDF）。`
+        t('geminiOcr.unsupportedFileFormat', { name: file.name || t('geminiOcr.unnamedFile') })
       );
     if (kind === 'passthrough') {
       if (file.size > MAX_PASSTHROUGH_BYTES)
-        throw new Error(`檔案太大：${file.name || '未命名檔案'}，請改用較小的檔案。`);
+        throw new Error(
+          t('geminiOcr.fileTooLarge', { name: file.name || t('geminiOcr.unnamedFile') })
+        );
       return { kind, file, name: file.name || '', mimeType: passthroughMimeType(file) };
     }
     const url = URL.createObjectURL(file);
@@ -72,11 +76,11 @@ class FilePreprocessor {
       const image = await new Promise((resolve, reject) => {
         const element = new Image();
         element.onload = () => resolve(element);
-        element.onerror = () => reject(new Error('圖片載入失敗，請換一張再試。'));
+        element.onerror = () => reject(new Error(t('geminiOcr.imageLoadFailed')));
         element.src = url;
       });
       if (image.naturalWidth < 240 || image.naturalHeight < 160)
-        throw new Error('圖片解析度過低，請換一張更清楚的照片。');
+        throw new Error(t('geminiOcr.imageResolutionTooLow'));
       const canvas = document.createElement('canvas');
       canvas.width = image.naturalWidth;
       canvas.height = image.naturalHeight;
@@ -127,7 +131,7 @@ function encodeCanvasAsJpeg(canvas) {
     canvas.toBlob(
       blob => {
         if (!blob) {
-          reject(new Error('圖片編碼失敗，請換一張再試。'));
+          reject(new Error(t('geminiOcr.imageEncodeFailed')));
           return;
         }
         resolve(blobToBase64(blob));
@@ -141,7 +145,7 @@ function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || '').replace(/^data:[^,]*,/, ''));
-    reader.onerror = () => reject(new Error('檔案讀取失敗，請再試一次。'));
+    reader.onerror = () => reject(new Error(t('geminiOcr.fileReadFailed')));
     reader.readAsDataURL(blob);
   });
 }
@@ -349,10 +353,10 @@ class AIVisionProcessor {
         /* ignore progress callback errors */
       }
     };
-    if (!GEMINI_PROXY_URL) throw new Error('AI 匯入功能尚未設定，請聯絡課表管理者。');
-    if (!navigator.onLine) throw new Error('目前沒有網路連線，AI 匯入暫時無法使用。');
+    if (!GEMINI_PROXY_URL) throw new Error(t('geminiOcr.notConfigured'));
+    if (!navigator.onLine) throw new Error(t('geminiOcr.offline'));
     const parts = Array.isArray(files) ? files : [files];
-    if (!parts.length) throw new Error('請先選擇檔案。');
+    if (!parts.length) throw new Error(t('geminiOcr.selectFileFirst'));
 
     // The prompt text and generation config are NOT sent from here - the
     // proxy (the shared-proxy repo's worker.js, its /gemini path) owns both and
@@ -375,9 +379,10 @@ class AIVisionProcessor {
     for (let locationAttempt = 0; ; locationAttempt++) {
       const result = await this.tryGeminiModels(parts, report, callId, validate);
       if (result.ok) return result.value;
-      if (!result.locationBlocked || locationAttempt >= LOCATION_BLOCK_RETRY_LIMIT) throw result.error;
+      if (!result.locationBlocked || locationAttempt >= LOCATION_BLOCK_RETRY_LIMIT)
+        throw result.error;
       report(
-        `AI 服務因伺服器所在地區限制暫時無法使用（節點：${result.colo}），正在自動重試（第 ${locationAttempt + 2} 次）…`
+        t('nlEdit.locationBlockedRetrying', { colo: result.colo, attempt: locationAttempt + 2 })
       );
       await new Promise(resolve => setTimeout(resolve, LOCATION_BLOCK_RETRY_DELAY_MS));
     }
@@ -396,7 +401,7 @@ class AIVisionProcessor {
     let lastError = null;
     let lastRejected = null;
     for (const model of this.geminiModels) {
-      report(`正在請求 AI 模型（${model}）分析課表…`);
+      report(t('geminiOcr.requestingModel', { model }));
       const requestBody = JSON.stringify({ model, files: parts });
       let response;
       // Split into three marks rather than one so a slow import can be
@@ -412,14 +417,14 @@ class AIVisionProcessor {
           body: requestBody
         });
       } catch (networkError) {
-        lastError = new Error(`無法連線至 AI 服務：${networkError.message}`);
-        report(`連線失敗，準備改用下一個模型…`);
+        lastError = new Error(t('nlEdit.cannotConnect', { message: networkError.message }));
+        report(t('geminiOcr.connectionFailedNextModel'));
         continue;
       } finally {
         console.timeEnd(callLabel);
       }
       if (response.ok) {
-        report(`AI 已回應（使用模型：${model}），正在解析辨識結果…`);
+        report(t('geminiOcr.aiRespondedParsing', { model }));
         const parseLabel = `GeminiParse:${callId}:${model}`;
         console.time(parseLabel);
         let candidate;
@@ -435,14 +440,14 @@ class AIVisionProcessor {
         // so the last model's attempt is still what the user sees (with its
         // own validation errors) if every model comes back the same way.
         lastRejected = { candidate, modelUsed: model };
-        report(`模型（${model}）的結果不完整，改用更強的模型再試一次…`);
+        report(t('geminiOcr.resultIncompleteRetryStronger', { model }));
         continue;
       }
 
       const errorJson = await response.json().catch(() => ({}));
       const message = errorJson.error?.message || response.statusText;
       if (response.status === 400 && /API_KEY_INVALID/.test(message)) {
-        throw new Error('AI 服務目前無法使用，請稍後再試。');
+        throw new Error(t('geminiOcr.serviceUnavailable'));
       }
       // Google's Gemini API rejects the request based on the calling IP's
       // geolocation - here, the Cloudflare Worker's own egress IP, not the
@@ -461,32 +466,37 @@ class AIVisionProcessor {
         // this repeatedly can report which one it is - Smart Placement can
         // keep sticking a given caller to the same colo indefinitely, which
         // this pass's own retry can't detect or route around by itself.
-        const colo = response.headers.get('X-Worker-Colo') || '未知';
+        const colo = response.headers.get('X-Worker-Colo') || t('common.unknown');
         return {
           ok: false,
           locationBlocked: true,
           colo,
-          error: new Error(
-            `AI 服務暫時因伺服器所在地區限制而無法使用（節點：${colo}），這通常只是暫時性的網路路由問題，請稍後再試一次。`
-          )
+          error: new Error(t('nlEdit.locationBlocked', { colo }))
         };
       }
+      // This regex matches the companion backend's own rate-limit error text
+      // verbatim (worker.js, a separate repo) - it is not UI copy this app
+      // owns or renders on its own, so it is left as the backend's own
+      // Chinese wording rather than being run through t() (see the matching
+      // comment in editor-nl-edit.js's tryNlEditModels).
       if (response.status === 429 && /請求過於頻繁/.test(message)) {
         throw new Error(message);
       }
       // Retryable on the next model: retired/unknown model (404), overloaded (503), rate-limited (429), or transient server errors (5xx).
-      lastError = new Error(`AI 辨識請求失敗（${response.status}）：${message}`);
+      lastError = new Error(
+        t('geminiOcr.recognitionFailedWithStatus', { status: response.status, message })
+      );
       const retryableStatus =
         response.status === 404 ||
         response.status === 429 ||
         response.status === 503 ||
         response.status >= 500;
       if (!retryableStatus) throw lastError;
-      report(`模型（${model}）暫時無法使用（${response.status}：${message}），準備改用下一個模型…`);
+      report(t('geminiOcr.modelUnavailableNextModel', { model, status: response.status, message }));
     }
 
     if (lastRejected) return { ok: true, value: lastRejected };
-    throw lastError || new Error('AI 辨識請求失敗：沒有可用的模型。');
+    throw lastError || new Error(t('geminiOcr.recognitionFailedNoModel'));
   }
 
   // `files` is the encoded {mime_type, data} part list (see
@@ -499,7 +509,7 @@ class AIVisionProcessor {
 
   parseResponse(responseData) {
     const rawText = responseData.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawText) throw new Error('AI 沒有回傳任何課表內容，請換一張更清楚的照片再試。');
+    if (!rawText) throw new Error(t('geminiOcr.noScheduleContent'));
     // Ignore any surrounding features unrelated to the JSON itself (markdown fences, stray
     // commentary before/after) — isolate just the outermost {...} object and read that.
     const fenceStripped = rawText
@@ -516,7 +526,9 @@ class AIVisionProcessor {
     try {
       parsed = JSON.parse(cleaned);
     } catch (error) {
-      throw new Error(`AI 回傳的內容不是有效的 JSON：${error.message}`, { cause: error });
+      throw new Error(t('nlEdit.invalidJsonResponse', { message: error.message }), {
+        cause: error
+      });
     }
     // "documentKind" is the model's own answer to "what is this file" (see
     // GEMINI_PROMPT) - read back here to pick the matching normalizer, and
@@ -599,7 +611,7 @@ class AIVisionProcessor {
     if (Array.isArray(aiResult.breakTimes)) {
       aiResult.breakTimes.forEach(item => {
         if (!item || typeof item !== 'object') return;
-        const name = String(item.name || '').trim() || '午休';
+        const name = String(item.name || '').trim() || t('geminiOcr.lunchBreakFallback');
         const start = normalizeTime(item.start);
         const end = normalizeTime(item.end);
         if (start && end) breakTimes.push({ name, start, end });
@@ -827,7 +839,7 @@ class AIVisionProcessor {
   // by asking a model to arbitrate it.
   async recognizeAndMerge(files, onProgress, opts = {}) {
     const parts = Array.isArray(files) ? files : [files];
-    if (!parts.length) throw new Error('請先選擇檔案。');
+    if (!parts.length) throw new Error(t('geminiOcr.selectFileFirst'));
     // Every file is classified and extracted independently, all requests
     // concurrent (see callGemini's own comment on why concurrency matters
     // for the ETA timer). Which file is actually the timetable can no
@@ -842,7 +854,12 @@ class AIVisionProcessor {
     // upload order.
     const scoped = index =>
       onProgress &&
-      (message => onProgress(parts.length > 1 ? `檔案 ${index + 1}：${message}` : message));
+      (message =>
+        onProgress(
+          parts.length > 1
+            ? t('geminiOcr.filePrefixedMessage', { number: index + 1, message })
+            : message
+        ));
     const results = await Promise.all(
       parts.map((file, index) => this.recognizeSchedule([file], scoped(index), opts))
     );
@@ -862,9 +879,7 @@ class AIVisionProcessor {
         (result.candidate.countdownEvents || []).length || (result.candidate.courses || []).length
     );
     if (timetableIndex === -1 && !hasOtherContent) {
-      throw new Error(
-        '沒有偵測到課表圖片或倒數活動，請確認上傳的檔案中至少有一張完整的每週課表照片、選課紀錄，或含有日期的倒數活動通知。'
-      );
+      throw new Error(t('geminiOcr.noScheduleOrCountdownDetected'));
     }
     let candidate =
       timetableIndex === -1 ? this.normalizeAIOutput({}) : results[timetableIndex].candidate;
@@ -919,14 +934,14 @@ class DataValidator {
   validate(candidate) {
     const errors = [];
     if (!candidate || typeof candidate !== 'object') {
-      errors.push('AI 沒有回傳有效的課表資料。');
+      errors.push(t('geminiOcr.noValidScheduleData'));
       return { valid: false, errors };
     }
     const hasCountdown =
       Array.isArray(candidate.countdownEvents) && candidate.countdownEvents.length > 0;
     const hasClasses = Object.keys(candidate.teacherDB || {}).length > 0;
-    if (!hasClasses && !hasCountdown) errors.push('沒有辨識到課程或倒數日期。');
-    if (!Array.isArray(candidate.bellTimes)) errors.push('節次時間資料格式不正確。');
+    if (!hasClasses && !hasCountdown) errors.push(t('geminiOcr.noClassesOrCountdownDetected'));
+    if (!Array.isArray(candidate.bellTimes)) errors.push(t('geminiOcr.bellTimesFormatInvalid'));
     if (
       candidate.bellTimes?.some(
         time =>
@@ -937,12 +952,12 @@ class DataValidator {
           time[0] >= time[1]
       )
     )
-      errors.push('部分節次時間格式不正確。');
+      errors.push(t('geminiOcr.someBellTimesFormatInvalid'));
     if (
       !candidate.weeklySchedule ||
       Object.values(candidate.weeklySchedule).some(day => !Array.isArray(day))
     )
-      errors.push('課表資料格式不正確。');
+      errors.push(t('geminiOcr.scheduleDataFormatInvalid'));
     return { valid: errors.length === 0, errors };
   }
 }
@@ -986,7 +1001,7 @@ function detectScheduleAnomalies(candidate) {
     bellRanges.forEach((rangeB, indexB) => {
       if (!rangeB || indexB <= indexA) return;
       if (timeRangesOverlap(rangeA[0], rangeA[1], rangeB[0], rangeB[1])) {
-        warnings.push(`第 ${indexA + 1} 節與第 ${indexB + 1} 節的時間重疊，請確認鐘聲時間是否正確。`);
+        warnings.push(t('geminiOcr.periodsOverlapWarning', { a: indexA + 1, b: indexB + 1 }));
       }
     });
   });
@@ -1003,9 +1018,14 @@ function detectScheduleAnomalies(candidate) {
       WEEKDAYS_INDEX_ORDER.forEach(day => {
         const key = (weeklySchedule[day] || [])[period];
         if (!key) return;
-        const subject = teacherDB[key]?.[0] || '未命名';
+        const subject = teacherDB[key]?.[0] || t('editorCore.unnamedClassLabel');
         warnings.push(
-          `${WEEKDAY_LABELS[day]}第 ${period + 1} 節與「${item.name}」時段重疊，但仍排了課程「${subject}」，請確認是否誤植。`
+          t('geminiOcr.breakClassOverlapWarning', {
+            day: WEEKDAY_LABELS[day],
+            period: period + 1,
+            name: item.name,
+            subject
+          })
         );
       });
     });
@@ -1022,10 +1042,16 @@ function detectScheduleAnomalies(candidate) {
       bellRanges.forEach((rangeB, periodB) => {
         if (!rangeB || periodB <= periodA || !dayRow[periodB]) return;
         if (!timeRangesOverlap(rangeA[0], rangeA[1], rangeB[0], rangeB[1])) return;
-        const subjectA = teacherDB[dayRow[periodA]]?.[0] || '未命名';
-        const subjectB = teacherDB[dayRow[periodB]]?.[0] || '未命名';
+        const subjectA = teacherDB[dayRow[periodA]]?.[0] || t('editorCore.unnamedClassLabel');
+        const subjectB = teacherDB[dayRow[periodB]]?.[0] || t('editorCore.unnamedClassLabel');
         warnings.push(
-          `${WEEKDAY_LABELS[day]}第 ${periodA + 1} 節「${subjectA}」與第 ${periodB + 1} 節「${subjectB}」時間重疊，可能是衝堂。`
+          t('geminiOcr.doubleBookedWarning', {
+            day: WEEKDAY_LABELS[day],
+            periodA: periodA + 1,
+            subjectA,
+            periodB: periodB + 1,
+            subjectB
+          })
         );
       });
     });
@@ -1038,11 +1064,13 @@ function detectScheduleAnomalies(candidate) {
     if (!range) return;
     const minutes = range[1] - range[0];
     if (minutes <= 0) {
-      warnings.push(`第 ${index + 1} 節的結束時間不晚於開始時間，請確認鐘聲時間是否正確。`);
+      warnings.push(t('geminiOcr.periodEndNotAfterStart', { number: index + 1 }));
     } else if (minutes < 5) {
-      warnings.push(`第 ${index + 1} 節只有 ${minutes} 分鐘，可能是鐘聲時間辨識錯誤。`);
+      warnings.push(t('geminiOcr.periodTooShort', { number: index + 1, minutes }));
     } else if (minutes > 240) {
-      warnings.push(`第 ${index + 1} 節長達 ${(minutes / 60).toFixed(1)} 小時，可能是鐘聲時間辨識錯誤。`);
+      warnings.push(
+        t('geminiOcr.periodTooLong', { number: index + 1, hours: (minutes / 60).toFixed(1) })
+      );
     }
   });
 
@@ -1068,23 +1096,22 @@ class ImportPreview {
 
     const previewTemplate = document.getElementById('ocr-preview-template');
     this.root.replaceChildren(previewTemplate.content.cloneNode(true));
-    this.root.querySelector('[data-ocr-preview-meta]').textContent =
-      '請確認並視需要修改下方內容，再按下方按鈕匯入。';
+    this.root.querySelector('[data-ocr-preview-meta]').textContent = t(
+      'geminiOcr.reviewBeforeImport'
+    );
 
     const warningsBox = this.root.querySelector('[data-ocr-warnings]');
     const warnings = detectScheduleAnomalies(candidate);
     if (warningsBox) {
       warningsBox.hidden = !warnings.length;
       if (warnings.length) {
-        warningsBox
-          .querySelector('[data-ocr-warnings-list]')
-          .replaceChildren(
-            ...warnings.map(text => {
-              const item = document.createElement('li');
-              item.textContent = text;
-              return item;
-            })
-          );
+        warningsBox.querySelector('[data-ocr-warnings-list]').replaceChildren(
+          ...warnings.map(text => {
+            const item = document.createElement('li');
+            item.textContent = text;
+            return item;
+          })
+        );
       }
     }
 
@@ -1102,7 +1129,7 @@ class ImportPreview {
     if (breakFold && !breakTimes.length) breakFold.remove();
     breakTimes.forEach(item => {
       const row = document.getElementById('ocr-break-row-template').content.cloneNode(true);
-      row.querySelector('.break-name').value = item.name || '午休';
+      row.querySelector('.break-name').value = item.name || t('geminiOcr.lunchBreakFallback');
       row.querySelector('.break-start').value = item.start || '';
       row.querySelector('.break-end').value = item.end || '';
       breakList.appendChild(row);
@@ -1189,8 +1216,16 @@ class ImportPreview {
       countdownFold.remove();
     }
 
+    // Every row above was cloned from a <template> in index.html, whose
+    // static text/placeholder/aria-label content carries the same
+    // data-i18n* attributes as the rest of the page (template content isn't
+    // part of the live document until cloned in, so bootstrap.js's one-time
+    // boot pass never reaches it) - one pass over the now-populated subtree
+    // translates all of it in one go.
+    applyStaticTranslations(this.root);
+
     this.root.querySelector('[data-ocr-preview-note]').textContent = validation.valid
-      ? '請確認以上內容無誤，再按下方按鈕匯入。'
+      ? t('geminiOcr.reviewAboveBeforeImport')
       : validation.errors.join('');
     this.root.querySelector('[data-ocr-submit]').hidden = !validation.valid;
 
@@ -1244,7 +1279,9 @@ class ImportPreview {
       });
 
       this.root.querySelectorAll('[data-ocr-break-list] .break-row').forEach(item => {
-        const name = (item.querySelector('.break-name')?.value || '').trim() || '午休';
+        const name =
+          (item.querySelector('.break-name')?.value || '').trim() ||
+          t('geminiOcr.lunchBreakFallback');
         const start = (item.querySelector('.break-start')?.value || '').trim();
         const end = (item.querySelector('.break-end')?.value || '').trim();
         if (start && end) edited.breakTimes.push({ name, start, end });
@@ -1362,7 +1399,7 @@ function startEtaTimer(etaElement, fileCount = 1) {
   const tickElapsed = () => {
     if (!revealed || !elapsedSpan) return;
     const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
-    elapsedSpan.textContent = `已等待 ${elapsedSeconds} 秒`;
+    elapsedSpan.textContent = t('geminiOcr.waitedSeconds', { seconds: elapsedSeconds });
   };
   // Idempotent and called from two places (the reveal delay, and - as a
   // safety net - the overrun timer) since an overrun this long must never
@@ -1371,7 +1408,7 @@ function startEtaTimer(etaElement, fileCount = 1) {
     if (revealed) return;
     revealed = true;
     etaElement.hidden = false;
-    estimateSpan.textContent = `預估等待時間 約 ${estimate} 秒`;
+    estimateSpan.textContent = t('geminiOcr.estimatedWaitTime', { seconds: estimate });
     tickElapsed();
   };
   const revealTimer = setTimeout(reveal, ETA_REVEAL_DELAY_MS);
@@ -1379,7 +1416,7 @@ function startEtaTimer(etaElement, fileCount = 1) {
   const overrunTimer = setTimeout(
     () => {
       reveal();
-      estimateSpan.textContent = '比預估久一點，仍在辨識中…';
+      estimateSpan.textContent = t('geminiOcr.longerThanEstimated');
     },
     Math.round(estimate * ETA_OVERRUN_FACTOR * 1000)
   );
@@ -1394,9 +1431,12 @@ function startEtaTimer(etaElement, fileCount = 1) {
 }
 
 function describeSelection(sources) {
-  if (!sources.length) return '尚未選擇檔案';
-  if (sources.length === 1) return sources[0].name || '已選擇 1 個檔案';
-  return `已選擇 ${sources.length} 個檔案：${sources.map(source => source.name || '未命名').join('、')}`;
+  if (!sources.length) return t('editorBackup.noFileSelected');
+  if (sources.length === 1) return sources[0].name || t('geminiOcr.oneFileSelected');
+  return t('geminiOcr.filesSelectedWithNames', {
+    count: sources.length,
+    names: sources.map(source => source.name || t('editorCore.unnamedClassLabel')).join('、')
+  });
 }
 
 function mountOCRImporter({
@@ -1452,7 +1492,7 @@ function mountOCRImporter({
       return;
     }
     if (chosen.length > MAX_FILES) {
-      status(`一次最多 ${MAX_FILES} 個檔案，請減少後再試。`, true);
+      status(t('geminiOcr.tooManyFiles', { max: MAX_FILES }), true);
       runButton.disabled = true;
       return;
     }
@@ -1467,8 +1507,8 @@ function mountOCRImporter({
       runButton.disabled = false;
       status(
         sources.length > 1
-          ? `已載入 ${sources.length} 個檔案，AI 會自動判斷每個檔案的內容（課表或選課資料），順序不影響結果。`
-          : '已載入檔案，點擊匯入讓 AI 自動判讀課表。'
+          ? t('geminiOcr.loadedMultipleFiles', { count: sources.length })
+          : t('geminiOcr.loadedSingleFile')
       );
     } catch (error) {
       sources = [];
@@ -1486,15 +1526,15 @@ function mountOCRImporter({
     // styles.css's .sync-viewer-locked), but that's a CSS/pointer-events
     // lock, not real access control.
     if (isSyncViewer()) {
-      status('此裝置為僅接收模式，無法使用 AI 匯入。如要自行編輯，請先解除同步。', true);
+      status(t('geminiOcr.viewerLockedImport'), true);
       return;
     }
     if (!navigator.onLine) {
-      status('目前沒有網路連線，AI 匯入暫時無法使用。', true);
+      status(t('geminiOcr.offline'), true);
       return;
     }
     if (!isGeminiProxyConfigured()) {
-      status('AI 匯入功能尚未設定，請聯絡課表管理者。', true);
+      status(t('geminiOcr.notConfigured'), true);
       return;
     }
     runButton.disabled = true;
@@ -1508,7 +1548,11 @@ function mountOCRImporter({
     state.isOcrProcessing = true;
     const stopEta = startEtaTimer(etaElement, sources.length);
     try {
-      status(sources.length > 1 ? `準備 ${sources.length} 個檔案中…` : '準備檔案中…');
+      status(
+        sources.length > 1
+          ? t('geminiOcr.preparingMultipleFiles', { count: sources.length })
+          : t('geminiOcr.preparingFile')
+      );
       console.time('GeminiEncode');
       let files;
       try {
@@ -1528,13 +1572,13 @@ function mountOCRImporter({
         // the correct answer for one.
         { validate: input => validator.validateDetected(input) }
       );
-      status('正在驗證課表資料…');
+      status(t('geminiOcr.validatingScheduleData'));
       const validation = validator.validate(candidate);
 
       status(
         validation.valid
-          ? `課表辨識完成（模型：${modelUsed}），請確認下方內容後進行匯入。`
-          : validation.errors.join('') || 'AI 辨識結果不完整，請手動修正後再匯入。'
+          ? t('geminiOcr.recognitionCompleteReview', { model: modelUsed })
+          : validation.errors.join('') || t('geminiOcr.recognitionIncompleteManualFix')
       );
       preview.render(candidate, validation);
     } catch (error) {
@@ -1595,7 +1639,9 @@ function activateOCRImporter() {
           });
           beginEditorImport(current, imported, { preserveStyle: true });
         } catch (error) {
-          statusElement.textContent = `匯入預覽失敗：${error.message || error}`;
+          statusElement.textContent = t('geminiOcr.importPreviewFailed', {
+            message: error.message || error
+          });
           statusElement.classList.add('error');
         }
       },

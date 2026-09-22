@@ -23,6 +23,7 @@ import {
 } from './editor-core.js';
 import { pad2 } from './schedule.js';
 import { isSyncViewer, setSyncStatusUi } from './sync.js';
+import { t } from './strings.js';
 
 // Renders the day-by-day period selectors from the saved or currently edited
 // schedule.
@@ -75,7 +76,7 @@ function renderEditorBells() {
 function makeBellRow(number, startValue, endValue) {
   const row = document.createElement('div');
   row.className = 'bell-row';
-  row.innerHTML = `<div class="bell-num">${number}</div><div class="bell-inputs"><input class="time-input bell-start" type="time" value="${esc(startValue)}"><span class="time-sep">→</span><input class="time-input bell-end" type="time" value="${esc(endValue)}"></div><button type="button" class="delete-btn" onclick="deleteBellRow(this)" aria-label="刪除節次">×</button>`;
+  row.innerHTML = `<div class="bell-num">${number}</div><div class="bell-inputs"><input class="time-input bell-start" type="time" value="${esc(startValue)}"><span class="time-sep">→</span><input class="time-input bell-end" type="time" value="${esc(endValue)}"></div><button type="button" class="delete-btn" onclick="deleteBellRow(this)" aria-label="${esc(t('editorSchedule.deletePeriod'))}">×</button>`;
   return row;
 }
 
@@ -145,12 +146,12 @@ function deleteBellRow(btn) {
   if (impacts.length) {
     state.pendingBellDelete = { btn, index };
     setEditorConfirmContent(
-      `刪除第 ${index + 1} 節？`,
-      `這會移除第 ${index + 1} 節的課程，後面的節次會往前移。`,
+      t('editorSchedule.deletePeriodTitle', { number: index + 1 }),
+      t('editorSchedule.deletePeriodMessage', { number: index + 1 }),
       impacts.join('\n'),
-      '刪除',
+      t('common.delete'),
       confirmBellRowDelete,
-      '返回'
+      t('common.back')
     );
     showEditorConfirmSheet();
     return;
@@ -173,7 +174,7 @@ function renderEditorBreaks() {
 function makeBreakRow(name, start, end) {
   const row = document.createElement('div');
   row.className = 'bell-row break-row';
-  row.innerHTML = `<div class="teacher-fields"><input class="editor-input break-name" placeholder="名稱" value="${esc(name || '')}"><div class="bell-inputs"><input class="time-input break-start" type="time" value="${esc(start || '08:50')}"><span class="time-sep">→</span><input class="time-input break-end" type="time" value="${esc(end || '09:10')}"></div></div><button class="delete-btn" onclick="deleteBreakRow(this)" aria-label="刪除特殊時段">×</button>`;
+  row.innerHTML = `<div class="teacher-fields"><input class="editor-input break-name" placeholder="${esc(t('editorSchedule.namePlaceholder'))}" value="${esc(name || '')}"><div class="bell-inputs"><input class="time-input break-start" type="time" value="${esc(start || '08:50')}"><span class="time-sep">→</span><input class="time-input break-end" type="time" value="${esc(end || '09:10')}"></div></div><button class="delete-btn" onclick="deleteBreakRow(this)" aria-label="${esc(t('editorSchedule.deleteBreak'))}">×</button>`;
   return row;
 }
 
@@ -210,7 +211,7 @@ function saveEditor() {
   // rest of sync - see README). Refusing here too means a save can't slip
   // through even if something bypasses the UI lock.
   if (isSyncViewer()) {
-    setSyncStatusUi('此裝置為僅接收模式，無法儲存變更。如要自行編輯，請先解除同步。', true);
+    setSyncStatusUi(t('sync.viewerLockedSave'), true);
     return;
   }
   sortEditorPeriodsByTime();
@@ -219,7 +220,7 @@ function saveEditor() {
   try {
     validateTimeIntervals(draft.bellTimes, draft.breakTimes);
   } catch (error) {
-    showEditorTimeConflict(error.message);
+    showEditorTimeConflict(error.message, error.conflictKind === 'break');
     return;
   }
   const next = normalizeSettingsData(draft);
@@ -229,18 +230,17 @@ function saveEditor() {
   showEditorSaveConfirm(diff);
 }
 
-function showEditorTimeConflict(message) {
+function showEditorTimeConflict(message, isBreakConflict) {
   setEditorConfirmContent(
-    '時間有重疊',
-    '請調整時間，避免課堂與特殊時段重疊。',
+    t('editorSchedule.timeOverlapTitle'),
+    t('editorSchedule.timeOverlapMessage'),
     message,
-    '前往調整時間',
+    t('editorSchedule.goAdjustTime'),
     () => {
       hideEditorDiscardConfirm();
-      const isBreakConflict = /特殊時段/.test(message);
       openEditorFold(isBreakConflict ? 'editor-fold-breaks' : 'editor-fold-bells');
     },
-    '返回編輯'
+    t('editorSchedule.backToEditing')
   );
   showEditorConfirmSheet();
 }

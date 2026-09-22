@@ -9,6 +9,7 @@ import { closeTestPanel, syncTestToolbar } from './dashboard.js';
 import { syncTestPlayPauseUi } from './dashboard-render.js';
 import { getWeekType } from './schedule.js';
 import { computeDashboardViewModel } from './schedule-calc.js';
+import { t } from './strings.js';
 
 // Everything below is module-private already - this file used to wrap it all
 // in an IIFE, which a module doesn't need: nothing here is exported, so
@@ -62,7 +63,9 @@ const APP_VERSION_DATE = typeof __APP_VERSION_DATE__ !== 'undefined' ? __APP_VER
 const APP_VERSION_HASH = typeof __APP_VERSION_HASH__ !== 'undefined' ? __APP_VERSION_HASH__ : '?';
 function syncAppVersion() {
   const version = el('app-version');
-  if (version) version.textContent = '版本 ' + APP_VERSION_DATE + ' · ' + APP_VERSION_HASH;
+  if (version)
+    version.textContent =
+      t('testsim.versionLabel') + ' ' + APP_VERSION_DATE + ' · ' + APP_VERSION_HASH;
 }
 function clampInt(value, min, max, fallback) {
   let n = parseInt(value, 10);
@@ -613,7 +616,7 @@ window.checkForAppUpdate = function () {
   if (btn && btn.disabled) return; // already in progress - ignore repeat clicks
   if (btn) {
     btn.disabled = true;
-    btn.textContent = '檢查中…';
+    btn.textContent = t('testsim.checking');
   }
   if (statusEl) {
     statusEl.className = 'test-update-status';
@@ -631,11 +634,11 @@ window.checkForAppUpdate = function () {
       } else {
         if (btn) {
           btn.disabled = false;
-          btn.textContent = '檢查更新';
+          btn.textContent = t('testsim.checkForUpdate');
         }
         if (statusEl) {
           statusEl.classList.add('up-to-date');
-          statusEl.textContent = '已是最新版本';
+          statusEl.textContent = t('testsim.upToDate');
         }
       }
     })
@@ -647,11 +650,11 @@ window.checkForAppUpdate = function () {
       // of that.
       if (btn) {
         btn.disabled = false;
-        btn.textContent = '檢查更新';
+        btn.textContent = t('testsim.checkForUpdate');
       }
       if (statusEl) {
         statusEl.classList.add('error');
-        statusEl.textContent = '檢查失敗，請確認網路連線';
+        statusEl.textContent = t('testsim.checkFailed');
       }
     });
 };
@@ -659,7 +662,7 @@ window.checkForAppUpdate = function () {
 function performForcedRefresh(btn) {
   if (btn) {
     btn.disabled = true;
-    btn.textContent = '更新中…';
+    btn.textContent = t('testsim.updating');
   }
   function reloadNow() {
     const url = new URL(window.location.href);
