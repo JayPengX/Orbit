@@ -30,6 +30,19 @@ const DEFAULT_STYLE_SECONDARY = '#E8497B';
 // is already in hand. The values are `t()` lookups behind getters (rather
 // than a plain object built once) so a locale switch is picked up on the
 // next read without needing to reconstruct this table.
+//
+// WARNING for a future translator/locale author: these render inside
+// several fixed-width, 7-across UI slots sized around zh-TW's 2-character
+// originals (週三 etc.) - the nav bar's day tabs (.nav-item, src/schedule.js),
+// the teacher-assignment day tabs (.assign-day-tab, src/editor-teachers.js),
+// and the editor's day labels (.schedule-day-label, src/editor-schedule.js,
+// src/gemini-ocr.js). .nav-item and .assign-day-tab now clip an over-long
+// label with an ellipsis instead of visually bleeding into the next tab (a
+// real bug this app shipped once - see css/styles.css's comment on
+// .nav-item), so a too-long translation is a cosmetic issue, not a broken
+// layout - but a short abbreviation (see locales/en.js's weekday.* keys)
+// still looks far better than "Wed…". Take a real screenshot after
+// translating these, don't just trust that ellipsis makes it safe to ignore.
 const WEEKDAY_LABELS = Object.freeze({
   get 0() {
     return t('weekday.sunday');

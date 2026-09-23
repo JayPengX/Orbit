@@ -799,6 +799,16 @@ body.orbit-booting .dashboard-boot-loader{visibility:visible;display:flex;positi
   box-shadow:var(--glass-edge-shadow);outline:none;
   font-size:clamp(16px,4.6vw,20px);cursor:pointer;transition:transform .3s var(--ease-liquid),background .2s,border-color .2s;
   border-radius:13px;padding:8px 3px;font-weight:700;color:var(--orbit-muted);
+  /* This is one of 7 equal-width siblings (flex:1;min-width:0 above) with no
+     room to grow - a label wider than its slot used to visually bleed into
+     the next tab (a real bug fixed by shortening the English weekday labels,
+     see src/locales/en.js). white-space:nowrap plus this ellipsis clamp is a
+     structural safety net for that same failure mode in ANY future locale:
+     an over-long translation now degrades to a truncated-but-contained
+     "Wedn…" instead of visibly overlapping its neighbor. It doesn't replace
+     keeping translations short - just makes "too long" a minor cosmetic
+     issue instead of a rendering bug. */
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 @supports not (backdrop-filter:blur(1px)){.nav-item{background:var(--orbit-panel)}}
 .nav-item:active,.nav-item:focus{outline:none}
@@ -1557,7 +1567,10 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
 .assign-header{display:flex;align-items:center;justify-content:space-between}
 .assign-header .editor-close{margin:0}
 .assign-day-tabs{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin:12px 0 8px}
-.assign-day-tab{min-height:48px;padding:0 3px;border:1px solid color-mix(in srgb,var(--pro-accent) 24%,var(--bd));border-radius:10px;background:color-mix(in srgb,var(--pro-accent) 6%,rgba(255,255,255,.055));color:var(--sub);font:800 14px/1 inherit;cursor:pointer;transition:transform .12s,background .15s;backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat));-webkit-backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat))}
+/* Same 7-equal-column grid shape as .nav-item above (.assign-day-tabs uses
+   grid-template-columns:repeat(7,minmax(0,1fr))) - same overflow risk from
+   an over-long weekday translation, so the same nowrap+ellipsis safety net. */
+.assign-day-tab{min-height:48px;padding:0 3px;border:1px solid color-mix(in srgb,var(--pro-accent) 24%,var(--bd));border-radius:10px;background:color-mix(in srgb,var(--pro-accent) 6%,rgba(255,255,255,.055));color:var(--sub);font:800 14px/1 inherit;cursor:pointer;transition:transform .12s,background .15s;backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat));-webkit-backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .assign-day-tab:active{transform:scale(.95)}
 .assign-day-tab.active{background:var(--accent);border-color:var(--accent);color:var(--pro-accent-text);box-shadow:0 5px 14px color-mix(in srgb,var(--accent) 28%,transparent)}
 .assign-day-row{display:grid;grid-template-columns:42px minmax(0,1fr);gap:8px;align-items:center}

@@ -54,12 +54,21 @@ export default {
   'common.show': 'Show',
   'common.unknown': 'Unknown',
   // Abbreviated (not "Sunday"/"Monday"/...) on purpose: every call site
-  // (nav-bar day tabs, editor day labels/tabs, schedule-row day badges)
-  // is a compact, fixed-width slot sized around the 2-character zh-TW
-  // originals (週三 etc.) - a full English weekday name overflows those
-  // slots and visually bleeds into the neighboring one (confirmed via a
-  // real screenshot, not just reasoning about width). Also just the
+  // (nav-bar day tabs, editor day labels/tabs, schedule-row day badges) is
+  // a compact, fixed-width slot sized around the 2-character zh-TW
+  // originals (週三 etc.) - a full English weekday name used to overflow
+  // those slots and visually bleed into the neighboring one (confirmed via
+  // a real screenshot, not just reasoning about width). Also just the
   // normal convention for a calendar/schedule tab bar in English.
+  //
+  // WARNING FOR A NEW LOCALE: the two worst-offending slots (.nav-item,
+  // .assign-day-tab - see css/styles.css) now clip an over-long value with
+  // an ellipsis instead of bleeding, so this can no longer corrupt the
+  // layout - but it can still look bad ("Mittw…" instead of "Mi"). Keep
+  // your translations of weekday.* as short as you reasonably can (an
+  // abbreviation, not the full word) and check a real screenshot before
+  // considering the translation done. See src/constants.js's WEEKDAY_LABELS
+  // comment for the full list of call sites this affects.
   'weekday.sunday': 'Sun',
   'weekday.monday': 'Mon',
   'weekday.tuesday': 'Tue',
