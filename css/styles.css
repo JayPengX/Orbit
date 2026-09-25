@@ -1181,7 +1181,7 @@ body.editor-open .dashboard,body.transfer-open .dashboard{pointer-events:none}
 .editor-back-row{display:flex;justify-content:flex-start;margin-bottom:8px}
 .editor-back-btn{min-height:32px;border-radius:11px;border:1px solid color-mix(in srgb,var(--pro-accent) 38%,rgba(255,255,255,.14));background:color-mix(in srgb,var(--pro-accent) 15%,rgba(255,255,255,.05));color:var(--pro-accent-readable);font-size:12px;font-weight:800;cursor:pointer;padding:7px 10px;transition:transform .12s,background .15s;backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat));-webkit-backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat))}
 .editor-back-btn:active{transform:scale(.96);background:color-mix(in srgb,var(--pro-accent) 28%,rgba(255,255,255,.05))}
-.editor-import-diff{margin-top:10px;padding:10px 11px;border-radius:12px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10);color:var(--sub);font-size:12px;line-height:1.45;text-align:left;max-height:220px;overflow:auto;white-space:pre-line}
+.editor-import-diff{margin-top:10px;margin-bottom:18px;padding:10px 11px;border-radius:12px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10);color:var(--sub);font-size:12px;line-height:1.45;text-align:left;max-height:220px;overflow:auto;white-space:pre-line}
 
 .editor-confirm-overlay{position:fixed;inset:0;z-index:250;background:rgba(0,0,0,.55);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);opacity:0;visibility:hidden;transition:opacity .28s,visibility .28s}
 .editor-confirm-overlay.show{opacity:1;visibility:visible}
@@ -1194,16 +1194,18 @@ body.editor-open .editor-confirm-sheet,body.style-panel-open .editor-confirm-she
 .editor-confirm-title{font-size:19px;font-weight:800;text-align:center;letter-spacing:-.4px;margin:0 0 12px}
 .editor-confirm-msg{font-size:14px;font-weight:500;color:var(--sub);text-align:center;line-height:1.5;margin:0 auto 22px;max-width:30ch}
 .editor-confirm-actions{display:flex;flex-direction:column;gap:12px}
-.editor-confirm-btn{width:100%;min-height:var(--action-btn-h);padding:13px 18px;border-radius:var(--action-btn-radius);border:none;font-size:var(--action-btn-font);font-weight:700;cursor:pointer;transition:transform .15s,opacity .15s,box-shadow .15s;touch-action:manipulation;font-family:inherit;white-space:normal;line-height:1.2}
+.editor-confirm-btn{width:100%;min-height:var(--action-btn-h);padding:13px 18px;border-radius:var(--action-btn-radius);border:1px solid color-mix(in srgb,var(--pro-accent) 18%,rgba(255,255,255,.12));background:color-mix(in srgb,var(--pro-accent) 10%,rgba(255,255,255,.09));color:#F8FAFC;font-size:var(--action-btn-font);font-weight:700;cursor:pointer;transition:transform .15s,opacity .15s,box-shadow .15s;touch-action:manipulation;font-family:inherit;white-space:normal;line-height:1.2}
 .editor-confirm-btn:active{transform:scale(.96);opacity:.88}
-.editor-confirm-btn.primary{background:color-mix(in srgb,var(--accent) 82%,transparent);color:var(--pro-accent-text);box-shadow:0 4px 16px color-mix(in srgb,var(--pro-accent) 35%,transparent);backdrop-filter:blur(16px) saturate(180%);-webkit-backdrop-filter:blur(16px) saturate(180%)}
-.editor-confirm-btn.danger{background:rgba(255,69,58,.1);color:#ff453a;border:1px solid rgba(255,69,58,.35);font-weight:700;backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat));-webkit-backdrop-filter:blur(var(--glass-blur-card)) saturate(var(--glass-sat))}
-.editor-primary-btn{background:linear-gradient(135deg,var(--pro-action-bg),var(--pro-action-bg-2));color:var(--pro-action-text);box-shadow:0 8px 22px color-mix(in srgb,var(--pro-accent) 20%,transparent);backdrop-filter:blur(16px) saturate(180%);-webkit-backdrop-filter:blur(16px) saturate(180%)}
+.editor-confirm-btn.primary{border-color:transparent;background:linear-gradient(135deg,var(--pro-action-bg),var(--pro-action-bg-2));color:var(--pro-action-text);box-shadow:0 8px 22px color-mix(in srgb,var(--pro-accent) 20%,transparent);backdrop-filter:blur(16px) saturate(180%);-webkit-backdrop-filter:blur(16px) saturate(180%)}
+/* Filled red, not the outlined red of an in-panel entry button (.settings-transfer-btn.danger):
+   inside a confirmation it IS the action, so it gets the same weight a primary action would. */
+.editor-confirm-btn.danger{border-color:transparent;background:#e5483d;color:#fff;box-shadow:0 8px 22px rgba(229,72,61,.28)}
+.editor-primary-btn{border-color:transparent;background:linear-gradient(135deg,var(--pro-action-bg),var(--pro-action-bg-2));color:var(--pro-action-text);box-shadow:0 8px 22px color-mix(in srgb,var(--pro-accent) 20%,transparent);backdrop-filter:blur(16px) saturate(180%);-webkit-backdrop-filter:blur(16px) saturate(180%)}
 @media (min-width:390px){.editor-confirm-actions{flex-direction:row}.editor-confirm-btn{flex:1 1 0}}
 /* A 3rd (extra) button - e.g. unlink's "複製代碼" - makes a side-by-side row too
    cramped on a real phone width (labels wrap into 2 lines and everything looks
    squished); stack those back into a full-width column regardless of viewport. */
-.editor-confirm-actions:has(#editor-confirm-extra-btn){flex-direction:column}
+.editor-confirm-actions.has-extra{flex-direction:column}
 
 /* The odd/even-week toggle row and its switch (單雙週對調) are glass too now,
    same as every other control in this sheet - the track picks up

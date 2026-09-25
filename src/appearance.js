@@ -281,7 +281,8 @@ function saveStyleSlot(index) {
     '',
     occupied ? t('common.overwrite') : t('common.save'),
     applyPendingStyleSlotSave,
-    t('common.cancel')
+    t('common.cancel'),
+    { danger: occupied }
   );
   showEditorConfirmSheet();
 }
@@ -401,7 +402,8 @@ function showStyleDiscardConfirm() {
     '',
     t('appearance.discardAndLeave'),
     discardStyleChangesAndClose,
-    t('common.back')
+    t('common.back'),
+    { danger: true }
   );
   showEditorConfirmSheet();
 }

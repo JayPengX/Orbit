@@ -167,7 +167,8 @@ function runTransferAction(action) {
         t('editorBackup.overwriteExportConfirm'),
         t('editorBackup.overwriteAndExport'),
         confirmExportOverwrite,
-        t('common.cancel')
+        t('common.cancel'),
+        { danger: true }
       );
       showEditorConfirmSheet();
       return;
@@ -1146,7 +1147,11 @@ function showEditorImportConfirm(current, next, isMerge, preserveStyle = false) 
     isMerge ? t('editorBackup.confirmMerge') : t('editorBackup.confirmImport'),
     applyPendingImportSettings,
     t('common.back'),
-    { cancelHandler: () => showEditorImportModeConfirm(current, next, preserveStyle) }
+    {
+      // A direct import replaces the saved schedule; a merge only adds to it.
+      danger: !isMerge && !identical,
+      cancelHandler: () => showEditorImportModeConfirm(current, next, preserveStyle)
+    }
   );
   showEditorConfirmSheet();
 }
@@ -1227,7 +1232,8 @@ function resetAllAppData() {
       localStorage.clear();
       location.reload();
     },
-    t('common.cancel')
+    t('common.cancel'),
+    { danger: true }
   );
   showEditorConfirmSheet();
 }

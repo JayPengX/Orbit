@@ -1123,7 +1123,8 @@ async function orbitSyncJoin() {
         hideEditorDiscardConfirm();
         performSyncJoin(normalizedCode, passcode);
       },
-      t('common.cancel')
+      t('common.cancel'),
+      { danger: true }
     );
     showEditorConfirmSheet();
   });
@@ -1259,6 +1260,7 @@ function orbitSyncUnlink() {
     t('common.cancel'),
     isManager
       ? {
+          danger: true,
           extraLabel: t('sync.deleteForEveryone'),
           extraDanger: true,
           extraHandler: () => {
@@ -1267,6 +1269,7 @@ function orbitSyncUnlink() {
           }
         }
       : {
+          danger: true,
           extraLabel: t('sync.copyCode'),
           // Deliberately doesn't close the sheet (unlike the default
           // extraHandler) - copying is meant to happen *before* deciding
@@ -1318,7 +1321,8 @@ function orbitSyncDeleteForEveryone() {
       setSyncStatusUi(t('sync.deletedForEveryone'));
       promptScheduleBackupRestore();
     },
-    t('common.cancel')
+    t('common.cancel'),
+    { danger: true }
     // No copy-code option here (unlike orbitSyncUnlink) - once this
     // succeeds the code is permanently dead for everyone, so a copy of it
     // would be useless for rejoining.

@@ -151,7 +151,8 @@ function deleteBellRow(btn) {
       impacts.join('\n'),
       t('common.delete'),
       confirmBellRowDelete,
-      t('common.back')
+      t('common.back'),
+      { danger: true }
     );
     showEditorConfirmSheet();
     return;

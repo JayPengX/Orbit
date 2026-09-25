@@ -234,7 +234,8 @@ function assignToSlot(key, day, period) {
         '',
         t('editorTeachers.confirmOverwrite'),
         confirmAssignment,
-        t('common.back')
+        t('common.back'),
+        { danger: true }
       );
       showEditorConfirmSheet();
       return;
@@ -351,7 +352,8 @@ function deleteTeacherCard(btn) {
       impacts.join('\n'),
       t('common.delete'),
       confirmTeacherCardDelete,
-      t('common.back')
+      t('common.back'),
+      { danger: true }
     );
     showEditorConfirmSheet();
     return;

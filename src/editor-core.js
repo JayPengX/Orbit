@@ -647,6 +647,13 @@ function setEditorConfirmContent(
   cancelBtn.style.display = canCancel ? '' : 'none';
   cancelBtn.textContent = canCancel ? cancelLabel : '';
   cancelBtn.onclick = canCancel ? options.cancelHandler || hideEditorDiscardConfirm : null;
+  // One colour rule for every dialog this sheet hosts: the button that just
+  // backs out (or picks the other option) is neutral, the dialog's own
+  // action is the filled accent button, and only an action that deletes,
+  // discards or overwrites something (options.danger) is red.
+  cancelBtn.classList.remove('primary', 'danger');
+  confirmBtn.classList.toggle('danger', !!options.danger);
+  confirmBtn.classList.toggle('primary', !options.danger);
   extraBtn.style.display = options.extraLabel ? '' : 'none';
   extraBtn.textContent = options.extraLabel || '';
   extraBtn.onclick = options.extraLabel ? options.extraHandler || hideEditorDiscardConfirm : null;
@@ -655,6 +662,16 @@ function setEditorConfirmContent(
   // destructive extra option (e.g. sync's "整個刪除同步") would leak its
   // red styling onto the next, unrelated dialog's plain extra button.
   extraBtn.classList.toggle('danger', !!options.extraDanger);
+  // Three buttons stack (see .editor-confirm-actions.has-extra): the action
+  // on top and the button that only closes the sheet always last - that's
+  // the cancel slot unless a caller turned it into a second choice
+  // (options.cancelHandler) and put Cancel on the extra button instead.
+  const actions = sheet.querySelector('.editor-confirm-actions');
+  const hasExtra = !!options.extraLabel;
+  actions.classList.toggle('has-extra', hasExtra);
+  confirmBtn.style.order = hasExtra ? '0' : '';
+  cancelBtn.style.order = hasExtra ? (options.cancelHandler ? '1' : '2') : '';
+  extraBtn.style.order = hasExtra ? (options.cancelHandler ? '2' : '1') : '';
   overlay.onclick = canCancel
     ? hideEditorDiscardConfirm
     : function (event) {
@@ -688,7 +705,8 @@ function showEditorDiscardConfirm() {
     getEditorUnsavedDiff(),
     t('editorCore.discard'),
     discardEditorChangesAndClose,
-    t('common.back')
+    t('common.back'),
+    { danger: true }
   );
   showEditorConfirmSheet();
 }
@@ -703,7 +721,8 @@ function showTransferDiscardConfirm() {
     '',
     t('editorCore.discardAndLeaveTransfer'),
     discardTransferChangesAndClose,
-    t('common.back')
+    t('common.back'),
+    { danger: true }
   );
   showEditorConfirmSheet();
 }
