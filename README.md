@@ -2,7 +2,7 @@
 
 A browser-based class-schedule dashboard that tells you what's happening right now, not just what your timetable says.
 
-> **Live site: [https://jaypengx.github.io/Orbit/](https://jaypengx.github.io/Orbit/)** — Try it now, no install required.
+> **Live site: [https://jaypengx.github.io/Orbit-Class/](https://jaypengx.github.io/Orbit-Class/)** — Try it now, no install required.
 
 ---
 
@@ -59,13 +59,13 @@ All three are deliberately built on top of services whose free tier has a hard u
 
 This is a purely front-end project — no server, no database at runtime. During development, [Vite](https://vitejs.dev/) bundles the ES modules under `src/` and provides a dev server and test runner.
 
-**Online use**: just open [jaypengx.github.io/Orbit](https://jaypengx.github.io/Orbit/) — nothing to install. Every push to `main` triggers `.github/workflows/static.yml`, which runs tests, builds, and deploys — a failing test blocks deployment.
+**Online use**: just open [jaypengx.github.io/Orbit-Class](https://jaypengx.github.io/Orbit-Class/) — nothing to install. Every push to `main` triggers `.github/workflows/static.yml`, which runs tests, builds, and deploys — a failing test blocks deployment.
 
 **Local development**:
 
 ```bash
-git clone https://github.com/JayPengX/Orbit.git
-cd Orbit
+git clone https://github.com/JayPengX/Orbit-Class.git
+cd Orbit-Class
 npm install
 npm run dev
 ```
@@ -411,4 +411,4 @@ Schedule display, scheduling, odd/even-week switching, bell times, special perio
 
 ---
 
-**[jaypengx.github.io/Orbit](https://jaypengx.github.io/Orbit/)** — open it in a browser and start using it.
+**[jaypengx.github.io/Orbit-Class](https://jaypengx.github.io/Orbit-Class/)** — open it in a browser and start using it.
