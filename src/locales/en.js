@@ -34,6 +34,7 @@ export default {
   'nlEdit.noChangeMessage':
     "AI's proposed change is identical to the current schedule, so there is nothing to apply.",
   'nlEdit.confirmTitle': "Apply AI's suggested change?",
+  'nlEdit.confirmTitleLocal': 'Apply these changes?',
   'nlEdit.confirmMessage': 'The following change will be applied.',
   'nlEdit.confirmApply': 'Apply',
   'nlEdit.confirmCancel': 'Cancel',

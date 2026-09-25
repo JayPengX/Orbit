@@ -280,9 +280,7 @@ describe('submitNlEdit - local edits', () => {
     // No 的 - normalizeNlEditText splits the day off before the local parser.
     await submitNlEdit('星期一二三節對調', { status });
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(document.getElementById('editor-confirm-title').textContent).toBe(
-      '要套用 AI 建議的修改嗎？'
-    );
+    expect(document.getElementById('editor-confirm-title').textContent).toBe('要套用這些修改嗎？');
     expect(state.pendingEditorSaveData.weeklySchedule[1].slice(1, 3)).toEqual([
       state.applicationData.weeklySchedule[1][2],
       state.applicationData.weeklySchedule[1][1]

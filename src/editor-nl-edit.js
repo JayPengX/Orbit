@@ -343,7 +343,7 @@ function showNlEditInfo(title, message) {
 // same "apply, save, toast, push to sync if configured" path a normal
 // manual save goes through - see editor-schedule.js's saveEditor(). Nothing
 // here is ever applied without this step.
-function showNlEditConfirm(current, next) {
+function showNlEditConfirm(current, next, { local = false } = {}) {
   const diff = describeSettingsDiff(current, next);
   if (diff === t('editorBackup.noChanges')) {
     showNlEditInfo(t('nlEdit.noChangeTitle'), t('nlEdit.noChangeMessage'));
@@ -351,7 +351,7 @@ function showNlEditConfirm(current, next) {
   }
   state.pendingEditorSaveData = next;
   setEditorConfirmContent(
-    t('nlEdit.confirmTitle'),
+    t(local ? 'nlEdit.confirmTitleLocal' : 'nlEdit.confirmTitle'),
     t('nlEdit.confirmMessage'),
     diff,
     t('nlEdit.confirmApply'),
@@ -382,7 +382,8 @@ async function submitNlEdit(rawText, { status, onDone } = {}) {
     // goes to the AI, which is also why these checks come after it: a local
     // edit works offline and without a configured proxy.
     let result = parseLocalNlEdit(text, current);
-    if (!result) {
+    const local = !!result;
+    if (!local) {
       if (!isNlEditConfigured()) {
         status?.(t('nlEdit.notConfigured'), true);
         return;
@@ -420,7 +421,7 @@ async function submitNlEdit(rawText, { status, onDone } = {}) {
       return;
     }
     status?.(t('nlEdit.ready'));
-    showNlEditConfirm(current, next);
+    showNlEditConfirm(current, next, { local });
   } catch (error) {
     status?.(error.message, true);
   } finally {

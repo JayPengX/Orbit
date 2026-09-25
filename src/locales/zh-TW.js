@@ -27,6 +27,7 @@ export default {
   'nlEdit.noChangeTitle': '沒有變更',
   'nlEdit.noChangeMessage': 'AI 提出的修改內容跟目前課表完全相同，沒有需要套用的變更。',
   'nlEdit.confirmTitle': '要套用 AI 建議的修改嗎？',
+  'nlEdit.confirmTitleLocal': '要套用這些修改嗎？',
   'nlEdit.confirmMessage': '會套用以下變更。',
   'nlEdit.confirmApply': '套用',
   'nlEdit.confirmCancel': '取消',
