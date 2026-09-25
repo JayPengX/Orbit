@@ -45,6 +45,7 @@ import {
   showEditorConfirmSheet
 } from './editor-core.js';
 import { proxyPath } from './proxy-config.js';
+import { parseLocalNlEdit } from './nl-edit-local.js';
 
 // Must match GEMINI_ALLOWED_MODELS in the shared-proxy repo's worker.js -
 // the Worker's /nl-edit path reuses the exact same vetted model list as
@@ -375,18 +376,24 @@ async function submitNlEdit(rawText, { status, onDone } = {}) {
       status?.(t('nlEdit.emptyInput'), true);
       return;
     }
-    if (!isNlEditConfigured()) {
-      status?.(t('nlEdit.notConfigured'), true);
-      return;
-    }
-    if (!navigator.onLine) {
-      status?.(t('nlEdit.offline'), true);
-      return;
-    }
-    status?.(t('nlEdit.working'));
     const current = settingsDataForExport();
-    const context = buildNlEditContext();
-    const result = await callNlEditProxy(text, context, status);
+    // Common edits (swap/move/clear/set a period) are recognized right here
+    // for free - see nl-edit-local.js. Only what it can't fully account for
+    // goes to the AI, which is also why these checks come after it: a local
+    // edit works offline and without a configured proxy.
+    let result = parseLocalNlEdit(text, current);
+    if (!result) {
+      if (!isNlEditConfigured()) {
+        status?.(t('nlEdit.notConfigured'), true);
+        return;
+      }
+      if (!navigator.onLine) {
+        status?.(t('nlEdit.offline'), true);
+        return;
+      }
+      status?.(t('nlEdit.working'));
+      result = await callNlEditProxy(text, buildNlEditContext(), status);
+    }
     const validation = validateNlEditResult(result);
     if (!validation.valid) {
       status?.(validation.errors.join('') || t('nlEdit.badResponse'), true);

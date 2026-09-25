@@ -272,6 +272,26 @@ describe('submitNlEdit - first-class failure states', () => {
   });
 });
 
+describe('submitNlEdit - local edits', () => {
+  it('handles a plain swap without any AI request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const { status } = statusRecorder();
+    // No 的 - normalizeNlEditText splits the day off before the local parser.
+    await submitNlEdit('星期一二三節對調', { status });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(document.getElementById('editor-confirm-title').textContent).toBe(
+      '要套用 AI 建議的修改嗎？'
+    );
+    expect(state.pendingEditorSaveData.weeklySchedule[1].slice(1, 3)).toEqual([
+      state.applicationData.weeklySchedule[1][2],
+      state.applicationData.weeklySchedule[1][1]
+    ]);
+    clickCancel();
+    vi.unstubAllGlobals();
+  });
+});
+
 describe('submitNlEdit - confirm-before-apply', () => {
   it('never applies the change until the confirm sheet is accepted', async () => {
     const fetchMock = vi.fn(async () => fakeNlEditResponse(okChangedState()));
