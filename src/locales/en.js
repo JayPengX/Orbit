@@ -22,7 +22,6 @@ export default {
     'This device is in receive-only mode, so AI schedule editing is unavailable. Unlink sync first if you want to edit.',
   'nlEdit.emptyInput': 'Please enter what you would like to change first.',
   'nlEdit.working': 'Asking AI to parse the instruction…',
-  'nlEdit.retryingStronger': 'Checking again with a stronger AI model…',
   'nlEdit.ready': 'AI has proposed a change. Please review and apply it.',
   'nlEdit.badResponse': "AI didn't return a recognizable change. Please try rephrasing.",
   'nlEdit.unclearTitle': "Couldn't understand this instruction",

@@ -13,13 +13,47 @@ import { seedLocalStorage } from './helpers/fixtureData.js';
 let applyNlEditResult;
 let buildNlEditContext;
 let isNlEditConfigured;
+let normalizeNlEditText;
 let validateNlEditResult;
 
 beforeAll(async () => {
   seedLocalStorage();
   await loadApp();
-  ({ applyNlEditResult, buildNlEditContext, isNlEditConfigured, validateNlEditResult } =
-    await import('../src/editor-nl-edit.js'));
+  ({
+    applyNlEditResult,
+    buildNlEditContext,
+    isNlEditConfigured,
+    normalizeNlEditText,
+    validateNlEditResult
+  } = await import('../src/editor-nl-edit.js'));
+});
+
+describe('normalizeNlEditText', () => {
+  it.each([
+    ['星期三二三節對調', '星期三的二三節對調'],
+    ['週三二三節對調', '週三的二三節對調'],
+    ['禮拜一三到四節改成物理', '禮拜一的三到四節改成物理'],
+    ['星期天一節', '星期天的一節'],
+    ['週五１、２節對調', '週五的1、2節對調'],
+    ['週3 2節改國文', '週3 2節改國文'],
+    ['週32節改國文', '週3的2節改國文']
+  ])('splits the day off run-together periods: %s', (input, expected) => {
+    expect(normalizeNlEditText(input)).toBe(expected);
+  });
+
+  it.each([
+    '星期三的二三節對調',
+    '週三第二節和第三節對調',
+    '週一二第三節改成物理',
+    '把國文課挪到早自習後面',
+    '新增一個課程叫社團活動'
+  ])('leaves already-clear instructions alone: %s', input => {
+    expect(normalizeNlEditText(input)).toBe(input);
+  });
+
+  it('trims and collapses whitespace', () => {
+    expect(normalizeNlEditText('  週三　第二節\n改成物理 ')).toBe('週三 第二節 改成物理');
+  });
 });
 
 describe('isNlEditConfigured', () => {
