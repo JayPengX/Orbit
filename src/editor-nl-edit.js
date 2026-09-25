@@ -49,8 +49,9 @@ import { proxyPath } from './proxy-config.js';
 // Must match GEMINI_ALLOWED_MODELS in the shared-proxy repo's worker.js -
 // the Worker's /nl-edit path reuses the exact same vetted model list as
 // /gemini (see that file's own comment on why these two models specifically
-// - fastest first, escalate to the stronger one only on a transient
-// failure, same fallback shape as AIVisionProcessor.callGemini below).
+// - fastest first, escalate to the stronger one on a transient failure,
+// same fallback shape as AIVisionProcessor.callGemini, and also on a
+// dead-end answer - see submitNlEdit).
 const NL_EDIT_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.7-flash'];
 
 // Same shared PROXY_URL as gemini-ocr.js and sync.js (see proxy-config.js) -
@@ -116,9 +117,9 @@ function extractJsonObject(rawText) {
 // result instead of throwing directly for the location-block case
 // specifically, since callNlEditProxy needs to tell that one apart from
 // every other failure (which isn't worth retrying a whole pass over).
-async function tryNlEditModels(text, context) {
+async function tryNlEditModels(text, context, models) {
   let lastError = null;
-  for (const model of NL_EDIT_MODELS) {
+  for (const model of models) {
     let response;
     try {
       response = await fetch(NL_EDIT_PROXY_URL, {
@@ -185,13 +186,13 @@ async function tryNlEditModels(text, context) {
 // just got blocked, so it's worth retrying a couple of whole passes (with a
 // short delay) before finally giving up, rather than surfacing the error on
 // the very first hit.
-async function callNlEditProxy(text, context, status) {
+async function callNlEditProxy(text, context, status, models = NL_EDIT_MODELS) {
   if (!NL_EDIT_PROXY_URL) throw new Error(t('nlEdit.notConfigured'));
   if (!navigator.onLine) throw new Error(t('nlEdit.offline'));
   const LOCATION_BLOCK_RETRY_LIMIT = 2;
   const LOCATION_BLOCK_RETRY_DELAY_MS = 500;
   for (let locationAttempt = 0; ; locationAttempt++) {
-    const result = await tryNlEditModels(text, context);
+    const result = await tryNlEditModels(text, context, models);
     if (result.ok) return result.value;
     if (!result.locationBlocked || locationAttempt >= LOCATION_BLOCK_RETRY_LIMIT)
       throw result.error;
@@ -341,6 +342,24 @@ function showNlEditConfirm(current, next) {
   showEditorConfirmSheet();
 }
 
+// Validates and applies one model answer without touching the UI, and flags
+// whether it's a dead end worth re-asking the stronger model about (see
+// submitNlEdit): an invalid shape, unclear/not_found, a patch that fails
+// normalization, or one that ends up identical to the current data.
+function evaluateNlEditResult(current, result) {
+  const validation = validateNlEditResult(result);
+  if (!validation.valid) return { result, validation, escalate: true };
+  if (result.status !== 'ok') return { result, validation, escalate: true };
+  let next;
+  try {
+    next = applyNlEditResult(current, result);
+  } catch (applyError) {
+    return { result, validation, applyError, escalate: true };
+  }
+  const unchanged = describeSettingsDiff(current, next) === t('editorBackup.noChanges');
+  return { result, validation, next, escalate: unchanged };
+}
+
 // The entry point the UI wiring below calls. `status` reports progress/
 // errors back to the caller's own status line; `onDone` always fires last
 // (success, failure, or a first-class unclear/not_found outcome) so the UI
@@ -367,10 +386,33 @@ async function submitNlEdit(rawText, { status, onDone } = {}) {
     status?.(t('nlEdit.working'));
     const current = settingsDataForExport();
     const context = buildNlEditContext();
-    const result = await callNlEditProxy(text, context, status);
-    const validation = validateNlEditResult(result);
+    let outcome = evaluateNlEditResult(current, await callNlEditProxy(text, context, status));
+    // The fast lite model occasionally misreads a perfectly clear
+    // instruction (e.g. run-together numerals like "星期三二三節對調") and
+    // answers unclear/not_found or a patch that changes nothing - an HTTP
+    // 200, so tryNlEditModels never escalates on its own, and temperature 0
+    // means asking the same model again gives the same answer. Give the
+    // stronger model one shot before showing that dead end; if that call
+    // itself fails, fall back to the first answer rather than an error.
+    if (outcome.escalate && NL_EDIT_MODELS.length > 1) {
+      status?.(t('nlEdit.retryingStronger'));
+      try {
+        const retry = evaluateNlEditResult(
+          current,
+          await callNlEditProxy(text, context, status, NL_EDIT_MODELS.slice(1))
+        );
+        if (!retry.escalate || !outcome.validation.valid) outcome = retry;
+      } catch {
+        // Keep the first model's answer.
+      }
+    }
+    const { result, validation } = outcome;
     if (!validation.valid) {
       status?.(validation.errors.join('') || t('nlEdit.badResponse'), true);
+      return;
+    }
+    if (outcome.applyError) {
+      status?.(outcome.applyError.message || t('nlEdit.badResponse'), true);
       return;
     }
     if (result.status === 'unclear') {
@@ -386,15 +428,8 @@ async function submitNlEdit(rawText, { status, onDone } = {}) {
       );
       return;
     }
-    let next;
-    try {
-      next = applyNlEditResult(current, result);
-    } catch (error) {
-      status?.(error.message || t('nlEdit.badResponse'), true);
-      return;
-    }
     status?.(t('nlEdit.ready'));
-    showNlEditConfirm(current, next);
+    showNlEditConfirm(current, outcome.next);
   } catch (error) {
     status?.(error.message, true);
   } finally {

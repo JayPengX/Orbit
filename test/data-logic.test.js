@@ -185,6 +185,20 @@ describe('normalizeSettingsData (schema migration guard)', () => {
     expect(result.teacherDB.A).toEqual(['數學', '王老師', '']);
     expect(result.bellTimes).toEqual([['08:00', '08:50']]);
   });
+
+  it('blanks a cell with an unknown class key instead of shifting later periods up', () => {
+    const result = normalizeSettingsData({
+      teacherDB: { A: ['數學', '', ''], B: ['國文', '', ''] },
+      locationDB: {},
+      weeklySchedule: { 1: ['A', 'GONE', 'B'] },
+      bellTimes: [
+        ['08:00', '08:50'],
+        ['09:00', '09:50'],
+        ['10:00', '10:50']
+      ]
+    });
+    expect(result.weeklySchedule[1]).toEqual(['A', '', 'B']);
+  });
 });
 
 describe('v2 backup encode/decode round-trip', () => {

@@ -18,6 +18,7 @@ export default {
   'nlEdit.viewerLocked': '此裝置為僅接收模式，無法使用 AI 課表編輯。如要自行編輯，請先解除同步。',
   'nlEdit.emptyInput': '請先輸入想修改的內容。',
   'nlEdit.working': '正在請求 AI 解析指令…',
+  'nlEdit.retryingStronger': '正在改用較強的 AI 模型再確認一次…',
   'nlEdit.ready': 'AI 已提出修改建議，請確認後套用。',
   'nlEdit.badResponse': 'AI 沒有回傳可辨識的修改建議，請換個說法再試。',
   'nlEdit.unclearTitle': '看不懂這個指令',

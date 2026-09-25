@@ -464,9 +464,12 @@ function normalizeSettingsData(raw, { requireMarker = false } = {}) {
       weeklySchedule[day] = [];
       return;
     }
+    // Blank out a cell pointing at an unknown class key rather than
+    // dropping it - dropping would shift every later period that day up by
+    // one, silently moving classes into the wrong periods.
     weeklySchedule[day] = row
       .map(item => String(item || ''))
-      .filter(item => (item && teacherDB[item] ? item : item === ''));
+      .map(item => (item && teacherDB[item] ? item : ''));
   });
 
   if (Object.values(weeklySchedule).some(row => row.some(key => key && !teacherDB[key])))
