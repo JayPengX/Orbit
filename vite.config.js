@@ -64,7 +64,7 @@ function injectAppVersion() {
 
 export default defineConfig({
   // Relative, not absolute ('/'): this site deploys to
-  // https://jaypengx-collab.github.io/Orbit/ - a subpath, not domain root.
+  // https://jaypengx.github.io/Orbit/ - a subpath, not domain root.
   // Vite's default base emits asset URLs like "/assets/x.js", which under a
   // subpath deploy resolve to the wrong place (domain root instead of
   // /Orbit/) and 404, leaving the page stuck on its boot spinner forever

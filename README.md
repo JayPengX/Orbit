@@ -2,7 +2,7 @@
 
 A browser-based class-schedule dashboard that tells you what's happening right now, not just what your timetable says.
 
-> **Live site: [https://jaypengx-collab.github.io/Orbit/](https://jaypengx-collab.github.io/Orbit/)** — Try it now, no install required.
+> **Live site: [https://jaypengx.github.io/Orbit/](https://jaypengx.github.io/Orbit/)** — Try it now, no install required.
 
 ---
 
@@ -59,12 +59,12 @@ All three are deliberately built on top of services whose free tier has a hard u
 
 This is a purely front-end project — no server, no database at runtime. During development, [Vite](https://vitejs.dev/) bundles the ES modules under `src/` and provides a dev server and test runner.
 
-**Online use**: just open [jaypengx-collab.github.io/Orbit](https://jaypengx-collab.github.io/Orbit/) — nothing to install. Every push to `main` triggers `.github/workflows/static.yml`, which runs tests, builds, and deploys — a failing test blocks deployment.
+**Online use**: just open [jaypengx.github.io/Orbit](https://jaypengx.github.io/Orbit/) — nothing to install. Every push to `main` triggers `.github/workflows/static.yml`, which runs tests, builds, and deploys — a failing test blocks deployment.
 
 **Local development**:
 
 ```bash
-git clone https://github.com/jaypengx-collab/Orbit.git
+git clone https://github.com/JayPengX/Orbit.git
 cd Orbit
 npm install
 npm run dev
@@ -149,7 +149,7 @@ An internet connection is required; without one, every other feature is unaffect
 
 ### Where the key lives, and how secure it is
 
-Ordinary users **never need** to obtain or enter their own Gemini API key. The deployment site already has a server-side proxy configured (`worker.js` in the separate [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) repo, at the `/gemini` path — the same Worker also serves the `/sync` path for cross-device sync; see [Cross-Device Sync](#cross-device-sync) below). The real key exists only as that Worker's encrypted secret and never ships in client-side code.
+Ordinary users **never need** to obtain or enter their own Gemini API key. The deployment site already has a server-side proxy configured (`worker.js` in the separate [JayPengX/shared-proxy](https://github.com/JayPengX/shared-proxy) repo, at the `/gemini` path — the same Worker also serves the `/sync` path for cross-device sync; see [Cross-Device Sync](#cross-device-sync) below). The real key exists only as that Worker's encrypted secret and never ships in client-side code.
 
 The proxy isn't a dumb pass-through: the client can only send `{model, files}` (file count, per-file and total size limits, and allowed MIME types are all enforced Worker-side); the actual prompt, response schema, and generation parameters sent to Gemini are hardcoded in the Worker itself. Even if someone extracts the Worker URL (it's already sitting in public front-end code) and calls it directly, all they can do is run "recognize the schedule in this image" — they cannot repurpose it as a general-purpose free AI proxy for arbitrary questions. This is deliberate, since the Worker URL was never meant to be secret.
 
@@ -161,7 +161,7 @@ Without internet, recognition simply can't happen; without a deployed proxy, the
 
 ### One-Time Deployment Setup
 
-The Worker's source code, deployment steps, and detailed configuration (Cloudflare account setup, `GEMINI_API_KEY`, KV rate limiting, why `[placement] region` is set the way it is, GitHub Actions auto-deploy) have all moved to the separate [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) repo — because this one Worker has served Orbit, Orbit Vocab, and Match Find (three independent sites) from day one, and keeping it inside Orbit's own repo would make "which repo do I change the proxy in" an open question. Full steps are in that repo's README.
+The Worker's source code, deployment steps, and detailed configuration (Cloudflare account setup, `GEMINI_API_KEY`, KV rate limiting, why `[placement] region` is set the way it is, GitHub Actions auto-deploy) have all moved to the separate [JayPengX/shared-proxy](https://github.com/JayPengX/shared-proxy) repo — because this one Worker has served Orbit, Orbit Vocab, and Match Find (three independent sites) from day one, and keeping it inside Orbit's own repo would make "which repo do I change the proxy in" an open question. Full steps are in that repo's README.
 
 Once the Worker is deployed, this repo only needs one step:
 
@@ -204,7 +204,7 @@ Data lives in a single browser only. Moving to another device/browser, or keepin
 
 An optional feature that automatically syncs the schedule across multiple devices, without manual export/import each time. Clicking the "Sync / Import-Export" icon in the top-right tools menu opens a panel independent of the schedule editor — sync is the **default, first option shown**; the manual backup flow is still there too, tucked into a collapsed-by-default "Manual Backup (legacy)" sub-section in the same panel. This panel is a separate tool from the schedule editor, and it's always reachable even from a read-only device (see [Manager vs. Read-Only Role](#manager-vs-read-only-role) below).
 
-Ordinary users **never need** to sign up for or configure anything themselves. The deployment site already has a server-side proxy configured (the `/sync` path of `worker.js` in the [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) repo — the same Worker that also serves AI import's `/gemini` path; see [AI Schedule-Photo Import](#ai-schedule-photo-import) above). The browser never touches Firestore directly — every read and write goes through this Worker first, which counts requests and rejects malformed payloads, and the Worker uses its own Firebase service account to access the shared Firestore project. There's no cap on the number of devices; any device with the same pairing code joins the same shared document.
+Ordinary users **never need** to sign up for or configure anything themselves. The deployment site already has a server-side proxy configured (the `/sync` path of `worker.js` in the [JayPengX/shared-proxy](https://github.com/JayPengX/shared-proxy) repo — the same Worker that also serves AI import's `/gemini` path; see [AI Schedule-Photo Import](#ai-schedule-photo-import) above). The browser never touches Firestore directly — every read and write goes through this Worker first, which counts requests and rejects malformed payloads, and the Worker uses its own Firebase service account to access the shared Firestore project. There's no cap on the number of devices; any device with the same pairing code joins the same shared document.
 
 Deploying without this Worker (`PROXY_URL` left empty, e.g. on a self-hosted fork) means cross-device sync is entirely unavailable — the editor shows "cross-device sync is not configured," with no fallback to a direct-Firestore flow. All other schedule features are unaffected.
 
@@ -251,7 +251,7 @@ If this risk profile is a concern, don't enable cross-device sync; if it's accep
 
 ### One-Time Deployment Setup
 
-This uses the **same** shared-proxy Worker as AI import — the full setup for the Firebase project, service account key, `FIREBASE_PROJECT_ID` / `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY`, KV rate limiting, and Firestore security rules is documented in the [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) repo's README (the "Sync features" section). If you've already deployed this Worker for AI import, follow that section directly — there's no need to stand up a second Worker.
+This uses the **same** shared-proxy Worker as AI import — the full setup for the Firebase project, service account key, `FIREBASE_PROJECT_ID` / `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY`, KV rate limiting, and Firestore security rules is documented in the [JayPengX/shared-proxy](https://github.com/JayPengX/shared-proxy) repo's README (the "Sync features" section). If you've already deployed this Worker for AI import, follow that section directly — there's no need to stand up a second Worker.
 
 Once that's done, this repo only needs to confirm `PROXY_URL` is set (see the deployment setup under [AI Schedule-Photo Import](#ai-schedule-photo-import) above) — `/sync` shares the same value as `/gemini` and `/nl-edit`; nothing else to do if it's already configured.
 
@@ -261,8 +261,8 @@ Without that setup (`PROXY_URL` left empty, e.g. on a self-hosted fork), cross-d
 
 Beyond `/sync`, `/gemini`, and `/nl-edit`, the same Worker also serves two sibling static sites — this simply reuses an already-deployed Worker (with Firebase and Gemini already configured) as shared infrastructure, instead of setting up a whole new Firebase project and a whole new Worker deployment, and re-tuning rate limits from scratch, for each additional site. Each path has its own independent Firestore collection and its own independent rate-limit counter (see the full path table in the shared-proxy repo's README) — none of them, including Orbit's own `/sync` / `/gemini` / `/nl-edit`, share or compete for quota with each other:
 
-- **[Orbit Vocab](https://github.com/jaypengx-collab/Orbit-Vocab)**'s cross-device learning-progress sync (`/vocab-sync`) and personalized mnemonics (`/vocab-ai`, generated on the fly based on the specific spelling mistakes that particular learner has actually made).
-- **[Match Find](https://github.com/jaypengx-collab/Match-Find)**'s "which game should I watch today" AI recommendation (`/match-recommend`, `/match-recommend-refine`) and cross-device settings sync (`/match-find-sync`).
+- **[Orbit Vocab](https://github.com/JayPengX/Orbit-Vocab)**'s cross-device learning-progress sync (`/vocab-sync`) and personalized mnemonics (`/vocab-ai`, generated on the fly based on the specific spelling mistakes that particular learner has actually made).
+- **[Match Find](https://github.com/JayPengX/Match-Find)**'s "which game should I watch today" AI recommendation (`/match-recommend`, `/match-recommend-refine`) and cross-device settings sync (`/match-find-sync`).
 
 This is a one-way dependency: Orbit works completely normally with no knowledge that these two sites exist, and none of their paths appear anywhere in Orbit's own web pages or source code. Details (each site's own pairing mechanism, payload limits, why some need two independent Gemini calls, etc.) live in the shared-proxy repo's README and in the comments next to each path in `worker.js`, rather than being duplicated here where they'd risk drifting out of sync with the actual source.
 
@@ -320,7 +320,7 @@ src/strings.js           UI text lookup table
 src/main.js              Entry point, imports every module above in order
 ```
 
-Server-side code (the `/gemini`, `/sync`, etc. paths) does not live in this repo — that Cloudflare Worker is now the independent [jaypengx-collab/shared-proxy](https://github.com/jaypengx-collab/shared-proxy) repo, is not part of `src/`'s dependency graph, and is naturally not bundled by Vite. Without it deployed and its environment variables configured, the corresponding feature is simply unavailable — there is no fallback mode.
+Server-side code (the `/gemini`, `/sync`, etc. paths) does not live in this repo — that Cloudflare Worker is now the independent [JayPengX/shared-proxy](https://github.com/JayPengX/shared-proxy) repo, is not part of `src/`'s dependency graph, and is naturally not bundled by Vite. Without it deployed and its environment variables configured, the corresponding feature is simply unavailable — there is no fallback mode.
 
 Each file starts with a one-line comment describing its responsibility. A few conventions worth knowing before changing code:
 
@@ -405,10 +405,10 @@ Schedule display, scheduling, odd/even-week switching, bell times, special perio
 
 ## Related Projects
 
-- **[Shared-Proxy](https://github.com/jaypengx-collab/Shared-Proxy)** — the shared Cloudflare Worker backend behind AI recognition, AI schedule editing, and cross-device sync.
-- **[Orbit-Vocab](https://github.com/jaypengx-collab/Orbit-Vocab)** — a sibling site sharing the same Worker infrastructure (vocabulary learning-progress sync and personalized mnemonics).
-- **[Match-Find](https://github.com/jaypengx-collab/Match-Find)** — a sibling site sharing the same Worker infrastructure (game recommendations and settings sync).
+- **[Shared-Proxy](https://github.com/JayPengX/Shared-Proxy)** — the shared Cloudflare Worker backend behind AI recognition, AI schedule editing, and cross-device sync.
+- **[Orbit-Vocab](https://github.com/JayPengX/Orbit-Vocab)** — a sibling site sharing the same Worker infrastructure (vocabulary learning-progress sync and personalized mnemonics).
+- **[Match-Find](https://github.com/JayPengX/Match-Find)** — a sibling site sharing the same Worker infrastructure (game recommendations and settings sync).
 
 ---
 
-**[jaypengx-collab.github.io/Orbit](https://jaypengx-collab.github.io/Orbit/)** — open it in a browser and start using it.
+**[jaypengx.github.io/Orbit](https://jaypengx.github.io/Orbit/)** — open it in a browser and start using it.

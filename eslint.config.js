@@ -71,7 +71,7 @@ export default [
   }
   // The Cloudflare Worker that backs /gemini, /nl-edit, and /sync (see
   // README) used to live here as cloudflare-worker/**/*.js and had its own
-  // override in this list - it's now the separate jaypengx-collab/
+  // override in this list - it's now the separate JayPengX/
   // shared-proxy repo, with its own lint setup, so there's nothing left in
   // this repo's src/ ES module graph for that override to match.
 ];

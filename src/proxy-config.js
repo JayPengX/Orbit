@@ -1,5 +1,5 @@
 // ---- src/proxy-config.js ----
-// Base URL of the single Cloudflare Worker (see the separate jaypengx-collab/
+// Base URL of the single Cloudflare Worker (see the separate JayPengX/
 // shared-proxy repo's worker.js - this Worker's source no longer lives in
 // this repo, see README's "跨裝置同步"/"AI 辨識課表照片" sections) that backs
 // every server-side feature this app has - AI photo import (/gemini), AI
